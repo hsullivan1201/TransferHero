@@ -14,4 +14,4 @@ Cargo.lock
 *.pdb
 
 #MacOS default thing
-.DS_store
+.DS_Store
