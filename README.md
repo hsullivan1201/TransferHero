@@ -4,5 +4,3 @@ TransferHero is an attempt to use WMATA Metrorail API data to give riders more s
 
 # Status
 TransferHero is in an early planning stage - planning details are located in the wiki
-
-testing line
