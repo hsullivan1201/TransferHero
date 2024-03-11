@@ -9,9 +9,9 @@ use rocket::Request;
 
 #[derive(Serialize, Deserialize, Debug)]
 struct Train {
-    Car: String,
+    Car: Option<String>,
     Destination: String,
-    DestinationCode: String,
+    DestinationCode: Option<String>,
     DestinationName: String,
     Group: String,
     Line: String,
@@ -28,7 +28,8 @@ struct ApiResponse {
 #[get("/")]
 async fn index() -> Result<String, Status> {
     let client = reqwest::Client::new();
-    let response = client.get("https://api.wmata.com/StationPrediction.svc/json/GetPrediction/B03")
+    // Updated URL to include both B03 and C01 station codes
+    let response = client.get("https://api.wmata.com/StationPrediction.svc/json/GetPrediction/B03,C01")
         .header("api_key", "key_here")
         .send()
         .await;
@@ -40,22 +41,38 @@ async fn index() -> Result<String, Status> {
                 match body {
                     Ok(text) => match serde_json::from_str::<ApiResponse>(&text) {
                         Ok(parsed_body) => {
-                            // Filter for trains where Group is "2" and take the next two trains
-                            let next_trains: Vec<_> = parsed_body.Trains
-                                .into_iter()
-                                .filter(|train| train.Group == "2")
-                                .take(2)
-                                .collect();
+                            // Process the data for both stations
+                            let mut next_trains_b03: Vec<_> = Vec::new();
+                            let mut next_trains_c01: Vec<_> = Vec::new();
 
-                            // Format the output
-                            let formatted_output = next_trains.iter()
+                            for train in parsed_body.Trains {
+                                if train.LocationCode == "B03" && train.Group == "2" {
+                                    next_trains_b03.push(train);
+                                } else if train.LocationCode == "C01" && train.Group == "2" {
+                                    next_trains_c01.push(train);
+                                }
+                            }
+
+                            // Take the next two trains for each station
+                            next_trains_b03.truncate(2);
+                            next_trains_c01.truncate(2);
+
+                            // Format the output for both stations
+                            let formatted_output_b03 = next_trains_b03.iter()
                                 .map(|train| format!(
-                                    "Destination: {}\nLine: {}\nMin: {}\n",
+                                    "B03 - Destination: {}\nLine: {}\nMin: {}\n",
                                     train.DestinationName, train.Line, train.Min
                                 ))
                                 .collect::<String>();
 
-                            Ok(formatted_output)
+                            let formatted_output_c01 = next_trains_c01.iter()
+                                .map(|train| format!(
+                                    "C01 - Destination: {}\nLine: {}\nMin: {}\n",
+                                    train.DestinationName, train.Line, train.Min
+                                ))
+                                .collect::<String>();
+
+                            Ok(formatted_output_b03 + &formatted_output_c01)
                         },
                         Err(e) => {
                             eprintln!("JSON parsing error: {:?}", e);
