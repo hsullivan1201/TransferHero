@@ -26,7 +26,7 @@ struct ApiResponse {
 }
 
 #[get("/")]
-async fn index() -> Result<Json<ApiResponse>, Status> {
+async fn index() -> Result<String, Status> {
     let client = reqwest::Client::new();
     let response = client.get("https://api.wmata.com/StationPrediction.svc/json/GetPrediction/B03")
         .header("api_key", "key_here")
@@ -36,10 +36,27 @@ async fn index() -> Result<Json<ApiResponse>, Status> {
     match response {
         Ok(res) => {
             if res.status().is_success() {
-                let body = res.text().await;
+                let body: Result<String, reqwest::Error> = res.text().await;
                 match body {
                     Ok(text) => match serde_json::from_str::<ApiResponse>(&text) {
-                        Ok(parsed_body) => Ok(Json(parsed_body)),
+                        Ok(parsed_body) => {
+                            // Filter for trains where Group is "2" and take the next two trains
+                            let next_trains: Vec<_> = parsed_body.Trains
+                                .into_iter()
+                                .filter(|train| train.Group == "2")
+                                .take(2)
+                                .collect();
+
+                            // Format the output
+                            let formatted_output = next_trains.iter()
+                                .map(|train| format!(
+                                    "Destination: {}\nLine: {}\nMin: {}\n",
+                                    train.DestinationName, train.Line, train.Min
+                                ))
+                                .collect::<String>();
+
+                            Ok(formatted_output)
+                        },
                         Err(e) => {
                             eprintln!("JSON parsing error: {:?}", e);
                             Err(Status::InternalServerError)
