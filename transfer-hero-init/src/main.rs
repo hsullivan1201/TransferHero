@@ -52,7 +52,7 @@ async fn index() -> Result<Json<ApiResponse>, Status> {
                 }
             } else {
                 eprintln!("Response returned with status: {:?}", res.status());
-                Err(Status::InternalServerError)
+                Err(Status::from_code(res.status().as_u16()).unwrap_or(Status::InternalServerError))
             }
         },
         Err(e) => {
