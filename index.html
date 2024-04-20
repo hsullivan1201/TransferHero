@@ -1,16 +1,49 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>TransferHero</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Train Information</title>
+    <!-- Include HTMX -->
+    <script src="https://unpkg.com/htmx.org"></script>
 </head>
-<body>
-    <script src="https://unpkg.com/htmx.org@1.9.12" integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2" crossorigin="anonymous">
+<body onload="fetchAndDisplayTrainInfo()">
 
+<h1>Train Information</h1>
 
-    </script>
+<!-- Container for train information -->
+<pre id="train-info">
+    <!-- Filtered train information will be displayed here -->
+</pre>
 
-<h1>Metro Center: B/O/S</h1>
-<p>This is a paragraph.</p>
+<!-- JavaScript code -->
+<script>
+    // Function to filter API response
+    function filterApiResponse(trains) {
+        // Implement your filtering logic here
+        // For example, filtering out trains that are not in service
+        return trains.filter(train => train.status !== 'Not In Service');
+    }
+
+    // Function to handle the API request and response
+    function fetchAndDisplayTrainInfo() {
+ 
+        fetch('https://api.wmata.com/StationPrediction.svc/json/GetPrediction/A01,C01', {
+            headers: new Headers({
+                'api_key': key// Replace with your actual API key
+            })
+        })
+        .then(response => response.json())
+        .then(data => {
+            // Assuming 'Trains' is the array property in the response object
+            const filteredData = filterApiResponse(data.Trains);
+            // Display the filtered data
+            document.getElementById('train-info').innerText = JSON.stringify(filteredData, null, 2);
+        })
+        .catch(error => console.error('Error fetching data:', error));
+    }
+</script>
+
 
 </body>
-</html> 
+</html>
