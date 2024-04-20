@@ -3,24 +3,48 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Bootstrap demo</title>
+    <title>TransferHero</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" integrity="sha384-QWTKZyjpPEjISv5WaRU9OFeRpok6YctnYmDr5pNlyT2bRjXh0JMhjY6hW+ALEwIH" crossorigin="anonymous">
+    <link rel="stylesheet" href="json-box.css" />
   </head>
   <body>
     <h1>Hello, world!</h1>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js" integrity="sha384-YvpcrYf0tY3lHB60NNkmXc5s9fDVZLESaAA55NDzOxhy9GkcIdslK1eN7N6jIeHz" crossorigin="anonymous"></script>
 
-<body onload="fetchAndDisplayTrainInfo()">
+<body>
 
 <h1>Train Information</h1>
-
+<div class="dropdown">
+    <button id="dropdownMenuButton" class="btn btn-secondary dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
+      Select Trip
+    </button>
+    <ul class="dropdown-menu">
+      <li><a class="dropdown-item" href="#" onclick="updateButtonAndFetchInfo('Tenleytown to Court House', 'A01', 'C01')">Tenleytown to Court House</a></li>
+      <li><a class="dropdown-item" href="#" onclick="updateButtonAndFetchInfo('Court House to Tenleytown', 'C01', 'A01')">Court House to Tenleytown</a></li>
+    </ul>
+</div>
 <!-- Container for train information -->
 <pre id="train-info">
     <!-- Filtered train information will be displayed here -->
 </pre>
+  </head>
+  <body>
+  <div class="container mt-5">
+    <div class="card">
+      <div class="card-body json-box">
+      </div>
+    </div>
+  </div>
 
 <!-- JavaScript code -->
 <script>
+    function updateButtonAndFetchInfo(tripText, startStation, endStation) {
+        // Update the button text to show the selected trip
+        document.getElementById('dropdownMenuButton').innerText = tripText;
+        // Fetch and display train info
+        fetchAndDisplayTrainInfo(startStation, endStation);
+    }
+
     // Function to filter API response
     function filterApiResponse(trains) {
         // Implement your filtering logic here
@@ -29,23 +53,52 @@
     }
 
     // Function to handle the API request and response
-    function fetchAndDisplayTrainInfo() {
- 
-        fetch('https://api.wmata.com/StationPrediction.svc/json/GetPrediction/A01,C01', {
+    function fetchAndDisplayTrainInfo(station1, station2) {
+        fetch('https://api.wmata.com/StationPrediction.svc/json/GetPrediction/'+station1+','+station2, {
             headers: new Headers({
-                'api_key': 'key'// Replace with your actual API key
+                'api_key': 'key' // Replace with your actual API key
             })
         })
         .then(response => response.json())
         .then(data => {
             // Assuming 'Trains' is the array property in the response object
             const filteredData = filterApiResponse(data.Trains);
-            // Display the filtered data
-            document.getElementById('train-info').innerText = JSON.stringify(filteredData, null, 2);
+            // Clear previous data
+            const trainInfoContainer = document.getElementById('train-info');
+            trainInfoContainer.innerHTML = '';
+            // Create a box for each train and append to the container
+            filteredData.forEach(train => {
+                const box = document.createElement('div');
+                if (train.Line === 'RD') {
+                    box.classList.add('card', 'json-box-rd');
+                }
+                else if (train.Line === 'SV') {
+                    box.classList.add('card', 'json-box-sv');
+                }
+                else if (train.Line === 'OR') {
+                    box.classList.add('card', 'json-box-or');
+                }
+                else if (train.Line === 'BL') {
+                    box.classList.add('card', 'json-box-bl');
+                }
+                else {
+                    box.classList.add('card', 'json-box-null');
+                }
+                
+                box.innerHTML = `
+                    <div class="card-body">
+                        <p>Destination: <span class='destination-name'>${train.DestinationName}</span></p>
+                        <p>Min: <span class='min-value'>${train.Min}</span></p>
+                    </div>
+                `;
+                trainInfoContainer.appendChild(box);
+            });
         })
         .catch(error => console.error('Error fetching data:', error));
     }
 </script>
+
+
 
 
 </body>

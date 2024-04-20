@@ -1,0 +1,85 @@
+.json-box-sv{
+    background-color: silver;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .min-value {
+    font-size: 2em; /* Makes the "Min" value larger */
+    font-weight: bold;
+  }
+  .destination-name {
+    font-size: 1.5em; /* Makes the "DestinationName" prominent */
+    font-weight: bold;
+  }
+  .json-box-bl{
+    background-color: blue;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .min-value {
+    font-size: 2em; /* Makes the "Min" value larger */
+    font-weight: bold;
+  }
+  .destination-name {
+    font-size: 1.5em; /* Makes the "DestinationName" prominent */
+    font-weight: bold;
+  }
+  .json-box-or{
+    background-color: orange;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .min-value {
+    font-size: 2em; /* Makes the "Min" value larger */
+    font-weight: bold;
+  }
+  .destination-name {
+    font-size: 1.5em; /* Makes the "DestinationName" prominent */
+    font-weight: bold;
+  }
+  .json-box-rd{
+    background-color: red;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .min-value {
+    font-size: 2em; /* Makes the "Min" value larger */
+    font-weight: bold;
+  }
+  .destination-name {
+    font-size: 1.5em; /* Makes the "DestinationName" prominent */
+    font-weight: bold;
+  }
+  .json-box-null{
+    background-color: black;
+    color: white;
+    padding: 20px;
+    border-radius: 5px;
+    font-family: 'Courier New', monospace;
+    white-space: nowrap;
+    overflow-x: auto;
+  }
+  .min-value {
+    font-size: 2em; /* Makes the "Min" value larger */
+    font-weight: bold;
+  }
+  .destination-name {
+    font-size: 1.5em; /* Makes the "DestinationName" prominent */
+    font-weight: bold;
+  }
