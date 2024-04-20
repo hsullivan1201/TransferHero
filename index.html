@@ -15,7 +15,7 @@
       Select Trip
     </button>
     <ul class="dropdown-menu">
-      <li><a class="dropdown-item" href="#" onclick="updateButtonAndFetchInfo('Tenleytown to Court House', 'A07','C01','Glenmont','Vienna')">Tenleytown to Court House</a></li>
+      <li><a class="dropdown-item" href="#" onclick="updateButtonAndFetchInfo('Tenleytown to Court House', 'A07','C01','Glenmont',['Vienna','Ashburn'])">Tenleytown to Court House</a></li>
       <li><a class="dropdown-item" href="#" onclick="updateButtonAndFetchInfo('Court House to Tenleytown', 'K01','A01', 'Stadium','Shady Grove')">Court House to Tenleytown</a></li>
     </ul>
 </div>
@@ -40,12 +40,12 @@
     function filterApiResponse(trains, terminus) {
         // Implement your filtering logic here
         // For example, filtering out trains that are not in service
-        return trains.filter(train => train.Destination === terminus);
+        return trains.filter(train => terminus.includes(train.Destination));
     }
 
     // Function to handle the API request and response
     function fetchAndDisplayTrainInfo(station, terminus,infobox) {
-        fetch('https://api.wmata.com/StationPrediction.svc/json/GetPrediction/'+station, {
+        fetch('https://api.wmata.com/StationPrediction.svc/json/GetPrediction/'+station+'?Destination='+terminus, {
             headers: new Headers({
                 'api_key': 'key' // Replace with your actual API key
             })
