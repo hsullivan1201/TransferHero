@@ -1,63 +1,99 @@
 # TransferHero
 
-A DC Metro transfer assistant that helps riders plan connections between Orange/Silver and Red lines using real-time WMATA data. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
+A DC Metro transfer assistant that helps riders plan connections across all Metro lines using real-time WMATA data and GTFS Realtime updates. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
 
 ## Features
 
 ### Real-Time Train Predictions
 - Live data from WMATA's StationPrediction API
+- **GTFS Realtime TripUpdates** for enhanced accuracy and schedule adherence data
 - Automatic fallback to GTFS schedule data for trains 15+ minutes out
 - Hybrid display merges real-time and scheduled trains seamlessly
 
-### Smart Transfer Planning
-- Select any Orange/Silver line station as your origin
-- Select any Red Line station as your destination
+### Multi-Line Transfer Support
+- **All Metro lines supported**: Red, Orange, Silver, Blue, Yellow, Green
+- Intelligent transfer point selection:
+  - Metro Center (Red ↔ Orange/Silver/Blue)
+  - Gallery Place (Red ↔ Yellow/Green)
+  - L'Enfant Plaza (Orange/Silver/Blue ↔ Yellow/Green)
+  - Fort Totten (Red ↔ Yellow/Green alternative)
 - Automatically determines correct train direction on each line
-- Calculates transfer timing at Metro Center
+- Calculates optimal transfer timing and routing
+
+### Smart Station Search
+- **Typeahead autocomplete** for quick station selection
+- Search by station name or code
+- Visual line indicators for multi-line stations
+- Persistent station selection display
 
 ### Journey Time Display
 - **Clock times** shown alongside "X minutes" for every train
-- **Travel time** from origin to Metro Center (from GTFS data)
+- **Travel time** from origin to transfer station (from GTFS data)
 - **Transfer walk time** (configurable 1-15 minutes)
 - **Total journey time** with arrival clock time at destination
 
 ### Transfer Catchability
 - Click a first-leg train to see which transfers you can catch
-- Shows wait time at Metro Center for each option
+- Shows wait time at transfer station for each option
 - Displays final arrival time at your destination
 - Warns when connections are tight or missed
 
+### Optimal Car Positioning
+- **Visual car diagrams** showing which train car to board
+- Position recommendations for fastest transfers at each station
+- Shows which car to exit for your destination
+- Legend explains optimal positioning strategy
+
+### Dark Mode
+- Toggle between light and dark themes
+- Preference persisted in localStorage
+- Eye-friendly for nighttime transit planning
+
 ## How It Works
 
-1. **Select Stations**: Pick your origin (Orange/Silver/Blue) and destination (Red Line)
-2. **View First Leg**: See real-time trains heading toward Metro Center
-3. **Click a Train**: Select which train you'll take
-4. **See Transfer Options**: View catchable Red Line trains with:
-   - Wait time at Metro Center
+1. **Select Stations**: Type to search any Metro station as origin and destination
+2. **View First Leg**: See real-time trains heading toward the optimal transfer point
+3. **Check Car Position**: Visual diagram shows which car to board for fastest transfer
+4. **Click a Train**: Select which train you'll take
+5. **See Transfer Options**: View catchable trains on the second leg with:
+   - Wait time at transfer station
    - Final arrival time at destination
    - Total journey duration
+   - Optimal exit car position
 
 ## Data Sources
 
 | Source | Usage |
 |--------|-------|
 | WMATA StationPrediction API | Real-time train arrivals (0-15 min) |
+| WMATA GTFS Realtime (TripUpdates) | Schedule adherence and enhanced predictions |
 | GTFS stop_times.txt | Travel times between stations |
 | GTFS stops.txt | Station codes and names |
 | schedule-data.js | Scheduled trains (15+ min out) |
+| car-positions.js | Optimal boarding/exit car positions |
 
 ## Project Structure
 
 ```
 TransferHero/
-├── index.html          # Main app (HTML + JS)
-├── json-box.css        # Styling
-├── schedule-data.js    # GTFS-based schedule generation
-├── metro-gtfs/         # WMATA GTFS data
-│   ├── stops.txt       # Station information
-│   ├── stop_times.txt  # Timetables
-│   ├── trips.txt       # Trip definitions
-│   ├── routes.txt      # Line colors/info
+├── index.html             # Main app HTML structure
+├── app.js                 # Core application logic (1,293 lines)
+├── static-trips.js        # Static trip data processor
+├── schedule-data.js       # GTFS-based schedule generation
+├── style.css              # Custom styles
+├── json-box.css           # Legacy styling
+├── config.js              # API configuration
+├── process-gtfs.py        # GTFS data processor
+├── data/
+│   ├── stations.js        # All Metro stations
+│   ├── transfers.js       # Transfer point mappings
+│   ├── travel-times.js    # GTFS-derived travel times
+│   ├── car-positions.js   # Optimal boarding positions
+│   └── line-config.js     # Line metadata
+├── metro-gtfs/            # WMATA GTFS static data
+│   ├── stops.txt
+│   ├── stop_times.txt
+│   ├── trips.txt
 │   └── ...
 └── README.md
 ```
@@ -91,25 +127,32 @@ The processor calculates:
 - **Schedule patterns**: Train frequencies and schedules from actual GTFS data
 - **Smart merging**: Real-time API data (0-15 min) + GTFS schedules (15+ min)
 
-## Potential Next Steps
+## Todo
+
+### High Priority
+- [ ] **Use MetroHero open source algorithm for train time predictions** - Integrate more accurate prediction logic from the MetroHero project
+- [ ] **Complete React migration** - See [react-migration.md](react-migration.md) for comprehensive migration plan
+- [ ] **Overhaul UI to be prettier** - Modern design refresh beyond Bootstrap
+- [ ] **Add actual train car locations** - Integrate PDF data from Reddit showing all exits/transfer/elevator positions on the platform
 
 ### Short Term
 - [ ] Auto-refresh train data every 30 seconds
-- [ ] Add reverse direction (Red to Orange/Silver)
-- [ ] Support Gallery Place as alternate transfer point
 - [ ] Persist station selections in localStorage
-
-### Medium Term
-- [ ] Add Blue/Yellow/Green line support
-- [x] Parse GTFS dynamically instead of hardcoded travel times ✅
 - [ ] Show platform-level transfer walking directions
 - [ ] Mobile-responsive design improvements
 
-### Long Term
+### Medium Term
+- [x] Parse GTFS dynamically instead of hardcoded travel times ✅
+- [x] Support Gallery Place as alternate transfer point ✅
+- [x] Support all Metro lines (not just OR/SV to RD) ✅
 - [ ] Multi-leg journey planning (A → B → C)
+- [ ] Service advisories and alerts integration
+
+### Long Term
 - [ ] Historical delay patterns for better predictions
 - [ ] Push notifications for departure reminders
 - [ ] Offline support with service workers
+- [ ] Mobile app (React Native or PWA)
 
 ## API Key
 
