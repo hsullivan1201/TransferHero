@@ -263,10 +263,10 @@ function parseUpdatesToTrains(entities, stationCode, terminusList) {
 
     entities.forEach(entity => {
         if (!entity.tripUpdate || !entity.tripUpdate.stopTimeUpdate) return;
-        
+
         const trip = entity.tripUpdate.trip;
         const updates = entity.tripUpdate.stopTimeUpdate;
-        
+
         // matching logic (pf_x_y etc)
         const stopUpdate = updates.find(u => {
             if (!u.stopId) return false;
@@ -274,26 +274,45 @@ function parseUpdatesToTrains(entities, stationCode, terminusList) {
             const extractedCode = (parts[0] === 'PF') ? parts[1] : parts[0];
             return extractedCode === target;
         });
-        
+
         if (stopUpdate) {
             const event = stopUpdate.departure || stopUpdate.arrival;
             if (!event || !event.time) return;
 
             const time = parseInt(event.time);
             const minutesUntil = Math.floor((time - now) / 60);
-            
+
             if (minutesUntil < -1) return;
 
             // LOOKUP LOGIC
             const staticInfo = STATIC_TRIPS[trip.tripId];
-            
+
             // if we have static data, use it. otherwise fallback to raw route
             const line = staticInfo ? staticInfo.line : (trip.routeId || '');
             const destName = staticInfo ? staticInfo.headsign : "Check Board";
 
+            // FILTER BY TERMINUS/DESTINATION
+            // Normalize the destination for comparison
+            const normalizedDest = normalizeDestination(destName);
+            const normalizedTermini = Array.isArray(terminusList)
+                ? terminusList.map(t => normalizeDestination(t))
+                : [normalizeDestination(terminusList)];
+
+            // Check if this train's destination matches any of the allowed termini
+            const matchesTerminus = normalizedTermini.some(term => {
+                if (normalizedDest === term) return true;
+                if (normalizedDest.includes(term) || term.includes(normalizedDest)) return true;
+                const destFirst = normalizedDest.split(/[\s\-\/]/)[0];
+                const termFirst = term.split(/[\s\-\/]/)[0];
+                return destFirst === termFirst;
+            });
+
+            // Skip trains that don't match the terminus filter
+            if (!matchesTerminus) return;
+
             relevantTrains.push({
                 Line: line,
-                DestinationName: destName, 
+                DestinationName: destName,
                 Min: minutesUntil <= 0 ? "ARR" : minutesUntil.toString(),
                 Car: "8",
                 _gtfs: true,
@@ -313,8 +332,22 @@ function parseUpdatesToTrains(entities, stationCode, terminusList) {
         }
     });
 
-    console.log(`[GTFS] Processed: Found ${uniqueTrains.length} trains for ${target}`);
+    console.log(`[GTFS] Processed: Found ${uniqueTrains.length} trains for ${target} (filtered by terminus)`);
     return uniqueTrains;
+}
+
+// Helper function to get all termini for a multi-line station
+function getAllTerminiForStation(station, fromPlatform, toStationCode) {
+  const allTermini = [];
+
+  // Get termini for each line serving this station
+  station.lines.forEach(line => {
+    const termini = getTerminus(line, fromPlatform, toStationCode);
+    allTermini.push(...termini);
+  });
+
+  // Remove duplicates
+  return [...new Set(allTermini)];
 }
 
 // ========== TRIP PLANNING ==========
@@ -328,8 +361,9 @@ function startTrip() {
 
   const transfer = findTransfer(fromCode, toCode);
 
-  const terminusFirst = getTerminus(fromStation.lines[0], fromCode, transfer?.fromPlatform || 'C01');
-  const terminusSecond = getTerminus(toStation.lines[0], transfer?.toPlatform || 'A01', toCode);
+  // For multi-line stations, get termini for ALL lines to include interlined trains (e.g., Orange + Silver)
+  const terminusFirst = getAllTerminiForStation(fromStation, fromCode, transfer?.fromPlatform || 'C01');
+  const terminusSecond = getAllTerminiForStation(toStation, transfer?.toPlatform || 'A01', toCode);
 
   currentTrip = {
     startStation: fromCode,
