@@ -268,6 +268,38 @@ def generate_schedule_patterns():
         }
 
     return patterns
+def generate_static_trips_file(trips_data):
+    """Generate a static lookup file for trip headsigns"""
+    print("Writing static-trips.js...")
+    
+    # map to your app's line codes
+    route_map = {
+        'RED': 'RD',
+        'BLUE': 'BL',
+        'ORANGE': 'OR',
+        'SILVER': 'SV',
+        'GREEN': 'GR',
+        'YELLOW': 'YL'
+    }
+    
+    output = {}
+    for trip_id, row in trips_data.items():
+        route_id = row['route_id']
+        line = route_map.get(route_id, route_id)
+        # strip quotes and clean
+        headsign = row['trip_headsign'].replace('"', '').strip()
+        
+        output[trip_id] = {
+            'headsign': headsign,
+            'line': line
+        }
+        
+    with open('static-trips.js', 'w', encoding='utf-8') as f:
+        f.write("// Static trip lookup derived from WMATA GTFS\n")
+        f.write(f"// Auto-generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
+        f.write("const STATIC_TRIPS = ")
+        json.dump(output, f, separators=(',', ':')) # minified json
+        f.write(";\n")
 
 def generate_js_file(travel_times, patterns):
     """Generate the JavaScript files"""
@@ -436,6 +468,8 @@ def main():
 
         # Generate schedule patterns
         patterns = generate_schedule_patterns()
+
+        generate_static_trips_file(load_trips())
 
         # Generate JavaScript files
         generate_js_file(travel_times, patterns)

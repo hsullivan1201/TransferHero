@@ -1,5 +1,5 @@
 // Schedule data derived from WMATA GTFS
-// Auto-generated: 2025-11-24 21:37:37
+// Auto-generated: 2025-11-24 23:17:33
 // This generates scheduled trains based on actual GTFS data
 
 const SCHEDULE_CONFIG = {

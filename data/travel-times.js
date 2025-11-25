@@ -1,6 +1,6 @@
 // Travel times (in minutes) between stations
 // Auto-generated from WMATA GTFS data
-// Generated: 2025-11-24 21:37:37
+// Generated: 2025-11-24 23:17:33
 // Format: 'FROM_TO': minutes
 
 const TRAVEL_TIMES = {
