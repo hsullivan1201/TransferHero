@@ -141,23 +141,172 @@ function checkCanGo() {
   }
 }
 
+// Platform code mapping for multi-code stations
+const PLATFORM_CODES = {
+  'A01': { 'RD': 'A01', 'OR': 'C01', 'SV': 'C01', 'BL': 'C01' },  // Metro Center
+  'C01': { 'RD': 'A01', 'OR': 'C01', 'SV': 'C01', 'BL': 'C01' },  // Metro Center (alt)
+  'B01': { 'RD': 'B01', 'YL': 'F01', 'GR': 'F01' },                // Gallery Place
+  'F01': { 'RD': 'B01', 'YL': 'F01', 'GR': 'F01' },                // Gallery Place (alt)
+  'B06': { 'RD': 'B06', 'YL': 'E06', 'GR': 'E06' },                // Fort Totten
+  'E06': { 'RD': 'B06', 'YL': 'E06', 'GR': 'E06' },                // Fort Totten (alt)
+  'D03': { 'OR': 'D03', 'SV': 'D03', 'BL': 'D03', 'YL': 'F03', 'GR': 'F03' },  // L'Enfant
+  'F03': { 'OR': 'D03', 'SV': 'D03', 'BL': 'D03', 'YL': 'F03', 'GR': 'F03' }   // L'Enfant (alt)
+};
+
+// Get the correct platform code for a specific line at a multi-code station
+function getPlatformForLine(stationCode, line) {
+  if (PLATFORM_CODES[stationCode] && PLATFORM_CODES[stationCode][line]) {
+    return PLATFORM_CODES[stationCode][line];
+  }
+  return stationCode;
+}
+
+// Find all possible transfer stations between origin and destination
+function findAllPossibleTransfers(fromCode, toCode) {
+  const fromStation = ALL_STATIONS.find(s => s.code === fromCode);
+  const toStation = ALL_STATIONS.find(s => s.code === toCode);
+  if (!fromStation || !toStation) return [];
+
+  const transfers = [];
+  const seen = new Set();
+
+  // Check each combination of lines
+  for (const fromLine of fromStation.lines) {
+    for (const toLine of toStation.lines) {
+      // 1. Check explicit TRANSFERS object
+      const key = `${fromLine}_${toLine}`;
+      const keyFT = `${fromLine}_${toLine}_FT`;  // Fort Totten variant
+
+      if (TRANSFERS[key]) {
+        const transfer = TRANSFERS[key];
+        const uniqueKey = `${transfer.station}_${transfer.fromPlatform}_${transfer.toPlatform}`;
+        if (!seen.has(uniqueKey)) {
+          seen.add(uniqueKey);
+          transfers.push({
+            ...transfer,
+            fromLine: fromLine,
+            toLine: toLine
+          });
+        }
+      }
+
+      if (TRANSFERS[keyFT]) {
+        const transfer = TRANSFERS[keyFT];
+        const uniqueKey = `${transfer.station}_${transfer.fromPlatform}_${transfer.toPlatform}`;
+        if (!seen.has(uniqueKey)) {
+          seen.add(uniqueKey);
+          transfers.push({
+            ...transfer,
+            fromLine: fromLine,
+            toLine: toLine
+          });
+        }
+      }
+
+      // 2. Check for implicit transfers at multi-line stations
+      const fromLineStations = LINE_STATIONS[fromLine] || [];
+      const toLineStations = LINE_STATIONS[toLine] || [];
+
+      // Find stations that appear on both lines
+      for (const stationCode of fromLineStations) {
+        if (toLineStations.includes(stationCode)) {
+          // This station serves both lines - it's a valid transfer point
+          const station = ALL_STATIONS.find(s => s.code === stationCode ||
+            (PLATFORM_CODES[s.code] && Object.values(PLATFORM_CODES[s.code]).includes(stationCode)));
+
+          if (station && station.lines.includes(fromLine) && station.lines.includes(toLine)) {
+            const fromPlatform = getPlatformForLine(station.code, fromLine);
+            const toPlatform = getPlatformForLine(station.code, toLine);
+            const uniqueKey = `${station.code}_${fromPlatform}_${toPlatform}`;
+
+            if (!seen.has(uniqueKey)) {
+              seen.add(uniqueKey);
+              transfers.push({
+                station: station.code,
+                name: station.name,
+                fromPlatform: fromPlatform,
+                toPlatform: toPlatform,
+                fromLine: fromLine,
+                toLine: toLine
+              });
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return transfers;
+}
+
+// Evaluate the total journey time for a specific transfer route
+function evaluateTransferRoute(fromCode, toCode, transfer) {
+  const transferWalkTime = getTransferWalkTime();
+
+  // Calculate leg 1: from origin to transfer station
+  const leg1Time = calculateRouteTravelTime(fromCode, transfer.fromPlatform, transfer.fromLine);
+
+  // Calculate leg 2: from transfer station to destination
+  const leg2Time = calculateRouteTravelTime(transfer.toPlatform, toCode, transfer.toLine);
+
+  const totalTime = leg1Time + transferWalkTime + leg2Time;
+
+  return {
+    transfer: transfer,
+    leg1Time: leg1Time,
+    transferTime: transferWalkTime,
+    leg2Time: leg2Time,
+    totalTime: totalTime
+  };
+}
+
 function findTransfer(fromCode, toCode) {
   const fromStation = ALL_STATIONS.find(s => s.code === fromCode);
   const toStation = ALL_STATIONS.find(s => s.code === toCode);
   if (!fromStation || !toStation) return null;
 
+  // Check for direct route
   const sharedLines = fromStation.lines.filter(l => toStation.lines.includes(l));
   if (sharedLines.length > 0) {
     return { name: 'Direct (no transfer)', station: null, direct: true, line: sharedLines[0] };
   }
 
-  for (const fromLine of fromStation.lines) {
-    for (const toLine of toStation.lines) {
-      const key = `${fromLine}_${toLine}`;
-      if (TRANSFERS[key]) return TRANSFERS[key];
-    }
+  // Find all possible transfers
+  const allTransfers = findAllPossibleTransfers(fromCode, toCode);
+
+  if (allTransfers.length === 0) {
+    // Fallback to Metro Center
+    return { name: 'Metro Center', station: 'A01', fromPlatform: 'C01', toPlatform: 'A01' };
   }
-  return { name: 'Metro Center', station: 'A01', fromPlatform: 'C01', toPlatform: 'A01' };
+
+  // If only one transfer option, return it
+  if (allTransfers.length === 1) {
+    return allTransfers[0];
+  }
+
+  // Evaluate each transfer option
+  const evaluatedRoutes = allTransfers.map(transfer =>
+    evaluateTransferRoute(fromCode, toCode, transfer)
+  );
+
+  // Sort by total time (fastest first)
+  evaluatedRoutes.sort((a, b) => a.totalTime - b.totalTime);
+
+  // Return fastest option
+  const fastest = evaluatedRoutes[0];
+
+  console.log(`[Pathfinding] ${fromStation.name} → ${toStation.name}:`);
+  evaluatedRoutes.forEach((route, idx) => {
+    console.log(`  ${idx === 0 ? '✓' : ' '} ${route.transfer.name}: ${route.totalTime} min (${route.leg1Time} + ${route.transferTime} + ${route.leg2Time})`);
+  });
+
+  return {
+    ...fastest.transfer,
+    totalTime: fastest.totalTime,
+    leg1Time: fastest.leg1Time,
+    leg2Time: fastest.leg2Time,
+    alternatives: evaluatedRoutes.slice(1, 3).map(r => r.transfer)  // Store up to 2 alternatives
+  };
 }
 
 // ========== CAR DIAGRAM ==========

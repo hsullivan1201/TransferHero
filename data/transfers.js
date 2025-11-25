@@ -31,7 +31,9 @@ const TRANSFERS = {
   'GR_SV': { station: 'D03', name: "L'Enfant Plaza", fromPlatform: 'F03', toPlatform: 'D03' },
   'GR_BL': { station: 'D03', name: "L'Enfant Plaza", fromPlatform: 'F03', toPlatform: 'D03' },
 
-  // Fort Totten (Red <-> Green/Yellow)
+  // Fort Totten (Red <-> Green/Yellow) - Alternative to Gallery Place
   'RD_GR_FT': { station: 'B06', name: 'Fort Totten', fromPlatform: 'B06', toPlatform: 'E06' },
   'GR_RD_FT': { station: 'B06', name: 'Fort Totten', fromPlatform: 'E06', toPlatform: 'B06' },
+  'RD_YL_FT': { station: 'B06', name: 'Fort Totten', fromPlatform: 'B06', toPlatform: 'E06' },
+  'YL_RD_FT': { station: 'B06', name: 'Fort Totten', fromPlatform: 'E06', toPlatform: 'B06' },
 };
