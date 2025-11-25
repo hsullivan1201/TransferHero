@@ -135,9 +135,205 @@ function checkCanGo() {
   if (canGo) {
     const transfer = findTransfer(fromCode, toCode);
     if (transfer) {
-      document.getElementById('transfer-station-name').innerText = transfer.name;
+      updateTransferDisplay(transfer);
       document.getElementById('transfer-station-display').style.display = 'block';
     }
+  }
+}
+
+function updateTransferDisplay(transfer) {
+  const transferNameEl = document.getElementById('transfer-station-name');
+
+  if (transfer.direct) {
+    transferNameEl.innerHTML = transfer.name;
+    return;
+  }
+
+  // Store transfer data globally for selection, including the fastest option
+  window.currentTransferOptions = {
+    fastest: transfer,
+    selected: transfer,
+    selectedIndex: -1,  // -1 means fastest is selected
+    alternatives: (transfer.alternatives || []).filter(alt => alt.timeDiff <= 10)
+  };
+
+  // Filter for meaningful alternatives (within 10 minutes of fastest)
+  const meaningfulAlternatives = window.currentTransferOptions.alternatives;
+
+  // Build the display HTML
+  let html = `<strong>${transfer.name}</strong>`;
+
+  if (meaningfulAlternatives.length > 0) {
+    html += ' <span class="text-muted">(fastest)</span>';
+    const totalOptions = meaningfulAlternatives.length + 1;
+    html += `<br><button class="btn btn-link btn-sm p-0 text-muted" onclick="toggleAlternatives()" style="text-decoration: none; font-size: 0.85em;">
+      <span id="alternatives-toggle-text">Show ${totalOptions} option${totalOptions > 1 ? 's' : ''} ▼</span>
+    </button>`;
+    html += '<div id="alternatives-list" style="display: none; margin-top: 8px; font-size: 0.9em;">';
+    html += `<div class="text-success alternative-option" style="cursor: pointer; padding: 4px 0;"
+                  onmouseover="this.style.opacity='0.7'"
+                  onmouseout="this.style.opacity='1'"
+                  onclick="selectAlternativeTransfer(-1)">
+                ✓ ${transfer.name} — ${transfer.totalTime} min (current)
+             </div>`;
+    meaningfulAlternatives.forEach((alt, idx) => {
+      html += `<div class="text-muted alternative-option" style="margin-left: 12px; cursor: pointer; padding: 4px 0;"
+                    onmouseover="this.style.opacity='0.7'"
+                    onmouseout="this.style.opacity='1'"
+                    onclick="selectAlternativeTransfer(${idx})">
+                  ${alt.name} — ${alt.totalTime} min <span class="text-warning">(+${alt.timeDiff} min)</span>
+               </div>`;
+    });
+    html += '</div>';
+  }
+
+  transferNameEl.innerHTML = html;
+}
+
+function selectAlternativeTransfer(altIndex) {
+  if (!window.currentTransferOptions) return;
+
+  // If -1, select the fastest (original) option
+  const selectedTransfer = altIndex === -1
+    ? window.currentTransferOptions.fastest
+    : window.currentTransferOptions.alternatives[altIndex];
+
+  if (!selectedTransfer) return;
+
+  // Get current trip info
+  const fromCode = document.getElementById('from-station-code').value;
+  const toCode = document.getElementById('to-station-code').value;
+
+  const fromStation = ALL_STATIONS.find(s => s.code === fromCode);
+  const toStation = ALL_STATIONS.find(s => s.code === toCode);
+
+  if (!fromStation || !toStation || !currentTrip) return;
+
+  // Update currentTrip with the selected transfer
+  currentTrip.transfer = {
+    station: selectedTransfer.station,
+    name: selectedTransfer.name,
+    fromPlatform: selectedTransfer.fromPlatform,
+    toPlatform: selectedTransfer.toPlatform,
+    fromLine: selectedTransfer.fromLine,
+    toLine: selectedTransfer.toLine,
+    direct: false
+  };
+
+  // CRITICAL: Recalculate terminus for the second leg based on new transfer platform
+  const terminusSecond = getAllTerminiForStation(toStation, selectedTransfer.toPlatform, toCode);
+  currentTrip.terminusSecond = terminusSecond;
+
+  // Store which transfer is currently selected
+  window.currentTransferOptions.selectedIndex = altIndex;
+
+  // Rebuild the transfer display with new selection
+  rebuildTransferDisplay();
+
+  document.getElementById('leg2-title').innerText = 'Transfer';
+  document.getElementById('leg2-subtitle').innerText = selectedTransfer.name;
+
+  // Re-fetch trains for the second leg with the correct platform and terminus
+  const leg2Platform = selectedTransfer.toPlatform;
+
+  // Clear and show loading for leg 2
+  document.getElementById('train-info2').innerHTML = '<div class="text-muted text-center py-3"><span class="spinner-border spinner-border-sm me-2"></span>Finding connections...</div>';
+
+  // If there's a selected train on leg 1, recalculate the connection
+  const selectedCard = document.querySelector('#train-info1 .train-card.selected');
+  if (selectedCard) {
+    const trainMin = selectedCard.dataset.trainMin;
+    const departureMin = trainMin === 'ARR' || trainMin === 'BRD' ? 0 : parseInt(trainMin);
+    const transferStation = selectedTransfer.fromPlatform;
+    const travelTime = calculateRouteTravelTime(currentTrip.startStation, transferStation, currentTrip.fromLines[0]);
+    const transferWalkTime = getTransferWalkTime();
+    const arrivalAtTransfer = departureMin + travelTime + transferWalkTime;
+    const leg2TravelTime = calculateRouteTravelTime(leg2Platform, currentTrip.endStation, currentTrip.toLines[0]);
+
+    // Update the travel time display in the middle section
+    const departureTime = minutesToClockTime(departureMin);
+    const arrivalAtTransferTime = minutesToClockTime(arrivalAtTransfer);
+
+    document.getElementById('travel-time').innerHTML = `${travelTime} min<br><small class="text-muted">Dep: ${departureTime}</small>`;
+    document.getElementById('transfer-time').innerHTML = `${transferWalkTime} min<br><small class="text-muted">Arr: ${arrivalAtTransferTime}</small>`;
+
+    fetchTransferTrains(leg2Platform, terminusSecond, 'train-info2', arrivalAtTransfer, leg2TravelTime);
+  } else {
+    // No train selected yet, just show the trains at the new transfer station
+    document.getElementById('train-info2').innerHTML = '<div class="text-muted text-center py-3">Select a train on the first leg</div>';
+  }
+
+  // Update car diagrams for the new transfer
+  showCarDiagrams();
+}
+
+function rebuildTransferDisplay() {
+  if (!window.currentTransferOptions) return;
+
+  const transferNameEl = document.getElementById('transfer-station-name');
+  const { fastest, alternatives, selectedIndex } = window.currentTransferOptions;
+
+  // Determine which transfer is currently selected
+  const selectedTransfer = selectedIndex === -1 ? fastest : alternatives[selectedIndex];
+  const isFastestSelected = selectedIndex === -1;
+
+  // Build the display HTML
+  let html = `<strong>${selectedTransfer.name}</strong>`;
+
+  if (isFastestSelected) {
+    html += ' <span class="text-muted">(fastest)</span>';
+  } else {
+    html += ' <span class="badge bg-info">Selected</span>';
+  }
+
+  if (alternatives.length > 0) {
+    html += `<br><button class="btn btn-link btn-sm p-0 text-muted" onclick="toggleAlternatives()" style="text-decoration: none; font-size: 0.85em;">
+      <span id="alternatives-toggle-text">Show ${alternatives.length + 1} options ▼</span>
+    </button>`;
+    html += '<div id="alternatives-list" style="display: none; margin-top: 8px; font-size: 0.9em;">';
+
+    // Show fastest option
+    const fastestStyle = isFastestSelected ? 'text-success' : 'text-muted';
+    const fastestPrefix = isFastestSelected ? '✓ ' : '  ';
+    html += `<div class="${fastestStyle} alternative-option" style="cursor: pointer; padding: 4px 0; margin-left: ${isFastestSelected ? '0' : '12px'}px;"
+                  onmouseover="this.style.opacity='0.7'"
+                  onmouseout="this.style.opacity='1'"
+                  onclick="selectAlternativeTransfer(-1)">
+                ${fastestPrefix}${fastest.name} — ${fastest.totalTime} min ${isFastestSelected ? '(current)' : '(fastest)'}
+             </div>`;
+
+    // Show alternatives
+    alternatives.forEach((alt, idx) => {
+      const isSelected = selectedIndex === idx;
+      const altStyle = isSelected ? 'text-success' : 'text-muted';
+      const altPrefix = isSelected ? '✓ ' : '  ';
+      html += `<div class="${altStyle} alternative-option" style="margin-left: ${isSelected ? '0' : '12px'}px; cursor: pointer; padding: 4px 0;"
+                    onmouseover="this.style.opacity='0.7'"
+                    onmouseout="this.style.opacity='1'"
+                    onclick="selectAlternativeTransfer(${idx})">
+                  ${altPrefix}${alt.name} — ${alt.totalTime} min ${isSelected ? '(current)' : `<span class="text-warning">(+${alt.timeDiff} min)</span>`}
+               </div>`;
+    });
+    html += '</div>';
+  }
+
+  transferNameEl.innerHTML = html;
+}
+
+function toggleAlternatives() {
+  const alternativesList = document.getElementById('alternatives-list');
+  const toggleText = document.getElementById('alternatives-toggle-text');
+
+  if (alternativesList.style.display === 'none') {
+    alternativesList.style.display = 'block';
+    const currentText = toggleText.textContent;
+    const numOptions = currentText.match(/\d+/)[0];
+    toggleText.textContent = `Hide ${numOptions} options ▲`;
+  } else {
+    alternativesList.style.display = 'none';
+    const currentText = toggleText.textContent;
+    const numOptions = currentText.match(/\d+/)[0];
+    toggleText.textContent = `Show ${numOptions} options ▼`;
   }
 }
 
@@ -300,12 +496,21 @@ function findTransfer(fromCode, toCode) {
     console.log(`  ${idx === 0 ? '✓' : ' '} ${route.transfer.name}: ${route.totalTime} min (${route.leg1Time} + ${route.transferTime} + ${route.leg2Time})`);
   });
 
+  // Store alternatives with their evaluated times
+  const alternativesWithTimes = evaluatedRoutes.slice(1, 3).map(r => ({
+    ...r.transfer,
+    totalTime: r.totalTime,
+    leg1Time: r.leg1Time,
+    leg2Time: r.leg2Time,
+    timeDiff: r.totalTime - fastest.totalTime
+  }));
+
   return {
     ...fastest.transfer,
     totalTime: fastest.totalTime,
     leg1Time: fastest.leg1Time,
     leg2Time: fastest.leg2Time,
-    alternatives: evaluatedRoutes.slice(1, 3).map(r => r.transfer)  // Store up to 2 alternatives
+    alternatives: alternativesWithTimes
   };
 }
 
@@ -579,6 +784,7 @@ function calculateRouteTravelTime(fromStation, toStation, line) {
     if (code === 'C01' && stations.includes('A01')) return 'A01';
     if (code === 'F01' && stations.includes('B01')) return 'B01';
     if (code === 'F03' && stations.includes('D03')) return 'D03';
+    if (code === 'E06' && stations.includes('B06')) return 'B06';
     return code;
   };
 
@@ -603,6 +809,8 @@ function calculateRouteTravelTime(fromStation, toStation, line) {
     if (segTo === 'B01') keys.push(`${segFrom}_F01`, `F01_${segFrom}`);
     if (segFrom === 'D03') keys.push(`F03_${segTo}`, `${segTo}_F03`);
     if (segTo === 'D03') keys.push(`${segFrom}_F03`, `F03_${segFrom}`);
+    if (segFrom === 'B06') keys.push(`E06_${segTo}`, `${segTo}_E06`);
+    if (segTo === 'B06') keys.push(`${segFrom}_E06`, `E06_${segFrom}`);
 
     let segTime = 2;
     for (const key of keys) {
