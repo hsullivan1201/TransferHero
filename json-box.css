@@ -1,85 +1,360 @@
-.json-box-sv{
-    background-color: silver;
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow-x: auto;
+/* Base Styles */
+body {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e4e8ec 100%);
+  min-height: 100vh;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+}
+
+/* Header */
+.hero-section {
+  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  color: white;
+  margin-bottom: 0;
+}
+
+.hero-section h1 {
+  color: white;
+  letter-spacing: -0.5px;
+}
+
+.hero-section .lead {
+  color: rgba(255, 255, 255, 0.7) !important;
+}
+
+.logo-icon {
+  font-size: 0.9em;
+}
+
+/* Trip Selector */
+.trip-selector .card {
+  border: none;
+  border-radius: 12px;
+  overflow: visible;
+}
+
+.trip-selector .card-body {
+  overflow: visible;
+}
+
+.trip-selector .dropdown-menu {
+  z-index: 1050;
+}
+
+.dropdown-menu-centered {
+  min-width: 100%;
+}
+
+.dropdown-item {
+  padding: 0.75rem 1.25rem;
+  transition: background-color 0.2s;
+}
+
+.dropdown-item:hover {
+  background-color: #e9ecef;
+}
+
+/* Train Display Cards */
+.train-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.train-card {
+  border-radius: 10px;
+  overflow: hidden;
+  animation: slideIn 0.3s ease-out forwards;
+  opacity: 0;
+  transform: translateY(10px);
+  position: relative;
+}
+
+@keyframes slideIn {
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
-  .min-value {
-    font-size: 2em; /* Makes the "Min" value larger */
-    font-weight: bold;
+}
+
+.train-card-content {
+  display: flex;
+  align-items: center;
+  padding: 14px 16px;
+  gap: 14px;
+}
+
+.train-line-badge {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.25);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 1rem;
+  flex-shrink: 0;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+}
+
+.train-details {
+  flex-grow: 1;
+  min-width: 0;
+}
+
+.train-destination {
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.train-car {
+  font-size: 0.8rem;
+  color: rgba(255, 255, 255, 0.8);
+  margin-top: 2px;
+}
+
+.train-time {
+  font-size: 1.4rem;
+  font-weight: 700;
+  color: white;
+  text-shadow: 0 1px 2px rgba(0,0,0,0.2);
+  flex-shrink: 0;
+  min-width: 70px;
+  text-align: right;
+}
+
+.train-time.arriving {
+  animation: pulse 1s infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+/* Line Colors - Using official WMATA colors */
+.train-card-rd {
+  background: linear-gradient(135deg, #bf0d3e 0%, #9c0b32 100%);
+  box-shadow: 0 4px 12px rgba(191, 13, 62, 0.3);
+}
+
+.train-card-or {
+  background: linear-gradient(135deg, #ed8b00 0%, #d47a00 100%);
+  box-shadow: 0 4px 12px rgba(237, 139, 0, 0.3);
+}
+
+.train-card-sv {
+  background: linear-gradient(135deg, #9d9fa2 0%, #7c7e80 100%);
+  box-shadow: 0 4px 12px rgba(157, 159, 162, 0.3);
+}
+
+.train-card-bl {
+  background: linear-gradient(135deg, #009cde 0%, #007ab8 100%);
+  box-shadow: 0 4px 12px rgba(0, 156, 222, 0.3);
+}
+
+.train-card-yl {
+  background: linear-gradient(135deg, #ffd100 0%, #e6bc00 100%);
+  box-shadow: 0 4px 12px rgba(255, 209, 0, 0.3);
+}
+
+.train-card-yl .train-destination,
+.train-card-yl .train-time,
+.train-card-yl .train-line-badge {
+  color: #1a1a1a;
+  text-shadow: none;
+}
+
+.train-card-yl .train-car {
+  color: rgba(0, 0, 0, 0.7);
+}
+
+.train-card-yl .train-line-badge {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.train-card-gr {
+  background: linear-gradient(135deg, #00b140 0%, #009934 100%);
+  box-shadow: 0 4px 12px rgba(0, 177, 64, 0.3);
+}
+
+.train-card-null {
+  background: linear-gradient(135deg, #333333 0%, #1a1a1a 100%);
+  box-shadow: 0 4px 12px rgba(51, 51, 51, 0.3);
+}
+
+/* Selectable train cards */
+.train-card.selectable {
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+
+.train-card.selectable:hover {
+  transform: translateY(-2px) scale(1.01);
+}
+
+.train-card.selected {
+  outline: 3px solid #fff;
+  outline-offset: -3px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4);
+  transform: scale(1.02);
+}
+
+.train-card.selected::after {
+  content: '✓';
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background: white;
+  color: #1a1a1a;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+}
+
+/* Missed trains */
+.train-card.missed {
+  opacity: 0.5;
+  filter: grayscale(40%);
+}
+
+.train-card.missed .train-car {
+  color: #ffcccc;
+}
+
+/* Journey Info Panel */
+.journey-info {
+  background: white;
+  border-radius: 12px;
+  padding: 16px 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.journey-arrow {
+  font-size: 2rem;
+  color: #6c757d;
+  margin-bottom: 12px;
+}
+
+.journey-detail {
+  margin-bottom: 8px;
+  padding: 8px;
+  background: #f8f9fa;
+  border-radius: 8px;
+}
+
+.journey-label {
+  display: block;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  color: #6c757d;
+  letter-spacing: 0.5px;
+}
+
+.journey-value {
+  display: block;
+  font-size: 1rem;
+  font-weight: 600;
+  color: #1a1a2e;
+}
+
+.journey-total {
+  margin-top: 12px;
+  padding: 10px;
+  background: #1a1a2e;
+  border-radius: 8px;
+}
+
+.journey-total .journey-label {
+  color: rgba(255, 255, 255, 0.7);
+}
+
+.journey-total .journey-value {
+  color: white;
+  font-size: 1.1rem;
+}
+
+/* Empty State */
+.empty-state-icon {
+  font-size: 4rem;
+  opacity: 0.5;
+}
+
+#empty-state h4 {
+  font-weight: 500;
+}
+
+/* Card Headers */
+.card-header {
+  border-bottom: none;
+}
+
+.card {
+  border: none;
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* Footer */
+footer {
+  background: white;
+}
+
+/* Responsive adjustments */
+@media (max-width: 767px) {
+  .hero-section h1 {
+    font-size: 2rem;
   }
-  .destination-name {
-    font-size: 1.5em; /* Makes the "DestinationName" prominent */
-    font-weight: bold;
+
+  .train-card-content {
+    padding: 12px 14px;
+    gap: 12px;
   }
-  .json-box-bl{
-    background-color: blue;
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow-x: auto;
+
+  .train-line-badge {
+    width: 38px;
+    height: 38px;
+    font-size: 0.9rem;
   }
-  .min-value {
-    font-size: 2em; /* Makes the "Min" value larger */
-    font-weight: bold;
+
+  .train-destination {
+    font-size: 1rem;
   }
-  .destination-name {
-    font-size: 1.5em; /* Makes the "DestinationName" prominent */
-    font-weight: bold;
+
+  .train-time {
+    font-size: 1.2rem;
+    min-width: 60px;
   }
-  .json-box-or{
-    background-color: orange;
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow-x: auto;
+
+  /* Journey info horizontal on mobile */
+  .journey-info {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 8px;
+    padding: 12px;
+    margin: 8px 0;
   }
-  .min-value {
-    font-size: 2em; /* Makes the "Min" value larger */
-    font-weight: bold;
+
+  .journey-arrow {
+    display: none;
   }
-  .destination-name {
-    font-size: 1.5em; /* Makes the "DestinationName" prominent */
-    font-weight: bold;
+
+  .journey-detail,
+  .journey-total {
+    flex: 1;
+    min-width: 80px;
+    margin: 0;
   }
-  .json-box-rd{
-    background-color: red;
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow-x: auto;
-  }
-  .min-value {
-    font-size: 2em; /* Makes the "Min" value larger */
-    font-weight: bold;
-  }
-  .destination-name {
-    font-size: 1.5em; /* Makes the "DestinationName" prominent */
-    font-weight: bold;
-  }
-  .json-box-null{
-    background-color: black;
-    color: white;
-    padding: 20px;
-    border-radius: 5px;
-    font-family: 'Courier New', monospace;
-    white-space: nowrap;
-    overflow-x: auto;
-  }
-  .min-value {
-    font-size: 2em; /* Makes the "Min" value larger */
-    font-weight: bold;
-  }
-  .destination-name {
-    font-size: 1.5em; /* Makes the "DestinationName" prominent */
-    font-weight: bold;
-  }
+}

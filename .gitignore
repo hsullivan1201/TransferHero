@@ -1,1 +1,5 @@
 api_key.txt
+config.js
+metro-gtfs/
+metro-gtfs-old/
+.DS_Store
