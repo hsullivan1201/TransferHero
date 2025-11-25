@@ -129,29 +129,23 @@ The processor calculates:
 
 ## Todo
 
-### High Priority
-- [ ] **Use MetroHero open source algorithm for train time predictions** - Integrate more accurate prediction logic from the MetroHero project
-- [ ] **Complete React migration** - See [react-migration.md](react-migration.md) for comprehensive migration plan
-- [ ] **Overhaul UI to be prettier** - Modern design refresh beyond Bootstrap
-- [ ] **Add actual train car locations** - Integrate PDF data from Reddit showing all exits/transfer/elevator positions on the platform
-
-### Short Term
+### Short
 - [ ] Auto-refresh train data every 30 seconds
 - [ ] Persist station selections in localStorage
 - [ ] Show platform-level transfer walking directions
 - [ ] Mobile-responsive design improvements
+- [ ] **Show trains that have already left** - Allow selecting past trains so users know if they should rush on the transfer
 
-### Medium Term
-- [x] Parse GTFS dynamically instead of hardcoded travel times ✅
-- [x] Support Gallery Place as alternate transfer point ✅
-- [x] Support all Metro lines (not just OR/SV to RD) ✅
+### Medium
 - [ ] Multi-leg journey planning (A → B → C)
 - [ ] Service advisories and alerts integration
+- [ ] **Use MetroHero open source algorithm for train time predictions** - Integrate more accurate prediction logic from the MetroHero project
+- [ ] **Add actual train car locations** - Integrate PDF data from Reddit showing all exits/transfer/elevator positions on the platform
 
-### Long Term
-- [ ] Historical delay patterns for better predictions
+### Long
+- [ ] **Complete React migration** - See [react-migration.md](react-migration.md) for comprehensive migration plan
+- [ ] **Overhaul UI to be prettier** - Modern design refresh beyond Bootstrap
 - [ ] Push notifications for departure reminders
-- [ ] Offline support with service workers
 - [ ] Mobile app (React Native or PWA)
 
 ## API Key
