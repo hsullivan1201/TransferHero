@@ -1,8 +1,11 @@
+// react/packages/client/src/utils/displayNames.ts
+
 const DESTINATION_ALIASES: Record<string, string> = {
   'Largo': 'Largo Town Center',
   'NewCrltn': 'New Carrollton',
   'Glenmont': 'Glenmont',
   'Shady Gr': 'Shady Grove',
+  'Shady Grv': 'Shady Grove', // added this bc wmata real-time is quirky
   'Greenbelt': 'Greenbelt',
   'Huntingtn': 'Huntington',
   'Frncnia': 'Franconia',
@@ -31,8 +34,27 @@ const DISPLAY_NAMES: Record<string, string> = {
   'Wiehle-Reston East': 'Wiehle'
 }
 
+function toTitleCase(str: string): string {
+  return str.toLowerCase()
+    .replace(/\b\w/g, c => c.toUpperCase()) // title case words
+    .replace(/'S\b/g, "'s") // fix possessives like George's
+}
+
 export function normalizeDestination(dest: string): string {
-  return DESTINATION_ALIASES[dest] || dest
+  // 1. check for direct alias match (e.g. "Shady Grv", "NewCrltn")
+  if (DESTINATION_ALIASES[dest]) {
+    return DESTINATION_ALIASES[dest]
+  }
+
+  // 2. if it's screaming (ALL CAPS), calm it down
+  if (dest && dest === dest.toUpperCase()) {
+    const titleCased = toTitleCase(dest)
+    // check aliases again for the title cased version
+    // e.g. "SHADY GR" -> "Shady Gr" -> "Shady Grove"
+    return DESTINATION_ALIASES[titleCased] || titleCased
+  }
+
+  return dest
 }
 
 export function getDisplayName(dest: string): string {
