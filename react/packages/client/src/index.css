@@ -1,0 +1,118 @@
+@import "tailwindcss";
+
+/* ========== THEME VARIABLES ========== */
+:root {
+  --bg-primary: #ffffff;
+  --bg-secondary: #f8f9fa;
+  --bg-tertiary: #e9ecef;
+  --text-primary: #212529;
+  --text-secondary: #6c757d;
+  --border-color: #dee2e6;
+  --card-bg: #ffffff;
+  --input-bg: #ffffff;
+  --suggestion-bg: #ffffff;
+  --suggestion-hover: #e9ecef;
+  --shadow-sm: 0 0.125rem 0.25rem rgba(0,0,0,0.075);
+  --shadow-md: 0 0.5rem 1rem rgba(0,0,0,0.15);
+}
+
+.dark {
+  --bg-primary: #1a1a1a;
+  --bg-secondary: #2d2d2d;
+  --bg-tertiary: #404040;
+  --text-primary: #e9ecef;
+  --text-secondary: #adb5bd;
+  --border-color: #404040;
+  --card-bg: #2d2d2d;
+  --input-bg: #404040;
+  --suggestion-bg: #2d2d2d;
+  --suggestion-hover: #404040;
+  --shadow-sm: 0 0.125rem 0.25rem rgba(0,0,0,0.3);
+  --shadow-md: 0 0.5rem 1rem rgba(0,0,0,0.5);
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ========== LINE COLORS ========== */
+.line-rd { background: #E31837; }
+.line-or { background: #F7941E; }
+.line-sv { background: #A1A2A1; }
+.line-bl { background: #0076C0; }
+.line-yl { background: #FFD200; }
+.line-gr { background: #00A94F; }
+
+/* ========== TRAIN CARD LINE-SPECIFIC COLORS ========== */
+.train-card-rd {
+  background: linear-gradient(135deg, #E31837 0%, #c41430 100%);
+  border-left-color: #a00f24;
+  color: white;
+}
+
+.train-card-or {
+  background: linear-gradient(135deg, #F7941E 0%, #e08419 100%);
+  border-left-color: #c77616;
+  color: white;
+}
+
+.train-card-sv {
+  background: linear-gradient(135deg, #A1A2A1 0%, #8a8b8a 100%);
+  border-left-color: #6e6f6e;
+  color: white;
+}
+
+.train-card-bl {
+  background: linear-gradient(135deg, #0076C0 0%, #0062a3 100%);
+  border-left-color: #004d82;
+  color: white;
+}
+
+.train-card-yl {
+  background: linear-gradient(135deg, #FFD200 0%, #e6bd00 100%);
+  border-left-color: #ccaa00;
+  color: #333;
+}
+
+.train-card-gr {
+  background: linear-gradient(135deg, #00A94F 0%, #008f42 100%);
+  border-left-color: #007135;
+  color: white;
+}
+
+/* ========== ANIMATIONS ========== */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.animate-slide-in {
+  animation: slideIn 0.3s ease forwards;
+  opacity: 0;
+}
+
+.animate-pulse-slow {
+  animation: pulse 1.5s infinite;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.5s ease;
+}

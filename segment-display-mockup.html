@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Segment Display Mockup - TransferHero</title>
+
+  <style>
+    @font-face {
+      font-family: 'WU3 Segments';
+      src: url('./fonts/WU3.Segments.Regular.v0.13.ttf') format('truetype');
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: #0d0d0d;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 2rem;
+      gap: 2rem;
+    }
+
+    h1 {
+      color: #444;
+      font-size: 0.85rem;
+      font-weight: 400;
+      text-transform: uppercase;
+      letter-spacing: 2px;
+    }
+
+    /* Display housing - like real Vienna hardware */
+    .display-unit {
+      background: linear-gradient(180deg, #1a1a1a 0%, #0d0d0d 100%);
+      border-radius: 16px;
+      padding: 24px 28px;
+      box-shadow:
+        0 12px 48px rgba(0,0,0,0.95),
+        inset 0 2px 0 rgba(255,255,255,0.04);
+      border: 4px solid #222;
+    }
+
+    /* The screen area */
+    .display-screen {
+      background: #080808;
+      padding: 16px 20px;
+      border-radius: 6px;
+    }
+
+    /* Train row - single continuous line of cells */
+    .train-row {
+      font-family: 'WU3 Segments', monospace;
+      font-size: 2.6rem;
+      line-height: 1;
+      display: flex;
+      gap: 2px;
+      padding: 12px 0;
+    }
+
+    .train-row + .train-row {
+      border-top: 1px solid #1a1a1a;
+      margin-top: 4px;
+      padding-top: 16px;
+    }
+
+    /* All cells are the same */
+    .train-row .char {
+      background: rgba(50, 30, 0, 0.6);
+      padding: 2px 4px;
+      border-radius: 3px;
+      width: 32px;
+      height: 48px;
+      text-align: center;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffcc00;
+    }
+
+    /* Empty cells - same size, just no character */
+    .train-row .char.empty {
+      background: rgba(50, 30, 0, 0.6);
+    }
+
+    .train-row .char.empty::after {
+      content: '\00a0';
+    }
+
+    /* Layout helpers */
+    .variant {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 0.6rem;
+    }
+
+    .style-label {
+      color: #3a3a3a;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+    }
+
+    .mockup-row {
+      display: flex;
+      gap: 2rem;
+      flex-wrap: wrap;
+      justify-content: center;
+    }
+
+    /* Green variant - consistent green color for all text */
+    .display-unit.green .train-row .char {
+      background: rgba(20, 40, 15, 0.6);
+      color: #aad030;
+    }
+
+    .display-unit.green .train-row .char.empty {
+      background: rgba(20, 40, 15, 0.6);
+    }
+
+    .note {
+      background: #151515;
+      color: #555;
+      padding: 1rem 1.5rem;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      max-width: 480px;
+      line-height: 1.6;
+      text-align: center;
+    }
+
+    .note a {
+      color: #ffcc00;
+      text-decoration: none;
+    }
+
+    .note a:hover {
+      text-decoration: underline;
+    }
+  </style>
+</head>
+<body>
+  <h1>Vienna-Style Segment Display</h1>
+
+  <!-- Amber/Orange display (like U3 Ottakring) -->
+  <div class="variant">
+    <div class="style-label">Amber / Orange</div>
+    <div class="display-unit">
+      <div class="display-screen">
+        <div class="train-row arriving">
+          <span class="char line-rd">R</span><span class="char line-rd">D</span><span class="char empty"> </span><span class="char">S</span><span class="char">H</span><span class="char">A</span><span class="char">D</span><span class="char">Y</span><span class="char empty"> </span><span class="char">G</span><span class="char">R</span><span class="char">O</span><span class="char">V</span><span class="char">E</span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char">A</span><span class="char">R</span><span class="char">R</span>
+        </div>
+        <div class="train-row">
+          <span class="char line-bl">B</span><span class="char line-bl">L</span><span class="char empty"> </span><span class="char">L</span><span class="char">A</span><span class="char">R</span><span class="char">G</span><span class="char">O</span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char">3</span><span class="char empty"> </span><span class="char">M</span><span class="char">I</span><span class="char">N</span>
+        </div>
+        <div class="train-row">
+          <span class="char line-or">O</span><span class="char line-or">R</span><span class="char empty"> </span><span class="char">V</span><span class="char">I</span><span class="char">E</span><span class="char">N</span><span class="char">N</span><span class="char">A</span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char">7</span><span class="char empty"> </span><span class="char">M</span><span class="char">I</span><span class="char">N</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Green variant -->
+  <div class="mockup-row">
+    <div class="variant">
+      <div class="style-label">Green</div>
+      <div class="display-unit green">
+        <div class="display-screen">
+          <div class="train-row">
+            <span class="char line-gr">G</span><span class="char line-gr">R</span><span class="char empty"> </span><span class="char">B</span><span class="char">R</span><span class="char">A</span><span class="char">N</span><span class="char">C</span><span class="char">H</span><span class="char empty"> </span><span class="char">A</span><span class="char">V</span><span class="char">E</span><span class="char empty"> </span><span class="char empty"> </span><span class="char">2</span><span class="char empty"> </span><span class="char">M</span><span class="char">I</span><span class="char">N</span>
+          </div>
+          <div class="train-row">
+            <span class="char line-yl">Y</span><span class="char line-yl">L</span><span class="char empty"> </span><span class="char">H</span><span class="char">U</span><span class="char">N</span><span class="char">T</span><span class="char">I</span><span class="char">N</span><span class="char">G</span><span class="char">T</span><span class="char">O</span><span class="char">N</span><span class="char empty"> </span><span class="char empty"> </span><span class="char">5</span><span class="char empty"> </span><span class="char">M</span><span class="char">I</span><span class="char">N</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="variant">
+      <div class="style-label">Single Row</div>
+      <div class="display-unit">
+        <div class="display-screen">
+          <div class="train-row">
+            <span class="char line-sv">S</span><span class="char line-sv">V</span><span class="char empty"> </span><span class="char">A</span><span class="char">S</span><span class="char">H</span><span class="char">B</span><span class="char">U</span><span class="char">R</span><span class="char">N</span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char empty"> </span><span class="char">4</span><span class="char empty"> </span><span class="char">M</span><span class="char">I</span><span class="char">N</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    Using <a href="https://github.com/gheja/wu3-segments">WU3 Segments</a> font inspired by Vienna U3 subway displays.
+    Open this file via a local server (e.g. <code>npx serve</code>) for the font to load.
+  </div>
+</body>
+</html>

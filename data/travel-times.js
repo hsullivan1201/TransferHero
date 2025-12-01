@@ -1,6 +1,6 @@
 // Travel times (in minutes) between stations
 // Auto-generated from WMATA GTFS data
-// Generated: 2025-11-24 23:17:33
+// Generated: 2025-11-30 18:05:59
 // Format: 'FROM_TO': minutes
 
 const TRAVEL_TIMES = {
@@ -81,6 +81,7 @@ const TRAVEL_TIMES = {
   'C10_C12': 6,
   'C11_C10': 3,
   'C11_C12': 3,
+  'C12_C10': 6,
   'C12_C11': 3,
   'C12_C13': 1,
   'C13_C12': 2,
@@ -117,16 +118,16 @@ const TRAVEL_TIMES = {
   'D13_D12': 3,
   'E01_E02': 2,
   'E01_F01': 2,
-  'E02_E01': 1,
-  'E02_E03': 1,
+  'E02_E01': 2,
+  'E02_E03': 2,
   'E03_E02': 2,
   'E03_E04': 2,
   'E04_E03': 2,
   'E04_E05': 2,
-  'E05_E04': 3,
+  'E05_E04': 2,
   'E05_E06': 3,
   'E06_E05': 3,
-  'E06_E07': 4,
+  'E06_E07': 3,
   'E07_E06': 3,
   'E07_E08': 2,
   'E08_E07': 2,

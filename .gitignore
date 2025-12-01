@@ -3,3 +3,5 @@ config.js
 metro-gtfs/
 metro-gtfs-old/
 .DS_Store
+react/node_modules
+react/packages/server/.env

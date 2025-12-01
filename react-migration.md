@@ -575,95 +575,162 @@ cron.schedule('0 3 * * *', async () => {
 
 ### Phase 1: Project Setup (Foundation)
 
-**Goal**: Set up monorepo with Vite + React + TypeScript
+**Goal**: Set up new React project alongside existing vanilla JS app
+
+**IMPORTANT**: During migration, both projects will coexist:
+- **New React project**: Lives in `react/` folder
+- **Old vanilla JS app**: Remains in root directory and stays functional
 
 ```bash
-# Create monorepo structure
+# Dual-project structure during migration
 transferhero/
-├── packages/
-│   ├── client/          # React app
-│   ├── server/          # Express BFF
-│   └── shared/          # Shared types
-├── package.json         # Workspace root
-├── tsconfig.base.json   # Shared TS config
-└── turbo.json           # Build orchestration (optional)
+├── react/                  # NEW React project
+│   ├── packages/
+│   │   ├── client/         # React app
+│   │   ├── server/         # Express BFF
+│   │   └── shared/         # Shared types
+│   ├── package.json        # Workspace root
+│   ├── tsconfig.base.json  # Shared TS config
+│   └── turbo.json          # Build orchestration (optional)
+│
+├── index.html              # OLD app (still functional)
+├── app.js                  # OLD app (still functional)
+├── style.css               # OLD app styles
+├── schedule-data.js        # OLD app data
+├── static-trips.js         # OLD app data
+├── process-gtfs.py         # OLD GTFS generation script (to be ported)
+├── config.js               # OLD API key (gitignored)
+├── config.example.js       # OLD API key template
+├── data/                   # OLD app data files
+│   ├── stations.js
+│   ├── transfers.js
+│   ├── travel-times.js
+│   ├── car-positions.js
+│   └── line-config.js
+└── metro-gtfs/             # Shared GTFS data (used by both)
 ```
 
+**Why this structure?**
+- Old app remains deployable/testable throughout migration
+- Can validate new implementation against working baseline
+- Easy rollback if issues arise
+- Once migration complete, old files can be archived/deleted
+
 Tasks:
-- [ ] Initialize npm workspace
-- [ ] Set up Vite + React + TypeScript in `packages/client`
-- [ ] Set up Express + TypeScript in `packages/server`
-- [ ] Create shared types package
-- [ ] Configure ESLint + Prettier
-- [ ] Add `.env` handling (dotenv)
+- [x] Create `react/` directory
+- [x] Initialize npm workspace in `react/`
+- [x] Set up Vite + React + TypeScript in `react/packages/client`
+- [x] Set up Express + TypeScript in `react/packages/server`
+- [x] Create shared types in `react/packages/shared`
+- [x] Add `.env` handling (dotenv)
+- [x] Ensure old app still runs from root directory
 
 ### Phase 2: Extract Business Logic
 
 **Goal**: Move core algorithms to server, create shared utilities
 
 Tasks:
-- [ ] Create `server/services/pathfinding.ts` with:
+- [x] Create `server/services/pathfinding.ts` with:
   - `findTransfer()`
   - `findAllPossibleTransfers()`
   - `evaluateTransferRoute()`
-- [ ] Create `server/services/travelTime.ts` with:
+  - `getAllTerminiForStation()`
+- [x] Create `server/services/travelTime.ts` with:
   - `calculateRouteTravelTime()`
+  - `getTerminus()`
+  - `minutesToClockTime()`
   - Consolidated platform mappings
-- [ ] Create `server/services/trainMerger.ts` with:
+- [x] Create `server/services/trainMerger.ts` with:
   - Unified merge logic (remove duplication)
   - `mergeTrainData(apiTrains, gtfsTrains, scheduledTrains)`
-- [ ] Create `shared/utils/` with:
+  - `sortTrains()`
+- [x] Create `shared/utils/` with:
   - `getTrainMinutes()`
   - `ensureArray()`
   - `normalizeDestination()`
-- [ ] Port static data files to TypeScript:
+  - `getDisplayName()`
+- [x] Port static data files to TypeScript:
   - `server/data/stations.ts`
   - `server/data/transfers.ts`
   - `server/data/travelTimes.ts`
   - `server/data/carPositions.ts`
   - `server/data/lineConfig.ts`
+  - `server/data/platformCodes.ts`
 
 ### Phase 3: Build BFF
 
 **Goal**: Implement all API endpoints
 
 Tasks:
-- [ ] Set up Express app structure
-- [ ] Implement `/api/stations` endpoint
-- [ ] Implement `/api/trips` endpoint
-- [ ] Implement `/api/trips/:id/leg2` endpoint
-- [ ] Add WMATA API integration:
+- [x] Set up Express app structure
+- [x] Implement `/api/stations` endpoint
+- [x] Implement `/api/trips` endpoint
+- [x] Implement `/api/trips/:id/leg2` endpoint
+- [x] Add WMATA API integration:
   - StationPrediction fetch
   - GTFS-RT protobuf decoding
-- [ ] Add request validation (zod)
-- [ ] Add error handling middleware
-- [ ] Add response caching
-- [ ] Implement GTFS refresh cron job
-- [ ] Add health check endpoint
+- [x] Add request validation (zod)
+- [x] Add error handling middleware
+- [x] Add response caching
+- [x] Implement GTFS refresh cron job
+- [x] Add health check endpoint
 
 ### Phase 4: Build React Components
 
 **Goal**: Create all UI components
 
 Tasks:
-- [ ] Set up TanStack Query
-- [ ] Set up Tailwind CSS
-- [ ] Create theme system (useTheme hook)
-- [ ] Build components:
-  - [ ] `<Header />`
-  - [ ] `<StationSelector />` with typeahead
-  - [ ] `<TripSelector />` form
-  - [ ] `<TransferDisplay />` with alternatives
-  - [ ] `<TrainCard />` (unified)
-  - [ ] `<TrainList />`
-  - [ ] `<CarDiagram />`
-  - [ ] `<JourneyInfo />`
-  - [ ] `<LegPanel />`
-  - [ ] `<TripView />`
-  - [ ] `<EmptyState />`
-  - [ ] `<Footer />`
-- [ ] Wire up data fetching with TanStack Query
-- [ ] Add loading states and error handling
+- [x] Set up TanStack Query
+- [x] Set up Tailwind CSS (v4 with @tailwindcss/postcss)
+- [x] Create theme system (useTheme hook)
+- [x] Build components:
+  - [x] `<Header />`
+  - [x] `<StationSelector />` with typeahead
+  - [x] `<TripSelector />` form
+  - [x] `<TransferDisplay />` with alternatives
+  - [x] `<TrainCard />` (unified)
+  - [x] `<TrainList />`
+  - [x] `<CarDiagram />`
+  - [x] `<JourneyInfo />`
+  - [x] `<LegPanel />`
+  - [x] `<TripView />`
+  - [x] `<EmptyState />`
+  - [x] `<Footer />`
+  - [x] `<LineDot />` / `<LineDots />` (helper components)
+- [x] Wire up data fetching with TanStack Query
+- [x] Add loading states and error handling
+
+**Component File Structure:**
+```
+react/packages/client/src/
+├── api/
+│   └── trips.ts              # API client functions
+├── components/
+│   ├── index.ts              # Component exports
+│   ├── Header.tsx            # App header with theme toggle
+│   ├── Footer.tsx            # App footer
+│   ├── EmptyState.tsx        # Shown when no trip selected
+│   ├── StationSelector.tsx   # Typeahead station input
+│   ├── TripSelector.tsx      # Origin/destination form
+│   ├── TransferDisplay.tsx   # Transfer station with alternatives
+│   ├── TrainCard.tsx         # Unified train card (leg 1 & 2)
+│   ├── TrainList.tsx         # List of train cards
+│   ├── CarDiagram.tsx        # Car position diagram
+│   ├── JourneyInfo.tsx       # Travel time summary
+│   ├── LegPanel.tsx          # Panel wrapper for each leg
+│   ├── TripView.tsx          # Main trip display layout
+│   └── LineDot.tsx           # Metro line color indicators
+├── hooks/
+│   ├── useTheme.ts           # Dark/light theme hook
+│   └── useTrip.ts            # Trip state & data fetching hooks
+├── utils/
+│   ├── time.ts               # Time formatting utilities
+│   ├── lineColors.ts         # Metro line color mappings
+│   └── displayNames.ts       # Station/destination name normalization
+├── App.tsx                   # Main app component
+├── main.tsx                  # React entry point
+└── index.css                 # Tailwind + custom CSS variables
+```
 
 ### Phase 5: Integration & Testing
 
@@ -679,6 +746,7 @@ Tasks:
 - [ ] Test edge cases (direct routes, single train, etc.)
 - [ ] Performance testing (Lighthouse)
 - [ ] Mobile testing
+- [ ] Configure ESLint + Prettier
 
 ### Phase 6: Deploy & Deprecate
 

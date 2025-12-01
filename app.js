@@ -5,6 +5,230 @@
 let currentTrip = null;
 let protoRoot = null; // for gtfs-rt caching
 
+// ========== UTILITY FUNCTIONS ==========
+/**
+ * Converts train Min value to integer minutes
+ * @param {string|number} min - Train Min value ('ARR', 'BRD', or number)
+ * @returns {number} Minutes as integer (0 for ARR/BRD)
+ */
+function getTrainMinutes(min) {
+  return min === 'ARR' || min === 'BRD' ? 0 : parseInt(min);
+}
+
+/**
+ * Ensures value is an array
+ * @template T
+ * @param {T|T[]} value - Value that may or may not be an array
+ * @returns {T[]} Value as array
+ */
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [value];
+}
+
+// ========== PLATFORM CODE MAPPING ==========
+/**
+ * Centralized mapping for multi-code stations
+ * Some stations have multiple platform codes (e.g., Metro Center = A01/C01)
+ */
+const STATION_ALIASES = {
+  'A01': 'C01',  // Metro Center
+  'C01': 'A01',
+  'B01': 'F01',  // Gallery Place
+  'F01': 'B01',
+  'D03': 'F03',  // L'Enfant Plaza
+  'F03': 'D03',
+  'B06': 'E06',  // Fort Totten
+  'E06': 'B06'
+};
+
+/**
+ * Normalizes a platform code to the canonical code found in a station list
+ * @param {string} code - Platform code to normalize
+ * @param {string[]} availableStations - List of available station codes
+ * @returns {string} Normalized platform code
+ */
+function normalizePlatformCode(code, availableStations) {
+  if (availableStations.includes(code)) return code;
+  const alias = STATION_ALIASES[code];
+  if (alias && availableStations.includes(alias)) return alias;
+  return code;
+}
+
+/**
+ * Gets all platform codes for a station (including alias)
+ * @param {string} code - Platform code
+ * @returns {string[]} Array of all codes (original + alias if exists)
+ */
+function getAllPlatformCodes(code) {
+  const alias = STATION_ALIASES[code];
+  return alias ? [code, alias] : [code];
+}
+
+/**
+ * Merges train data from multiple sources (API, GTFS-RT, Schedule)
+ * Deduplicates based on arrival time and line
+ * @param {Object} options - Merge options
+ * @param {Array} options.apiTrains - Trains from WMATA API
+ * @param {Array} options.gtfsTrains - Trains from GTFS-RT feed
+ * @param {Array} [options.scheduledTrains=[]] - Trains from static schedule
+ * @param {number} [options.gtfsThreshold=3] - Dedup threshold for GTFS (minutes)
+ * @param {number} [options.scheduleThreshold=4] - Dedup threshold for schedule (minutes)
+ * @returns {Array} Merged and deduplicated train array
+ */
+function mergeTrainData(options) {
+  const {
+    apiTrains,
+    gtfsTrains,
+    scheduledTrains = [],
+    gtfsThreshold = 3,
+    scheduleThreshold = 4
+  } = options;
+
+  const merged = [...apiTrains];
+
+  // Merge GTFS-RT trains
+  gtfsTrains.forEach(gTrain => {
+    const gMin = getTrainMinutes(gTrain.Min);
+    const duplicate = merged.some(mTrain => {
+      const mMin = getTrainMinutes(mTrain.Min);
+      return Math.abs(mMin - gMin) <= gtfsThreshold && mTrain.Line === gTrain.Line;
+    });
+    if (!duplicate) merged.push(gTrain);
+  });
+
+  // Merge scheduled trains
+  scheduledTrains.forEach(sTrain => {
+    const sMin = getTrainMinutes(sTrain.Min);
+    const duplicate = merged.some(mTrain => {
+      const mMin = getTrainMinutes(mTrain.Min);
+      return Math.abs(mMin - sMin) <= scheduleThreshold;
+    });
+    if (!duplicate) {
+      sTrain._gtfs = false;
+      sTrain._scheduled = true;
+      merged.push(sTrain);
+    }
+  });
+
+  return merged;
+}
+
+/**
+ * Creates a train card element (unified function for both leg 1 and leg 2)
+ * @param {Object} train - Train object
+ * @param {number} index - Index for animation delay
+ * @param {Object} options - Rendering options
+ * @param {boolean} [options.selectable=false] - Whether card should be selectable
+ * @param {boolean} [options.showCatchability=false] - Whether to show wait time/catchability
+ * @param {Function} [options.onClick] - Click handler function
+ * @returns {HTMLElement} Train card DOM element
+ */
+function createTrainCard(train, index, options = {}) {
+  const {
+    selectable = false,
+    showCatchability = false,
+    onClick = null
+  } = options;
+
+  const box = document.createElement('div');
+  box.classList.add('train-card', getLineClass(train.Line));
+
+  // Add conditional classes
+  if (showCatchability && !train._canCatch) {
+    box.classList.add('missed');
+  }
+  if (selectable) {
+    box.classList.add('selectable');
+  }
+
+  box.style.animationDelay = `${index * 0.05}s`;
+
+  const trainMin = getTrainMinutes(train.Min);
+  const clockTime = minutesToClockTime(trainMin);
+  const minDisplay = train.Min === 'ARR' ? 'ARR' : train.Min === 'BRD' ? 'BRD' : train.Min + ' min';
+
+  // Determine status text (car count or wait time)
+  let statusText;
+  if (showCatchability) {
+    statusText = train._canCatch
+      ? `${train._waitTime} min wait · Arr ${train._arrivalClock}`
+      : `Miss by ${Math.abs(train._waitTime)} min`;
+  } else {
+    statusText = `${train.Car || '8'}-car train`;
+  }
+
+  // Source icon (same for both)
+  let sourceIcon = '';
+  if (train._gtfs) {
+    sourceIcon = ' <i class="fas fa-satellite-dish" title="Tracked via GPS" style="color: var(--text-muted); opacity: 0.7;"></i>';
+  } else if (train._scheduled) {
+    sourceIcon = ' <span class="badge bg-secondary">Sched</span>';
+  } else {
+    sourceIcon = ' <i class="fas fa-rss" title="Live at Station" style="color: var(--text-muted); opacity: 0.7;"></i>';
+  }
+
+  box.innerHTML = `
+    <div class="train-card-content">
+      <div class="train-line-badge">${train.Line || '—'}</div>
+      <div class="train-details">
+        <div class="train-destination">${getDisplayName(train.DestinationName)}${sourceIcon}</div>
+        <div class="train-car">${statusText}</div>
+      </div>
+      <div class="train-time ${train.Min === 'ARR' || train.Min === 'BRD' ? 'arriving' : ''}">
+        ${minDisplay}<br><small>${clockTime}</small>
+      </div>
+    </div>
+  `;
+
+  // Add click handler if provided
+  if (onClick) {
+    box.addEventListener('click', onClick);
+  }
+
+  return box;
+}
+
+// ========== DATA REFRESH ==========
+async function refreshGTFS(event) {
+  const button = event.target.closest('button');
+  const originalHTML = button.innerHTML;
+  button.disabled = true;
+  button.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Downloading...';
+
+  try {
+    const response = await fetch('https://api.wmata.com/gtfs/rail-gtfs-static.zip', {
+      headers: { 'api_key': CONFIG.WMATA_API_KEY }
+    });
+
+    if (!response.ok) {
+      throw new Error(`HTTP ${response.status}`);
+    }
+
+    const blob = await response.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `wmata-gtfs-${new Date().toISOString().split('T')[0]}.zip`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(url);
+    document.body.removeChild(a);
+
+    button.innerHTML = '<i class="fas fa-check me-1"></i> Downloaded!';
+    setTimeout(() => {
+      button.innerHTML = originalHTML;
+      button.disabled = false;
+    }, 2000);
+  } catch (error) {
+    console.error('GTFS download error:', error);
+    button.innerHTML = '<i class="fas fa-times me-1"></i> Error';
+    setTimeout(() => {
+      button.innerHTML = originalHTML;
+      button.disabled = false;
+    }, 2000);
+  }
+}
+
 // ========== THEME MANAGEMENT ==========
 function toggleTheme() {
   const body = document.body;
@@ -243,7 +467,7 @@ function selectAlternativeTransfer(altIndex) {
   const selectedCard = document.querySelector('#train-info1 .train-card.selected');
   if (selectedCard) {
     const trainMin = selectedCard.dataset.trainMin;
-    const departureMin = trainMin === 'ARR' || trainMin === 'BRD' ? 0 : parseInt(trainMin);
+    const departureMin = getTrainMinutes(trainMin);
     const transferStation = selectedTransfer.fromPlatform;
     const travelTime = calculateRouteTravelTime(currentTrip.startStation, transferStation, currentTrip.fromLines[0]);
     const transferWalkTime = getTransferWalkTime();
@@ -337,7 +561,12 @@ function toggleAlternatives() {
   }
 }
 
-// Platform code mapping for multi-code stations
+/**
+ * Platform-to-Line mapping for multi-code stations
+ * This differs from STATION_ALIASES: STATION_ALIASES maps A01↔C01,
+ * while PLATFORM_CODES tells us which platform (A01 vs C01) to use for each line.
+ * Example: At Metro Center, Red Line uses A01, but Orange/Silver/Blue use C01.
+ */
 const PLATFORM_CODES = {
   'A01': { 'RD': 'A01', 'OR': 'C01', 'SV': 'C01', 'BL': 'C01' },  // Metro Center
   'C01': { 'RD': 'A01', 'OR': 'C01', 'SV': 'C01', 'BL': 'C01' },  // Metro Center (alt)
@@ -349,7 +578,12 @@ const PLATFORM_CODES = {
   'F03': { 'OR': 'D03', 'SV': 'D03', 'BL': 'D03', 'YL': 'F03', 'GR': 'F03' }   // L'Enfant (alt)
 };
 
-// Get the correct platform code for a specific line at a multi-code station
+/**
+ * Get the correct platform code for a specific line at a multi-code station
+ * @param {string} stationCode - Station code (may be A01 or C01 for Metro Center)
+ * @param {string} line - Line code (RD, OR, SV, etc.)
+ * @returns {string} Platform code to use for that line
+ */
 function getPlatformForLine(stationCode, line) {
   if (PLATFORM_CODES[stationCode] && PLATFORM_CODES[stationCode][line]) {
     return PLATFORM_CODES[stationCode][line];
@@ -648,9 +882,7 @@ function parseUpdatesToTrains(entities, stationCode, terminusList) {
             // FILTER BY TERMINUS/DESTINATION
             // Normalize the destination for comparison
             const normalizedDest = normalizeDestination(destName);
-            const normalizedTermini = Array.isArray(terminusList)
-                ? terminusList.map(t => normalizeDestination(t))
-                : [normalizeDestination(terminusList)];
+            const normalizedTermini = ensureArray(terminusList).map(t => normalizeDestination(t));
 
             // Check if this train's destination matches any of the allowed termini
             const matchesTerminus = normalizedTermini.some(term => {
@@ -752,16 +984,11 @@ function startTrip() {
 
 function getTerminus(line, fromStation, toStation) {
   const stations = LINE_STATIONS[line] || [];
-  let fromIdx = stations.indexOf(fromStation);
-  let toIdx = stations.indexOf(toStation);
+  const normalizedFrom = normalizePlatformCode(fromStation, stations);
+  const normalizedTo = normalizePlatformCode(toStation, stations);
+  const fromIdx = stations.indexOf(normalizedFrom);
+  const toIdx = stations.indexOf(normalizedTo);
   const t = TERMINI[line] || { toward_a: [], toward_b: [] };
-
-  if (fromIdx === -1 && fromStation === 'C01' && stations.includes('A01')) fromIdx = stations.indexOf('A01');
-  if (toIdx === -1 && toStation === 'C01' && stations.includes('A01')) toIdx = stations.indexOf('A01');
-  if (fromIdx === -1 && fromStation === 'F01' && stations.includes('B01')) fromIdx = stations.indexOf('B01');
-  if (toIdx === -1 && toStation === 'F01' && stations.includes('B01')) toIdx = stations.indexOf('B01');
-  if (fromIdx === -1 && fromStation === 'F03' && stations.includes('D03')) fromIdx = stations.indexOf('D03');
-  if (toIdx === -1 && toStation === 'F03' && stations.includes('D03')) toIdx = stations.indexOf('D03');
 
   if (fromIdx === -1 || toIdx === -1) return [...t.toward_a, ...t.toward_b];
   return toIdx < fromIdx ? t.toward_a : t.toward_b;
@@ -779,17 +1006,8 @@ function calculateRouteTravelTime(fromStation, toStation, line) {
   const stations = LINE_STATIONS[line];
   if (!stations) return 10;
 
-  const mapToLineStation = (code) => {
-    if (stations.includes(code)) return code;
-    if (code === 'C01' && stations.includes('A01')) return 'A01';
-    if (code === 'F01' && stations.includes('B01')) return 'B01';
-    if (code === 'F03' && stations.includes('D03')) return 'D03';
-    if (code === 'E06' && stations.includes('B06')) return 'B06';
-    return code;
-  };
-
-  const mappedFrom = mapToLineStation(fromStation);
-  const mappedTo = mapToLineStation(toStation);
+  const mappedFrom = normalizePlatformCode(fromStation, stations);
+  const mappedTo = normalizePlatformCode(toStation, stations);
   const fromIdx = stations.indexOf(mappedFrom);
   const toIdx = stations.indexOf(mappedTo);
 
@@ -801,16 +1019,17 @@ function calculateRouteTravelTime(fromStation, toStation, line) {
   for (let i = fromIdx; i !== toIdx; i += step) {
     const segFrom = stations[i];
     const segTo = stations[i + step];
-    const keys = [`${segFrom}_${segTo}`, `${segTo}_${segFrom}`];
-    
-    if (segFrom === 'A01') keys.push(`C01_${segTo}`, `${segTo}_C01`);
-    if (segTo === 'A01') keys.push(`${segFrom}_C01`, `C01_${segFrom}`);
-    if (segFrom === 'B01') keys.push(`F01_${segTo}`, `${segTo}_F01`);
-    if (segTo === 'B01') keys.push(`${segFrom}_F01`, `F01_${segFrom}`);
-    if (segFrom === 'D03') keys.push(`F03_${segTo}`, `${segTo}_F03`);
-    if (segTo === 'D03') keys.push(`${segFrom}_F03`, `F03_${segFrom}`);
-    if (segFrom === 'B06') keys.push(`E06_${segTo}`, `${segTo}_E06`);
-    if (segTo === 'B06') keys.push(`${segFrom}_E06`, `E06_${segFrom}`);
+
+    // Generate all possible keys using platform code aliases
+    const segFromCodes = getAllPlatformCodes(segFrom);
+    const segToCodes = getAllPlatformCodes(segTo);
+    const keys = [];
+
+    for (const fromCode of segFromCodes) {
+      for (const toCode of segToCodes) {
+        keys.push(`${fromCode}_${toCode}`, `${toCode}_${fromCode}`);
+      }
+    }
 
     let segTime = 2;
     for (const key of keys) {
@@ -847,7 +1066,7 @@ function selectTrain(trainCard, trainMin) {
   trainCard.classList.add('selected');
   trainCard.dataset.trainMin = trainMin;
 
-  const departureMin = trainMin === 'ARR' || trainMin === 'BRD' ? 0 : parseInt(trainMin);
+  const departureMin = getTrainMinutes(trainMin);
   const transferStation = currentTrip.transfer?.fromPlatform || 'C01';
   const travelTime = calculateRouteTravelTime(currentTrip.startStation, transferStation, currentTrip.fromLines[0]);
   const transferWalkTime = getTransferWalkTime();
@@ -898,38 +1117,21 @@ function fetchTransferTrains(station, terminus, infobox, minArrivalTime, leg2Tra
   .then(([apiData, gtfsEntities]) => {
       // 1. Process API Data
       const apiFiltered = filterApiResponse(apiData.Trains, terminus);
-      
-      // 2. Process GTFS-RT Data
-      const gtfsTrains = parseUpdatesToTrains(gtfsEntities, station, Array.isArray(terminus) ? terminus : [terminus]);
-      
-      // 3. Merge: Prefer API, fill gaps with GTFS-RT
-      const mergedTrains = [...apiFiltered];
-      
-      gtfsTrains.forEach(gTrain => {
-          const gMin = gTrain.Min === 'ARR' ? 0 : parseInt(gTrain.Min);
-          const duplicate = apiFiltered.some(aTrain => {
-              const aMin = aTrain.Min === 'ARR' || aTrain.Min === 'BRD' ? 0 : parseInt(aTrain.Min);
-              return Math.abs(aMin - gMin) <= 3 && aTrain.Line === gTrain.Line;
-          });
-          if (!duplicate) mergedTrains.push(gTrain);
-      });
 
-      // 4. Fill long-range gaps with Static Schedule
-      if (typeof getScheduledTrains === 'function') {
-        const staticSchedule = getScheduledTrains(station, terminus, 15);
-        staticSchedule.forEach(sTrain => {
-            const sMin = parseInt(sTrain.Min);
-            const duplicate = mergedTrains.some(mTrain => {
-                const mMin = mTrain.Min === 'ARR' || mTrain.Min === 'BRD' ? 0 : parseInt(mTrain.Min);
-                return Math.abs(mMin - sMin) <= 4;
-            });
-            if (!duplicate) {
-                sTrain._gtfs = false;
-                sTrain._scheduled = true;
-                mergedTrains.push(sTrain);
-            }
-        });
-      }
+      // 2. Process GTFS-RT Data
+      const gtfsTrains = parseUpdatesToTrains(gtfsEntities, station, ensureArray(terminus));
+
+      // 3. Get scheduled trains
+      const scheduledTrains = typeof getScheduledTrains === 'function'
+        ? getScheduledTrains(station, terminus, 15)
+        : [];
+
+      // 4. Merge all sources using utility function
+      const mergedTrains = mergeTrainData({
+        apiTrains: apiFiltered,
+        gtfsTrains: gtfsTrains,
+        scheduledTrains: scheduledTrains
+      });
 
       renderTrainList(mergedTrains, infobox, minArrivalTime, leg2TravelTime);
   })
@@ -952,16 +1154,16 @@ function renderTrainList(trains, infobox, minArrivalTime, leg2TravelTime) {
     
     // 1. Calculate stats
     const trainsWithStatus = trains.map(train => {
-      const trainArrival = train.Min === 'ARR' || train.Min === 'BRD' ? 0 : parseInt(train.Min);
+      const trainArrival = getTrainMinutes(train.Min);
       const waitTime = trainArrival - minArrivalTime;
       const totalJourneyTime = trainArrival + leg2TravelTime;
       const arrivalClockTime = minutesToClockTime(totalJourneyTime);
-      return { 
-          ...train, 
-          _waitTime: waitTime, 
-          _canCatch: waitTime >= CATCH_THRESHOLD, 
-          _totalTime: totalJourneyTime, 
-          _arrivalClock: arrivalClockTime 
+      return {
+          ...train,
+          _waitTime: waitTime,
+          _canCatch: waitTime >= CATCH_THRESHOLD,
+          _totalTime: totalJourneyTime,
+          _arrivalClock: arrivalClockTime
       };
     });
 
@@ -980,12 +1182,10 @@ function renderTrainList(trains, infobox, minArrivalTime, leg2TravelTime) {
         const aIsLive = !a._scheduled;
         const bIsLive = !b._scheduled;
         if (aIsLive !== bIsLive) return aIsLive ? -1 : 1;
-        
+
         if (a._canCatch !== b._canCatch) return a._canCatch ? -1 : 1;
 
-        const aMin = a.Min === 'ARR' || a.Min === 'BRD' ? 0 : parseInt(a.Min);
-        const bMin = b.Min === 'ARR' || b.Min === 'BRD' ? 0 : parseInt(b.Min);
-        return aMin - bMin;
+        return getTrainMinutes(a.Min) - getTrainMinutes(b.Min);
     });
 
     // 4. Tight Connection Warning
@@ -1007,47 +1207,9 @@ function renderTrainList(trains, infobox, minArrivalTime, leg2TravelTime) {
     const initialTrains = trainsToShow.slice(0, INITIAL_LIMIT);
     const hiddenTrains = trainsToShow.slice(INITIAL_LIMIT);
 
-    function renderTrainCard(train, index) {
-      const box = document.createElement('div');
-      box.classList.add('train-card', getLineClass(train.Line));
-      if (!train._canCatch) box.classList.add('missed');
-      box.style.animationDelay = `${index * 0.05}s`;
-
-      const trainMin = train.Min === 'ARR' || train.Min === 'BRD' ? 0 : parseInt(train.Min);
-      const clockTime = minutesToClockTime(trainMin);
-      const minDisplay = train.Min === 'ARR' ? 'ARR' : train.Min === 'BRD' ? 'BRD' : train.Min + ' min';
-      
-      // Wait time logic for display
-      const statusText = train._canCatch
-        ? `${train._waitTime} min wait · Arr ${train._arrivalClock}`
-        : `Miss by ${Math.abs(train._waitTime)} min`;
-      
-      let sourceIcon = '';
-      if (train._gtfs) {
-          sourceIcon = ' <i class="fas fa-satellite-dish" title="Tracked via GPS" style="color: var(--text-muted); opacity: 0.7;"></i>';
-      } else if (train._scheduled) {
-          sourceIcon = ' <span class="badge bg-secondary">Sched</span>';
-      } else {
-          sourceIcon = ' <i class="fas fa-rss" title="Live at Station" style="color: var(--text-muted); opacity: 0.7;"></i>';
-      }
-
-      box.innerHTML = `
-        <div class="train-card-content">
-          <div class="train-line-badge">${train.Line || '—'}</div>
-          <div class="train-details">
-            <div class="train-destination">${getDisplayName(train.DestinationName)}${sourceIcon}</div>
-            <div class="train-car">${statusText}</div>
-          </div>
-          <div class="train-time ${train.Min === 'ARR' || train.Min === 'BRD' ? 'arriving' : ''}">
-            ${minDisplay}<br><small>${clockTime}</small>
-          </div>
-        </div>
-      `;
-      return box;
-    }
-
+    // Render initial trains using unified createTrainCard
     initialTrains.forEach((train, index) => {
-      trainInfoContainer.appendChild(renderTrainCard(train, index));
+      trainInfoContainer.appendChild(createTrainCard(train, index, { showCatchability: true }));
     });
 
     if (hiddenTrains.length > 0) {
@@ -1057,7 +1219,7 @@ function renderTrainList(trains, infobox, minArrivalTime, leg2TravelTime) {
       showMoreBtn.onclick = () => {
         showMoreBtn.remove();
         hiddenTrains.forEach((train, index) => {
-          trainInfoContainer.appendChild(renderTrainCard(train, index));
+          trainInfoContainer.appendChild(createTrainCard(train, index, { showCatchability: true }));
         });
       };
       trainInfoContainer.appendChild(showMoreBtn);
@@ -1128,7 +1290,7 @@ function getDisplayName(dest) {
 function filterApiResponse(trains, terminus) {
   if (!trains || trains.length === 0) return [];
 
-  const terminusList = Array.isArray(terminus) ? terminus : [terminus];
+  const terminusList = ensureArray(terminus);
   const normalizedTermini = terminusList.map(t => normalizeDestination(t));
 
   return trains.filter(train => {
@@ -1169,44 +1331,26 @@ function fetchAndDisplayTrainInfo(station, terminus, infobox, selectable = false
     // Given the previous requirement: "Use GTFS updated data for leg 1"
     
     return fetchGTFSTripUpdates().then(gtfsEntities => {
-        const gtfsTrains = parseUpdatesToTrains(gtfsEntities, station, Array.isArray(terminus) ? terminus : [terminus]);
-        
-        // Merge API + GTFS
-        const mergedTrains = [...apiFiltered];
-        gtfsTrains.forEach(gTrain => {
-            const gMin = gTrain.Min === 'ARR' ? 0 : parseInt(gTrain.Min);
-            const duplicate = apiFiltered.some(aTrain => {
-                const aMin = aTrain.Min === 'ARR' || aTrain.Min === 'BRD' ? 0 : parseInt(aTrain.Min);
-                return Math.abs(aMin - gMin) <= 3 && aTrain.Line === gTrain.Line;
-            });
-            if (!duplicate) mergedTrains.push(gTrain);
+        const gtfsTrains = parseUpdatesToTrains(gtfsEntities, station, ensureArray(terminus));
+
+        // Get scheduled trains
+        const scheduledTrains = typeof getScheduledTrains === 'function'
+          ? getScheduledTrains(station, terminus, 15)
+          : [];
+
+        // Merge all sources using utility function
+        const mergedTrains = mergeTrainData({
+          apiTrains: apiFiltered,
+          gtfsTrains: gtfsTrains,
+          scheduledTrains: scheduledTrains
         });
 
-        // Merge Static Schedule
-        if (typeof getScheduledTrains === 'function') {
-            const staticSchedule = getScheduledTrains(station, terminus, 15);
-            staticSchedule.forEach(sTrain => {
-                const sMin = parseInt(sTrain.Min);
-                const duplicate = mergedTrains.some(mTrain => {
-                    const mMin = mTrain.Min === 'ARR' || mTrain.Min === 'BRD' ? 0 : parseInt(mTrain.Min);
-                    return Math.abs(mMin - sMin) <= 4;
-                });
-                if (!duplicate) {
-                    sTrain._gtfs = false;
-                    sTrain._scheduled = true;
-                    mergedTrains.push(sTrain);
-                }
-            });
-        }
-        
         // Sort
         return mergedTrains.sort((a, b) => {
             const aIsLive = !a._scheduled;
             const bIsLive = !b._scheduled;
             if (aIsLive !== bIsLive) return aIsLive ? -1 : 1;
-            const aMin = a.Min === 'ARR' || a.Min === 'BRD' ? 0 : parseInt(a.Min);
-            const bMin = b.Min === 'ARR' || b.Min === 'BRD' ? 0 : parseInt(b.Min);
-            return aMin - bMin;
+            return getTrainMinutes(a.Min) - getTrainMinutes(b.Min);
         });
     });
   })
@@ -1223,46 +1367,14 @@ function fetchAndDisplayTrainInfo(station, terminus, infobox, selectable = false
     const initialTrains = filteredData.slice(0, INITIAL_LIMIT);
     const hiddenTrains = filteredData.slice(INITIAL_LIMIT);
 
-    function renderLeg1Card(train, index) {
-      const box = document.createElement('div');
-      box.classList.add('train-card', getLineClass(train.Line));
-      if (selectable) box.classList.add('selectable');
-      box.style.animationDelay = `${index * 0.05}s`;
-
-      const trainMin = train.Min === 'ARR' || train.Min === 'BRD' ? 0 : parseInt(train.Min);
-      const clockTime = minutesToClockTime(trainMin);
-      const minDisplay = train.Min === 'ARR' ? 'ARR' : train.Min === 'BRD' ? 'BRD' : train.Min + ' min';
-      
-      let sourceIcon = '';
-      if (train._gtfs) {
-          sourceIcon = ' <i class="fas fa-satellite-dish" title="Tracked via GPS" style="color: var(--text-muted); opacity: 0.7;"></i>';
-      } else if (train._scheduled) {
-          sourceIcon = ' <span class="badge bg-secondary">Sched</span>';
-      } else {
-          sourceIcon = ' <i class="fas fa-rss" title="Live at Station" style="color: var(--text-muted); opacity: 0.7;"></i>';
-      }
-
-      box.innerHTML = `
-        <div class="train-card-content">
-          <div class="train-line-badge">${train.Line || '—'}</div>
-          <div class="train-details">
-            <div class="train-destination">${getDisplayName(train.DestinationName)}${sourceIcon}</div>
-            <div class="train-car">${train.Car || '8'}-car train</div>
-          </div>
-          <div class="train-time ${train.Min === 'ARR' || train.Min === 'BRD' ? 'arriving' : ''}">
-            ${minDisplay}<br><small>${clockTime}</small>
-          </div>
-        </div>
-      `;
-
-      if (selectable) {
-        box.addEventListener('click', () => selectTrain(box, train.Min));
-      }
-      return box;
-    }
-
+    // Render initial trains using unified createTrainCard
     initialTrains.forEach((train, index) => {
-      trainInfoContainer.appendChild(renderLeg1Card(train, index));
+      const card = createTrainCard(train, index, {
+        selectable: selectable,
+        showCatchability: false,
+        onClick: selectable ? () => selectTrain(card, train.Min) : null
+      });
+      trainInfoContainer.appendChild(card);
     });
 
     if (hiddenTrains.length > 0) {
@@ -1272,7 +1384,12 @@ function fetchAndDisplayTrainInfo(station, terminus, infobox, selectable = false
       showMoreBtn.onclick = () => {
         showMoreBtn.remove();
         hiddenTrains.forEach((train, index) => {
-          trainInfoContainer.appendChild(renderLeg1Card(train, index));
+          const card = createTrainCard(train, index, {
+            selectable: selectable,
+            showCatchability: false,
+            onClick: selectable ? () => selectTrain(card, train.Min) : null
+          });
+          trainInfoContainer.appendChild(card);
         });
       };
       trainInfoContainer.appendChild(showMoreBtn);
