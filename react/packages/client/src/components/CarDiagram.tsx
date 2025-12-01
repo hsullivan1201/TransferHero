@@ -20,7 +20,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
       <div className="flex flex-col items-center">
         {/* Arrow row */}
         <div className="flex gap-1 h-6 mb-0.5">
-          {Array.from({ length: numCars }, (_, i) => {
+          {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = carNum === highlightCar
 
@@ -39,9 +39,9 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           })}
         </div>
 
-        {/* Car boxes row */}
+        {/* Car boxes row. used to use numCars. Just setting at 8 for now so it doesnt suggest a car behind diagram. its fine */}
         <div className="flex gap-1">
-          {Array.from({ length: numCars }, (_, i) => {
+          {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = carNum === highlightCar
             const highlightClass = type === 'board'

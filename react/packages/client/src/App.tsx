@@ -23,7 +23,8 @@ function AppContent() {
   } = useTrip(
     tripState.from?.code ?? null,
     tripState.to?.code ?? null,
-    tripState.walkTime
+    tripState.walkTime,
+    tripState.selectedAlternative?.station ?? null
   )
 
   const {
@@ -78,7 +79,15 @@ function AppContent() {
             stations={stations}
             onGo={handleGo}
             isLoading={tripLoading}
-            transferName={activeTransfer?.name}
+            transfer={activeTransfer}
+            onSelectAlternative={tripState.selectAlternative}
+            selectedAlternativeIndex={
+              tripState.selectedAlternative
+                ? tripData?.trip.transfer?.alternatives?.findIndex(
+                    a => a.station === tripState.selectedAlternative?.station
+                  ) ?? -1
+                : -1
+            }
           />
         )}
 
@@ -104,7 +113,6 @@ function AppContent() {
               originName={tripData.trip.origin.name}
               destinationName={tripData.trip.destination.name}
               transferName={activeTransfer?.name ?? tripData.trip.transfer?.name ?? ''}
-              onSelectAlternative={tripState.selectAlternative}
               onSelectLeg1Train={tripState.selectLeg1Train}
               isLoadingLeg2={leg2Loading}
             />

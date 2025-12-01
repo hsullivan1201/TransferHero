@@ -1,8 +1,7 @@
 import { useState, useCallback } from 'react'
-import type { Train, CatchableTrain, TransferResult, TransferAlternative, CarPosition } from '@transferhero/shared'
+import type { Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
-import { TransferDisplay } from './TransferDisplay'
 import { getTrainMinutes } from '../utils/time'
 
 interface TripViewProps {
@@ -17,7 +16,6 @@ interface TripViewProps {
   originName: string
   destinationName: string
   transferName: string
-  onSelectAlternative: (alternative: TransferAlternative | null) => void
   onSelectLeg1Train: (train: Train, index: number) => void
   isLoadingLeg2?: boolean
 }
@@ -34,12 +32,10 @@ export function TripView({
   originName,
   destinationName,
   transferName,
-  onSelectAlternative,
   onSelectLeg1Train,
   isLoadingLeg2
 }: TripViewProps) {
   const [selectedLeg1Index, setSelectedLeg1Index] = useState<number | undefined>(undefined)
-  const [selectedAlternativeIndex, setSelectedAlternativeIndex] = useState(-1) // -1 = fastest
 
   const selectedLeg1Train = selectedLeg1Index !== undefined ? leg1Trains[selectedLeg1Index] : undefined
   const selectedNumCars = selectedLeg1Train ? parseInt(selectedLeg1Train.Car || '8', 10) : undefined
@@ -54,16 +50,6 @@ export function TripView({
     setSelectedLeg1Index(index)
     onSelectLeg1Train(train, index)
   }, [onSelectLeg1Train])
-
-  const handleAlternativeSelect = useCallback((alternative: TransferAlternative | null) => {
-    if (alternative) {
-      const altIndex = transfer?.alternatives?.findIndex(a => a.station === alternative.station) ?? -1
-      setSelectedAlternativeIndex(altIndex)
-    } else {
-      setSelectedAlternativeIndex(-1)
-    }
-    onSelectAlternative(alternative)
-  }, [onSelectAlternative, transfer])
 
   const isDirect = transfer?.direct ?? false
 

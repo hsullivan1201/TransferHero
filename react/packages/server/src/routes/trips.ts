@@ -3,7 +3,6 @@ import { z } from 'zod'
 import type { Train, CatchableTrain } from '@transferhero/shared'
 import { getTrainMinutes } from '@transferhero/shared'
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
-import { getCarPosition } from '../data/carPositions.js'
 import { getStaticTrips } from '../data/staticTrips.js'
 import { findTransfer, getAllTerminiForStation } from '../services/pathfinding.js'
 import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from '../services/travelTime.js'
@@ -17,13 +16,21 @@ import {
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js'
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js'
 
+// NEW: Import the car position service with real exit data
+import {
+  getTransferCarPosition,
+  getDirectTripCarPosition,
+  type CarPosition
+} from '../data/carPositionService.js'
+
 const router = Router()
 
 // Request validation schemas
 const tripQuerySchema = z.object({
   from: z.string().min(2).max(4),
   to: z.string().min(2).max(4),
-  walkTime: z.coerce.number().min(1).max(15).default(3)
+  walkTime: z.coerce.number().min(1).max(15).default(3),
+  transferStation: z.string().optional() // Allow specifying which transfer to use
 })
 
 const leg2QuerySchema = z.object({
@@ -41,6 +48,17 @@ function getApiKey(): string {
 }
 
 /**
+ * Helper to get terminus string from terminus array
+ * The car position service needs a single destination string for track direction
+ */
+function getTerminusString(terminus: string | string[]): string {
+  if (Array.isArray(terminus)) {
+    return terminus[0] || ''
+  }
+  return terminus
+}
+
+/**
  * GET /api/trips
  * Returns complete trip plan with trains
  */
@@ -51,7 +69,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { from, to, walkTime } = result.data
+  const { from, to, walkTime, transferStation } = result.data
   const apiKey = getApiKey()
 
   // Find stations
@@ -65,8 +83,18 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new NotFoundError(`Destination station not found: ${to}`)
   }
 
-  // Find transfer
-  const transfer = findTransfer(from, to, walkTime)
+  // Find transfer (first get default to access alternatives)
+  let transfer = findTransfer(from, to, walkTime)
+
+  // If a specific transfer station was requested, use that alternative instead
+  if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
+    const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation)
+    if (requestedAlternative) {
+      // Use the requested alternative, but keep the alternatives list from the original
+      const alternatives = transfer.alternatives
+      transfer = { ...requestedAlternative, alternatives }
+    }
+  }
 
   if (!transfer) {
     throw new NotFoundError('No route found between stations')
@@ -93,6 +121,13 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
 
     const sortedTrains = sortTrains(mergedTrains)
 
+    // NEW: Get car position for direct trip exit
+    const directCarPosition = getDirectTripCarPosition(
+      to,                           // destination station code
+      transfer.line!,               // line (RD, OR, etc.)
+      getTerminusString(terminus)   // train terminus for track direction
+    )
+
     return res.json({
       trip: {
         origin: fromStation,
@@ -102,7 +137,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         alternatives: [],
         leg1: {
           trains: sortedTrains,
-          carPosition: null
+          carPosition: directCarPosition  // NEW: Real car position for exit
         }
       },
       meta: {
@@ -150,8 +185,15 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   })
   const leg2SortedTrains = sortTrains(leg2MergedTrains)
 
-  // Get car position for transfer
-  const carPosition = getCarPosition(transfer.fromPlatform, transfer.toPlatform)
+  // NEW: Get car positions using real exit data
+  const carPositions = getTransferCarPosition(
+    transfer.fromPlatform,                  // transfer station (incoming platform)
+    transfer.fromLine!,                     // incoming line (e.g., 'RD')
+    transfer.toLine!,                       // outgoing line (e.g., 'BL')
+    getTerminusString(terminusFirst),       // incoming train destination
+    to,                                     // final destination station code
+    getTerminusString(terminusSecond)       // outgoing train destination
+  )
 
   // Calculate travel times
   const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(
@@ -183,7 +225,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       },
       leg1: {
         trains: sortedTrains,
-        carPosition: carPosition,
+        carPosition: carPositions.leg1,  // NEW: Real car position for transfer
         terminus: terminusFirst,
         travelTime: leg1TravelTime
       },
@@ -191,7 +233,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         trains: leg2SortedTrains,
         terminus: terminusSecond,
         travelTime: leg2TravelTime,
-        carPosition: getCarPosition(transfer.toPlatform, to)
+        carPosition: carPositions.leg2   // NEW: Real car position for exit
       }
     },
     meta: {
@@ -251,6 +293,13 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     to
   )
 
+  // Get terminus for leg 1 (needed for car position calculation)
+  const terminusFirst = getAllTerminiForStation(
+    fromStation,
+    from,
+    transfer.fromPlatform
+  )
+
   // Fetch leg 2 trains from transfer station
   const [apiTrains, gtfsEntities] = await Promise.all([
     fetchStationPredictions(transfer.toPlatform, apiKey),
@@ -302,14 +351,22 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     return getTrainMinutes(a.Min) - getTrainMinutes(b.Min)
   })
 
-  // Get car position for exiting
-  const carPosition = getCarPosition(transfer.fromPlatform, transfer.toPlatform)
+  // NEW: Get car positions using real exit data
+  const carPositions = getTransferCarPosition(
+    transfer.fromPlatform,                  // transfer station (incoming platform)
+    transfer.fromLine!,                     // incoming line
+    transfer.toLine!,                       // outgoing line
+    getTerminusString(terminusFirst),       // incoming train destination
+    to,                                     // final destination station code
+    getTerminusString(terminusSecond)       // outgoing train destination
+  )
 
   res.json({
     trains: sortedTrains,
     arrivalAtTransfer: arrivalAtTransfer,
     arrivalTime: minutesToClockTime(arrivalAtTransfer),
-    carPosition: carPosition,
+    carPosition: carPositions.leg1,     // For boarding at origin
+    exitCarPosition: carPositions.leg2, // NEW: For exiting at destination
     leg2TravelTime: leg2TravelTime,
     meta: {
       fetchedAt: new Date().toISOString(),

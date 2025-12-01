@@ -53,10 +53,27 @@ export interface TransferAlternative extends Transfer {
     leg2Time: number;
     timeDiff: number;
 }
+/**
+ * Car position recommendation for optimal boarding/exiting
+ * Based on real platform exit data from DCMetroStationExits dataset
+ */
 export interface CarPosition {
+    /** Which car to board (1-8, front to back) */
     boardCar: number;
+    /** Which car to exit from (1-8) */
     exitCar: number;
+    /** Position in train (front/middle/back) */
+    boardPosition?: 'front' | 'middle' | 'back';
+    /** Human-readable description */
     legend: string;
+    /** Confidence level of the recommendation */
+    confidence?: 'high' | 'medium' | 'low';
+    /** Additional details about the exit */
+    details?: {
+        exitType?: 'escalator' | 'elevator' | 'stairs' | 'exit';
+        exitDescription?: string;
+        xPosition?: number;
+    };
 }
 export interface Termini {
     toward_a: string[];

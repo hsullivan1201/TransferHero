@@ -12,10 +12,15 @@ export function useStations() {
   })
 }
 
-export function useTrip(from: string | null, to: string | null, walkTime: number) {
+export function useTrip(
+  from: string | null,
+  to: string | null,
+  walkTime: number,
+  transferStation?: string | null
+) {
   return useQuery({
-    queryKey: ['trip', from, to, walkTime],
-    queryFn: () => fetchTrip(from!, to!, walkTime),
+    queryKey: ['trip', from, to, walkTime, transferStation],
+    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined),
     enabled: !!from && !!to,
     staleTime: 30 * 1000, // 30 seconds for real-time data
     refetchInterval: 30 * 1000, // Auto-refresh every 30 seconds

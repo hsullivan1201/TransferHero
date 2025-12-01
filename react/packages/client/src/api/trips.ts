@@ -43,13 +43,17 @@ export async function fetchStations(): Promise<Station[]> {
 export async function fetchTrip(
   from: string,
   to: string,
-  walkTime: number = 3
+  walkTime: number = 3,
+  transferStation?: string
 ): Promise<TripResponse> {
   const params = new URLSearchParams({
     from,
     to,
     walkTime: walkTime.toString()
   })
+  if (transferStation) {
+    params.set('transferStation', transferStation)
+  }
   const res = await fetch(`${API_BASE}/trips?${params}`)
   if (!res.ok) throw new Error('Failed to fetch trip')
   return res.json()

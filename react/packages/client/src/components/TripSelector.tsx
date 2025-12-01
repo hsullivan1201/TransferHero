@@ -1,16 +1,26 @@
 import { useState, useCallback } from 'react'
-import { ArrowRight, Repeat } from 'lucide-react'
-import type { Station } from '@transferhero/shared'
+import { ArrowRight } from 'lucide-react'
+import type { Station, TransferResult, TransferAlternative } from '@transferhero/shared'
 import { StationSelector } from './StationSelector'
+import { TransferDisplay } from './TransferDisplay'
 
 interface TripSelectorProps {
   stations: Station[]
   onGo: (from: Station, to: Station, walkTime: number) => void
   isLoading?: boolean
-  transferName?: string
+  transfer?: TransferResult | null
+  onSelectAlternative?: (alternative: TransferAlternative | null) => void
+  selectedAlternativeIndex?: number
 }
 
-export function TripSelector({ stations, onGo, isLoading, transferName }: TripSelectorProps) {
+export function TripSelector({
+  stations,
+  onGo,
+  isLoading,
+  transfer,
+  onSelectAlternative,
+  selectedAlternativeIndex = -1
+}: TripSelectorProps) {
   const [fromStation, setFromStation] = useState<Station | null>(null)
   const [toStation, setToStation] = useState<Station | null>(null)
   const [walkTime, setWalkTime] = useState(3)
@@ -82,14 +92,14 @@ export function TripSelector({ stations, onGo, isLoading, transferName }: TripSe
         </button>
       </div>
 
-      {/* Transfer info inline */}
-      {transferName && (
-        <div className="mt-3 pt-3 border-t border-[var(--border-color)] flex items-center gap-2 text-[var(--text-primary)]">
-          <Repeat className="w-4 h-4 text-[var(--text-secondary)]" />
-          <span className="text-sm">
-            <span className="text-[var(--text-secondary)]">Transfer at:</span>
-            <span className="font-semibold ml-1.5">{transferName}</span>
-          </span>
+      {/* Transfer Display - shows transfer station with alternatives */}
+      {transfer && !transfer.direct && onSelectAlternative && (
+        <div className="mt-3 pt-3 border-t border-[var(--border-color)]">
+          <TransferDisplay
+            transfer={transfer}
+            onSelectAlternative={onSelectAlternative}
+            selectedIndex={selectedAlternativeIndex}
+          />
         </div>
       )}
     </div>
