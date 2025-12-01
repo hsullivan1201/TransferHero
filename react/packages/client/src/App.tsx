@@ -57,7 +57,7 @@ function AppContent() {
     <div className="min-h-screen flex flex-col">
       <Header />
 
-      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-6">
+      <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
         {/* Station loading/error state */}
         {stationsLoading && (
           <div className="text-center py-8">
@@ -78,6 +78,7 @@ function AppContent() {
             stations={stations}
             onGo={handleGo}
             isLoading={tripLoading}
+            transferName={activeTransfer?.name}
           />
         )}
 

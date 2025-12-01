@@ -53,7 +53,7 @@ export function TrainCard({
 
   return (
     <div
-      className={`relative p-3 mb-2 rounded-lg border-l-4 cursor-pointer transition-all animate-slide-in ${lineClass} ${
+      className={`relative p-5 mb-3 rounded-lg border-l-4 cursor-pointer transition-all animate-slide-in ${lineClass} ${
         variant === 'selectable' ? 'hover:translate-x-1 hover:shadow-lg' : ''
       } ${
         isSelected ? 'border-l-[6px] scale-[1.02] shadow-lg pr-12' : ''
@@ -67,7 +67,7 @@ export function TrainCard({
     >
       <div className="flex items-center gap-3">
         {/* Line badge */}
-        <div className={`w-10 h-10 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
+        <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
           isYellow ? 'bg-black/20 text-[#333]' : 'bg-white/30 text-white'
         }`}>
           {train.Line || '—'}
@@ -75,13 +75,15 @@ export function TrainCard({
 
         {/* Train details */}
         <div className="flex-1 min-w-0">
-          <div className="font-semibold flex items-center gap-1.5">
+          <div className="text-base font-semibold flex items-center gap-1.5">
             {getDisplayName(train.DestinationName)}
             {SourceIcon && (
-              <SourceIcon
-                className={`w-3.5 h-3.5 ${isYellow ? 'text-black/50' : 'text-white/70'}`}
-                title={sourceTitle}
-              />
+              <span title={sourceTitle}>
+                <SourceIcon
+                  className={`w-3.5 h-3.5 ${isYellow ? 'text-black/50' : 'text-white/70'}`}
+                  aria-label={sourceTitle}
+                />
+              </span>
             )}
             {train._scheduled && (
               <span className={`text-xs px-1.5 py-0.5 rounded ${
@@ -91,15 +93,15 @@ export function TrainCard({
               </span>
             )}
           </div>
-          <div className={`text-sm ${isYellow ? 'text-black/70' : 'text-white/90'}`}>
+          <div className={`text-sm mt-0.5 ${isYellow ? 'text-black/70' : 'text-white/90'}`}>
             {statusText}
           </div>
         </div>
 
         {/* Time display */}
         <div className={`text-right font-bold ${isArriving ? 'animate-pulse-slow' : ''}`}>
-          <div className="text-lg">{minDisplay}</div>
-          <div className={`text-xs font-normal ${isYellow ? 'text-black/70' : 'text-white/80'}`}>
+          <div className="text-xl">{minDisplay}</div>
+          <div className={`text-xs font-normal mt-0.5 ${isYellow ? 'text-black/70' : 'text-white/80'}`}>
             {clockTime}
           </div>
         </div>
@@ -107,8 +109,8 @@ export function TrainCard({
 
       {/* Selected checkmark */}
       {isSelected && (
-        <div className="absolute top-1/2 right-3 -translate-y-1/2 w-7 h-7 bg-white rounded-full flex items-center justify-center shadow">
-          <Check className="w-4 h-4 text-green-600" />
+        <div className="absolute top-1/2 right-4 -translate-y-1/2 w-8 h-8 bg-white rounded-full flex items-center justify-center shadow">
+          <Check className="w-5 h-5 text-green-600" />
         </div>
       )}
     </div>

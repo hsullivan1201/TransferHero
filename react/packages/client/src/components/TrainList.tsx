@@ -46,7 +46,7 @@ export function TrainList({
       {hasMore && !showAll && (
         <button
           onClick={() => setShowAll(true)}
-          className="w-full py-2 mt-2 bg-[var(--bg-secondary)] border border-dashed border-[var(--border-color)] rounded-md text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-solid transition-colors"
+          className="w-full py-3 mt-3 bg-[var(--bg-secondary)] border border-dashed border-[var(--border-color)] rounded-lg text-base text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] hover:text-[var(--text-primary)] hover:border-solid transition-colors font-medium"
         >
           Show {trains.length - initialShowCount} more trains
         </button>

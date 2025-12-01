@@ -69,21 +69,10 @@ export function TripView({
 
   return (
     <div className="animate-fade-in">
-      {/* Transfer Display */}
-      {transfer && !isDirect && (
-        <div className="mb-4">
-          <TransferDisplay
-            transfer={transfer}
-            onSelectAlternative={handleAlternativeSelect}
-            selectedIndex={selectedAlternativeIndex}
-          />
-        </div>
-      )}
-
       {/* Main layout - horizontal on desktop: Leg1 | JourneyInfo | Leg2 */}
-      <div className="flex flex-col lg:flex-row gap-4 lg:items-start">
+      <div className="flex flex-col lg:flex-row gap-6 lg:items-start">
         {/* Leg 1 Panel */}
-        <div className="flex-1 min-w-0">
+        <div className="lg:flex-[2] min-w-0">
           <LegPanel
             leg={1}
             title={`Leg 1: ${originName}`}
@@ -98,7 +87,7 @@ export function TripView({
 
         {/* Journey Info (center column on desktop) */}
         {!isDirect && (
-          <div className="hidden lg:flex shrink-0">
+          <div className="hidden lg:flex shrink-0 lg:w-64">
             <JourneyInfo
               leg1Time={leg1Time}
               transferTime={walkTime}
@@ -111,7 +100,7 @@ export function TripView({
 
         {/* Leg 2 Panel */}
         {!isDirect && (
-          <div className="flex-1 min-w-0">
+          <div className="lg:flex-[2] min-w-0">
             <LegPanel
               leg={2}
               title={`Leg 2: ${transferName}`}

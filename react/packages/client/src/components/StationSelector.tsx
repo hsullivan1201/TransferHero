@@ -81,17 +81,17 @@ export function StationSelector({
   if (value) {
     return (
       <div
-        className="flex items-center gap-2 px-3 py-2 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-md cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
+        className="flex items-center gap-2 px-4 py-2.5 bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-md cursor-pointer hover:bg-[var(--bg-tertiary)] transition-colors"
         onClick={handleClear}
       >
         <LineDots lines={value.lines} />
-        <span className="flex-1 font-medium text-[var(--text-primary)]">{value.name}</span>
+        <span className="flex-1 font-medium text-[var(--text-primary)] text-base">{value.name}</span>
         <button
           onClick={(e) => { e.stopPropagation(); handleClear() }}
           className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           aria-label="Clear selection"
         >
-          <X className="w-4 h-4" />
+          <X className="w-5 h-5" />
         </button>
       </div>
     )
@@ -112,7 +112,7 @@ export function StationSelector({
         onBlur={() => setTimeout(() => setIsOpen(false), 150)}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
-        className="w-full px-3 py-2 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
+        className="w-full px-4 py-2.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded-md text-[var(--text-primary)] text-base placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition-colors"
         aria-label={`${field === 'from' ? 'Origin' : 'Destination'} station`}
         aria-expanded={isOpen}
         aria-autocomplete="list"
@@ -129,7 +129,7 @@ export function StationSelector({
               key={station.code}
               role="option"
               aria-selected={index === activeIndex}
-              className={`flex items-center gap-2 px-3 py-2 cursor-pointer border-b border-[var(--border-color)] last:border-b-0 transition-colors ${
+              className={`flex items-center gap-2 px-4 py-3 cursor-pointer border-b border-[var(--border-color)] last:border-b-0 transition-colors ${
                 index === activeIndex
                   ? 'bg-[var(--suggestion-hover)]'
                   : 'hover:bg-[var(--suggestion-hover)]'
@@ -138,7 +138,7 @@ export function StationSelector({
               onMouseEnter={() => setActiveIndex(index)}
             >
               <LineDots lines={station.lines} size="sm" />
-              <span className="text-[var(--text-primary)]">{station.name}</span>
+              <span className="text-[var(--text-primary)] text-base">{station.name}</span>
             </div>
           ))}
         </div>

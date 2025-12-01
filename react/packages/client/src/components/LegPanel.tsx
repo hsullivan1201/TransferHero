@@ -29,20 +29,20 @@ export function LegPanel({
   const carDiagramType = leg === 1 ? 'board' : 'exit'
 
   return (
-    <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-sm">
+    <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
       {/* Header */}
-      <div className="bg-gray-800 px-4 py-3">
-        <h3 className="text-white font-semibold">{title}</h3>
+      <div className="bg-gray-800 px-5 py-4">
+        <h3 className="text-white font-semibold text-lg">{title}</h3>
         {subtitle && (
-          <p className="text-gray-300 text-sm">{subtitle}</p>
+          <p className="text-gray-300 text-base mt-0.5">{subtitle}</p>
         )}
       </div>
 
       {/* Content */}
-      <div className="p-4">
+      <div className="p-5">
         {isLoading ? (
-          <div className="flex items-center justify-center py-8">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E31837]" />
+          <div className="flex items-center justify-center py-12">
+            <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#E31837]" />
           </div>
         ) : (
           <>

@@ -4,7 +4,6 @@ import { getTrainMinutes } from '@transferhero/shared';
 import { findStationByCode } from '../data/stations.js';
 import { getCarPosition } from '../data/carPositions.js';
 import { getStaticTrips } from '../data/staticTrips.js';
-import { getScheduledTrains } from '../data/scheduleData.js';
 import { findTransfer, getAllTerminiForStation } from '../services/pathfinding.js';
 import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from '../services/travelTime.js';
 import { mergeTrainData, sortTrains } from '../services/trainMerger.js';
@@ -67,11 +66,9 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
         const apiFiltered = filterApiResponse(apiTrains, terminus);
         const staticTrips = getStaticTrips();
         const gtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminus, staticTrips);
-        const scheduledTrains = getScheduledTrains(from, terminus, 15);
         const mergedTrains = mergeTrainData({
             apiTrains: apiFiltered,
-            gtfsTrains: gtfsTrains,
-            scheduledTrains: scheduledTrains
+            gtfsTrains: gtfsTrains
         });
         const sortedTrains = sortTrains(mergedTrains);
         return res.json({
@@ -88,7 +85,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
             },
             meta: {
                 fetchedAt: new Date().toISOString(),
-                sources: ['api', 'gtfs', 'schedule']
+                sources: ['api', 'gtfs-rt']
             }
         });
     }
@@ -105,21 +102,17 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
     const staticTrips = getStaticTrips();
     const leg1ApiFiltered = filterApiResponse(leg1ApiTrains, terminusFirst);
     const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips);
-    const leg1ScheduledTrains = getScheduledTrains(from, terminusFirst, 15);
     const leg1MergedTrains = mergeTrainData({
         apiTrains: leg1ApiFiltered,
-        gtfsTrains: leg1GtfsTrains,
-        scheduledTrains: leg1ScheduledTrains
+        gtfsTrains: leg1GtfsTrains
     });
     const sortedTrains = sortTrains(leg1MergedTrains);
     // Process leg 2 trains
     const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond);
     const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips);
-    const leg2ScheduledTrains = getScheduledTrains(transfer.toPlatform, terminusSecond, 15);
     const leg2MergedTrains = mergeTrainData({
         apiTrains: leg2ApiFiltered,
-        gtfsTrains: leg2GtfsTrains,
-        scheduledTrains: leg2ScheduledTrains
+        gtfsTrains: leg2GtfsTrains
     });
     const leg2SortedTrains = sortTrains(leg2MergedTrains);
     // Get car position for transfer
@@ -158,7 +151,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
         },
         meta: {
             fetchedAt: new Date().toISOString(),
-            sources: ['api', 'gtfs', 'schedule'],
+            sources: ['api', 'gtfs-rt'],
             walkTime: walkTime
         }
     });
@@ -204,11 +197,9 @@ router.get('/:tripId/leg2', asyncHandler(async (req, res) => {
     const staticTrips = getStaticTrips();
     const apiFiltered = filterApiResponse(apiTrains, terminusSecond);
     const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips);
-    const scheduledTrains = getScheduledTrains(transfer.toPlatform, terminusSecond, 15);
     const mergedTrains = mergeTrainData({
         apiTrains: apiFiltered,
-        gtfsTrains: gtfsTrains,
-        scheduledTrains: scheduledTrains
+        gtfsTrains: gtfsTrains
     });
     // Calculate leg 2 travel time
     const leg2TravelTime = transfer.leg2Time || calculateRouteTravelTime(transfer.toPlatform, to, transfer.toLine);
