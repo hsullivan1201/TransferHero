@@ -62,12 +62,16 @@ export async function fetchTrip(
 export async function fetchLeg2(
   tripId: string,
   departureMin: number,
-  walkTime: number = 3
+  walkTime: number = 3,
+  transferStation?: string
 ): Promise<Leg2Response> {
   const params = new URLSearchParams({
     departureMin: departureMin.toString(),
     walkTime: walkTime.toString()
   })
+  if (transferStation) {
+    params.set('transferStation', transferStation)
+  }
   const res = await fetch(`${API_BASE}/trips/${tripId}/leg2?${params}`)
   if (!res.ok) throw new Error('Failed to fetch leg 2 trains')
   return res.json()

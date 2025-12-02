@@ -34,6 +34,7 @@ function AppContent() {
     tripId: tripState.tripId ?? '',
     departureMin: tripState.departureMin,
     walkTime: tripState.walkTime,
+    transferStation: tripState.selectedAlternative?.station,
     enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
   })
 
@@ -79,7 +80,8 @@ function AppContent() {
             stations={stations}
             onGo={handleGo}
             isLoading={tripLoading}
-            transfer={activeTransfer}
+            // Fix: Pass the original transfer object so the dropdown list names stay correct
+            transfer={tripData?.trip.isDirect ? null : tripData?.trip.transfer}
             onSelectAlternative={tripState.selectAlternative}
             selectedAlternativeIndex={
               tripState.selectedAlternative

@@ -35,7 +35,8 @@ const tripQuerySchema = z.object({
 
 const leg2QuerySchema = z.object({
   departureMin: z.coerce.number().min(0).max(60),
-  walkTime: z.coerce.number().min(1).max(15).default(3)
+  walkTime: z.coerce.number().min(1).max(15).default(3),
+  transferStation: z.string().optional()
 })
 
 // Get API key from environment
@@ -255,7 +256,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { departureMin, walkTime } = result.data
+  const { departureMin, walkTime, transferStation } = result.data
   const tripId = req.params.tripId
   const apiKey = getApiKey()
 
@@ -273,7 +274,16 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   }
 
   // Find transfer
-  const transfer = findTransfer(from, to, walkTime)
+  let transfer = findTransfer(from, to, walkTime)
+
+  // If a specific transfer station was requested, use that alternative instead
+  if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
+    const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation)
+    if (requestedAlternative) {
+      transfer = { ...requestedAlternative, alternatives: transfer.alternatives }
+    }
+  }
+
   if (!transfer || transfer.direct) {
     throw new ValidationError('This trip does not require a transfer')
   }

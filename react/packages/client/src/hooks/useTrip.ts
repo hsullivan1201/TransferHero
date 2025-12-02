@@ -31,13 +31,14 @@ interface UseLeg2Options {
   tripId: string
   departureMin: number
   walkTime: number
+  transferStation?: string | null
   enabled: boolean
 }
 
-export function useLeg2({ tripId, departureMin, walkTime, enabled }: UseLeg2Options) {
+export function useLeg2({ tripId, departureMin, walkTime, transferStation, enabled }: UseLeg2Options) {
   return useQuery({
-    queryKey: ['leg2', tripId, departureMin, walkTime],
-    queryFn: () => fetchLeg2(tripId, departureMin, walkTime),
+    queryKey: ['leg2', tripId, departureMin, walkTime, transferStation],
+    queryFn: () => fetchLeg2(tripId, departureMin, walkTime, transferStation || undefined),
     enabled,
     staleTime: 30 * 1000,
   })

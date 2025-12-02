@@ -19,6 +19,10 @@ export function TransferDisplay({
   const alternatives = (transfer.alternatives || []).filter(alt => alt.timeDiff <= 10)
   const hasAlternatives = alternatives.length > 0
 
+  // Determine the display name for the header (selected alternative or original)
+  const selectedAlt = selectedIndex >= 0 ? transfer.alternatives?.[selectedIndex] : null
+  const headerName = selectedAlt ? selectedAlt.name : transfer.name
+
   if (transfer.direct) {
     return (
       <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3">
@@ -31,10 +35,13 @@ export function TransferDisplay({
 
   return (
     <div className="bg-[var(--bg-secondary)] border border-[var(--border-color)] rounded-lg p-3">
-      <div className="flex items-center justify-between">
+      <div 
+        className={`flex items-center justify-between ${hasAlternatives ? 'cursor-pointer' : ''}`}
+        onClick={hasAlternatives ? () => setIsExpanded(!isExpanded) : undefined}
+      >
         <div>
           <span className="text-[var(--text-primary)] font-semibold">
-            Transfer at: {transfer.name}
+            Transfer at: {headerName}
           </span>
           {hasAlternatives && selectedIndex === -1 && (
             <span className="ml-2 text-xs text-[var(--text-secondary)]">(fastest)</span>
@@ -43,7 +50,6 @@ export function TransferDisplay({
 
         {hasAlternatives && (
           <button
-            onClick={() => setIsExpanded(!isExpanded)}
             className="flex items-center gap-1 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
           >
             {alternatives.length + 1} options
@@ -75,25 +81,28 @@ export function TransferDisplay({
           </button>
 
           {/* Alternative options */}
-          {alternatives.map((alt, index) => (
-            <button
-              key={alt.station}
-              onClick={() => onSelectAlternative(alt)}
-              className={`w-full text-left p-2 rounded flex items-center justify-between transition-colors ${
-                selectedIndex === index
-                  ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
-                  : 'hover:bg-[var(--suggestion-hover)]'
-              }`}
-            >
-              <span>
-                <strong>{alt.name}</strong>
-                <span className="text-xs ml-2 text-[var(--text-secondary)]">
-                  +{alt.timeDiff} min
+          {alternatives.map((alt) => {
+            const isSelected = selectedAlt?.station === alt.station
+            return (
+              <button
+                key={alt.station}
+                onClick={() => onSelectAlternative(alt)}
+                className={`w-full text-left p-2 rounded flex items-center justify-between transition-colors ${
+                  isSelected
+                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                    : 'hover:bg-[var(--suggestion-hover)]'
+                }`}
+              >
+                <span>
+                  <strong>{alt.name}</strong>
+                  <span className="text-xs ml-2 text-[var(--text-secondary)]">
+                    +{alt.timeDiff} min
+                  </span>
                 </span>
-              </span>
-              {selectedIndex === index && <Check className="w-4 h-4" />}
-            </button>
-          ))}
+                {isSelected && <Check className="w-4 h-4" />}
+              </button>
+            )
+          })}
         </div>
       )}
     </div>
