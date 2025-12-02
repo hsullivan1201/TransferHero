@@ -1962,7 +1962,41 @@
           }
         }
       ],
-      "wmataCode": "F01"
+      "wmataCode": "F01",
+      "transfers": {
+        "GR_to_RD": {
+          "x": 33,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "GR_to_RD_Shady Grove": {
+          "x": 33,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "GR_to_RD_Glenmont": {
+          "x": 41,
+          "description": "Escalator to RD trains to Glenmont"
+        },
+        "YL_to_RD": {
+          "x": 33,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "YL_to_RD_Shady Grove": {
+          "x": 33,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "YL_to_RD_Glenmont": {
+          "x": 41,
+          "description": "Escalator to RD trains to Glenmont"
+        },
+        "RD_to_GR": {
+          "x": 66,
+          "description": "Exit to GR/YL trains"
+        },
+        "RD_to_YL": {
+          "x": 66,
+          "description": "Exit to GR/YL trains"
+        }
+      }
     },
     "Georgia Avenue-Petworth": {
       "name": "Georgia Avenue-Petworth",
@@ -3135,13 +3169,37 @@
           "x": 23,
           "description": "Escalator to RD trains to Shady Grove"
         },
+        "BL_to_RD_Shady Grove": {
+          "x": 23,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "BL_to_RD_Glenmont": {
+          "x": 33,
+          "description": "Escalator to RD trains to Glenmont"
+        },
         "OR_to_RD": {
           "x": 23,
           "description": "Escalator to RD trains to Shady Grove"
         },
+        "OR_to_RD_Shady Grove": {
+          "x": 23,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "OR_to_RD_Glenmont": {
+          "x": 33,
+          "description": "Escalator to RD trains to Glenmont"
+        },
         "SV_to_RD": {
           "x": 23,
           "description": "Escalator to RD trains to Shady Grove"
+        },
+        "SV_to_RD_Shady Grove": {
+          "x": 23,
+          "description": "Escalator to RD trains to Shady Grove"
+        },
+        "SV_to_RD_Glenmont": {
+          "x": 33,
+          "description": "Escalator to RD trains to Glenmont"
         },
         "RD_to_BL": {
           "x": 34,

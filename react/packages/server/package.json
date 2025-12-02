@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "nodemon --exec node --loader ts-node/esm src/index.ts --ext ts",
-    "build": "tsc",
+    "build": "tsc && cp src/data/*.json dist/data/",
     "start": "node dist/index.js"
   },
   "dependencies": {

@@ -31,7 +31,8 @@ const tripQuerySchema = z.object({
   from: z.string().min(2).max(4),
   to: z.string().min(2).max(4),
   walkTime: z.coerce.number().min(1).max(15).default(3),
-  transferStation: z.string().optional() // Allow specifying which transfer to use
+  transferStation: z.string().optional(), // Allow specifying which transfer to use
+  accessible: z.coerce.boolean().default(false) // When true, prioritize elevator exits
 })
 
 const leg2QuerySchema = z.object({
@@ -40,7 +41,8 @@ const leg2QuerySchema = z.object({
   walkTime: z.coerce.number().min(1).max(15).default(3),
   transferStation: z.string().optional(),
   // Real-time arrival at transfer station (if available from WMATA/GTFS-RT)
-  transferArrivalMin: z.coerce.number().optional()
+  transferArrivalMin: z.coerce.number().optional(),
+  accessible: z.coerce.boolean().default(false) // When true, prioritize elevator exits
 })
 
 // Get API key from environment
@@ -74,7 +76,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { from, to, walkTime, transferStation } = result.data
+  const { from, to, walkTime, transferStation, accessible } = result.data
   const apiKey = getApiKey()
 
   // Find stations
@@ -142,7 +144,8 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     const directCarPosition = getDirectTripCarPosition(
       to,                           // destination station code
       transfer.line!,               // line (RD, OR, etc.)
-      getTerminusString(terminus)   // train terminus for track direction
+      getTerminusString(terminus),  // train terminus for track direction
+      accessible                    // accessibility mode
     )
 
     return res.json({
@@ -183,10 +186,11 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     fetchGTFSTripUpdates(apiKey)
   ])
 
-  // Process leg 1 trains
+  // Process leg 1 trains - filter by the specific line needed for this transfer
   const staticTrips = getStaticTrips()
-  const leg1ApiFiltered = filterApiResponse(leg1ApiTrains, terminusFirst)
-  const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips)
+  const leg1AllowedLines = transfer.fromLine ? [transfer.fromLine] : undefined
+  const leg1ApiFiltered = filterApiResponse(leg1ApiTrains, terminusFirst, leg1AllowedLines)
+  const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips, leg1AllowedLines)
   const leg1MergedTrains = mergeTrainData({
     apiTrains: leg1ApiFiltered,
     gtfsTrains: leg1GtfsTrains
@@ -217,9 +221,10 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   )
   const sortedTrains = sortTrains(leg1WithArrival)
 
-  // Process leg 2 trains
-  const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond)
-  const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips)
+  // Process leg 2 trains - filter by the specific line needed for leg 2
+  const leg2AllowedLines = transfer.toLine ? [transfer.toLine] : undefined
+  const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond, leg2AllowedLines)
+  const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
   const leg2MergedTrains = mergeTrainData({
     apiTrains: leg2ApiFiltered,
     gtfsTrains: leg2GtfsTrains
@@ -241,7 +246,8 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     transfer.toLine!,                       // outgoing line (e.g., 'BL')
     getTerminusString(terminusFirst),       // incoming train destination
     to,                                     // final destination station code
-    getTerminusString(terminusSecond)       // outgoing train destination
+    getTerminusString(terminusSecond),      // outgoing train destination
+    accessible                              // accessibility mode
   )
 
   // Calculate travel times
@@ -305,7 +311,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { departureMin, walkTime, transferStation, transferArrivalMin } = result.data
+  const { departureMin, walkTime, transferStation, transferArrivalMin, accessible } = result.data
   const tripId = req.params.tripId
   const apiKey = getApiKey()
 
@@ -373,9 +379,11 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     fetchGTFSTripUpdates(apiKey)
   ])
 
+  // Filter by the specific line needed for leg 2
   const staticTrips = getStaticTrips()
-  const apiFiltered = filterApiResponse(apiTrains, terminusSecond)
-  const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips)
+  const leg2AllowedLines = transfer.toLine ? [transfer.toLine] : undefined
+  const apiFiltered = filterApiResponse(apiTrains, terminusSecond, leg2AllowedLines)
+  const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
 
   const mergedTrains = mergeTrainData({
     apiTrains: apiFiltered,
@@ -437,7 +445,8 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     transfer.toLine!,                       // outgoing line
     getTerminusString(terminusFirst),       // incoming train destination
     to,                                     // final destination station code
-    getTerminusString(terminusSecond)       // outgoing train destination
+    getTerminusString(terminusSecond),      // outgoing train destination
+    accessible                              // accessibility mode
   )
 
   res.json({

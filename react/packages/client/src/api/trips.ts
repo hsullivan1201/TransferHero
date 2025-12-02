@@ -44,12 +44,14 @@ export async function fetchTrip(
   from: string,
   to: string,
   walkTime: number = 3,
-  transferStation?: string
+  transferStation?: string,
+  accessible: boolean = false
 ): Promise<TripResponse> {
   const params = new URLSearchParams({
     from,
     to,
-    walkTime: walkTime.toString()
+    walkTime: walkTime.toString(),
+    accessible: accessible.toString()
   })
   if (transferStation) {
     params.set('transferStation', transferStation)
@@ -64,11 +66,13 @@ export async function fetchLeg2(
   departureMin: number,
   walkTime: number = 3,
   transferStation?: string,
-  transferArrivalMin?: number
+  transferArrivalMin?: number,
+  accessible: boolean = false
 ): Promise<Leg2Response> {
   const params = new URLSearchParams({
     departureMin: departureMin.toString(),
-    walkTime: walkTime.toString()
+    walkTime: walkTime.toString(),
+    accessible: accessible.toString()
   })
   if (transferStation) {
     params.set('transferStation', transferStation)

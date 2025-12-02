@@ -19,11 +19,12 @@ export function useTrip(
   from: string | null,
   to: string | null,
   walkTime: number,
-  transferStation?: string | null
+  transferStation?: string | null,
+  accessible: boolean = false
 ) {
   return useQuery({
-    queryKey: ['trip', from, to, walkTime, transferStation],
-    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined),
+    queryKey: ['trip', from, to, walkTime, transferStation, accessible],
+    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible),
     enabled: !!from && !!to,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
@@ -39,17 +40,18 @@ interface UseLeg2Options {
   enabled: boolean
   /** Real-time arrival at transfer station from selected train's _destArrivalMin */
   transferArrivalMin?: number
+  accessible?: boolean
 }
 
-export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation, enabled, transferArrivalMin }: UseLeg2Options) {
+export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation, enabled, transferArrivalMin, accessible = false }: UseLeg2Options) {
   return useQuery({
-    queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, transferArrivalMin],
+    queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, transferArrivalMin, accessible],
     queryFn: () => {
       const currentDepartureMin = departureTimestamp
         ? Math.round((departureTimestamp - Date.now()) / 60000)
         : 0
 
-      return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin)
+      return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible)
     },
     enabled,
     staleTime: 30 * 1000,
@@ -65,6 +67,7 @@ interface TripState {
   selectedLeg1Index: number | undefined
   selectedAlternative: TransferAlternative | null
   departureTimestamp: number | null
+  accessible: boolean
 }
 
 export function useTripState() {
@@ -76,6 +79,7 @@ export function useTripState() {
     selectedLeg1Index: undefined,
     selectedAlternative: null,
     departureTimestamp: null,
+    accessible: false,
   })
 
   const setFrom = useCallback((station: Station | null) => {
@@ -136,8 +140,15 @@ export function useTripState() {
     }))
   }, [])
 
+  const toggleAccessible = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      accessible: !prev.accessible,
+    }))
+  }, [])
+
   const startTrip = useCallback((from: Station, to: Station, walkTime: number) => {
-    setState({
+    setState(prev => ({
       from,
       to,
       walkTime,
@@ -145,11 +156,12 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-    })
+      accessible: prev.accessible, // Preserve accessibility setting
+    }))
   }, [])
 
   const reset = useCallback(() => {
-    setState({
+    setState(prev => ({
       from: null,
       to: null,
       walkTime: 3,
@@ -157,7 +169,8 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-    })
+      accessible: prev.accessible, // Preserve accessibility setting
+    }))
   }, [])
 
   const tripId = useMemo(() => {
@@ -172,8 +185,9 @@ export function useTripState() {
     setTo,
     setWalkTime,
     selectLeg1Train,
-    clearLeg1Selection, // Export it
+    clearLeg1Selection,
     selectAlternative,
+    toggleAccessible,
     startTrip,
     reset,
   }

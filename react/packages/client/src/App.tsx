@@ -25,7 +25,8 @@ function AppContent() {
     tripState.from?.code ?? null,
     tripState.to?.code ?? null,
     tripState.walkTime,
-    tripState.selectedAlternative?.station ?? null
+    tripState.selectedAlternative?.station ?? null,
+    tripState.accessible
   )
 
   // Find live version of selected train from refreshed data for accurate timing
@@ -49,6 +50,7 @@ function AppContent() {
     enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
     // Pass LIVE real-time arrival at transfer station (updates every 30s)
     transferArrivalMin: liveLeg1Train?._transferArrivalMin,
+    accessible: tripState.accessible,
   })
 
   const handleGo = (from: Station, to: Station, walkTime: number) => {
@@ -67,7 +69,10 @@ function AppContent() {
 
   return (
     <div className="min-h-screen flex flex-col">
-      <Header />
+      <Header 
+        accessible={tripState.accessible} 
+        onToggleAccessible={tripState.toggleAccessible} 
+      />
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
         {stationsLoading && (
