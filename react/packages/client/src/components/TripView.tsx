@@ -82,7 +82,7 @@ export function TripView({
 
     // Handle departed trains selected from "Already on a train?" section
     if (liveTrain._departed && liveTrain._transferArrivalTimestamp) {
-      // Departed train - show countdown to transfer station
+      // Departed train - show countdown to transfer station (same format as regular trains)
       const minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - now) / 60000)
       currentMin = minutesRemaining
       
@@ -92,10 +92,9 @@ export function TripView({
         _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
       }
       
-      const nextStopInfo = liveTrain._nextStop ? ` · Next: ${liveTrain._nextStop}` : ''
       customStatus = minutesRemaining <= 0
         ? `Arrived at ${transferName || targetName}`
-        : `En Route to ${transferName || targetName}${nextStopInfo} · Arr ${liveTrain._transferArrivalTime || ''}`
+        : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
     } else if (minUntilDeparture > 0) {
       // Train hasn't departed yet - countdown based on recorded departure time
       currentMin = minUntilDeparture
