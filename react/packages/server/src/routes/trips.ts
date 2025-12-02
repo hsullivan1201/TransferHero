@@ -193,9 +193,25 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   })
 
   // Enrich leg1 trains with real-time arrival at transfer station
-  const leg1WithArrival = await fetchDestinationArrivals(
+  const leg1WithTransferArrival = await fetchDestinationArrivals(
     leg1MergedTrains,
     transfer.fromPlatform,
+    apiKey,
+    gtfsEntities
+  )
+
+  // Copy transfer arrival to dedicated fields
+  const leg1WithBothArrivals = leg1WithTransferArrival.map(train => ({
+    ...train,
+    _transferArrivalMin: train._destArrivalMin,
+    _transferArrivalTime: train._destArrivalTime,
+    _transferArrivalTimestamp: train._destArrivalTimestamp
+  }))
+
+  // Now enrich with FINAL destination arrivals
+  const leg1WithArrival = await fetchDestinationArrivals(
+    leg1WithBothArrivals,
+    to,
     apiKey,
     gtfsEntities
   )

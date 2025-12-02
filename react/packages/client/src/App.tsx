@@ -20,6 +20,7 @@ function AppContent() {
     data: tripData,
     isLoading: tripLoading,
     error: tripError,
+    refetch: refetchTrip,
   } = useTrip(
     tripState.from?.code ?? null,
     tripState.to?.code ?? null,
@@ -39,6 +40,7 @@ function AppContent() {
   const {
     data: leg2Data,
     isLoading: leg2Loading,
+    refetch: refetchLeg2,
   } = useLeg2({
     tripId: tripState.tripId ?? '',
     departureTimestamp: tripState.departureTimestamp,
@@ -46,7 +48,7 @@ function AppContent() {
     transferStation: tripState.selectedAlternative?.station,
     enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
     // Pass LIVE real-time arrival at transfer station (updates every 30s)
-    transferArrivalMin: liveLeg1Train?._destArrivalMin,
+    transferArrivalMin: liveLeg1Train?._transferArrivalMin,
   })
 
   const handleGo = (from: Station, to: Station, walkTime: number) => {
@@ -123,6 +125,11 @@ function AppContent() {
               isLoadingLeg2={leg2Loading}
               selectedLeg1Train={tripState.selectedLeg1Train}
               departureTimestamp={tripState.departureTimestamp}
+              onRefresh={() => {
+                refetchTrip()
+                refetchLeg2()
+              }}
+              isRefreshing={tripLoading || leg2Loading}
           />
           ) : !tripLoading && !tripError && (
             <EmptyState />

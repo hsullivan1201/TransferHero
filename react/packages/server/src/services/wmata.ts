@@ -238,7 +238,8 @@ export function enrichTrainsWithDestinationArrival(
       return {
         ...train,
         _destArrivalMin: arrivalData.minutes,
-        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        _destArrivalTimestamp: arrivalData.timestamp
       }
     }
     return train
@@ -284,13 +285,14 @@ export async function fetchDestinationArrivals(
       const matched = matchingTrains[0]
       const destArrivalMin = getTrainMinutes(matched.Min)
 
-      const now = new Date()
-      now.setMinutes(now.getMinutes() + destArrivalMin)
+      const arrivalTimestamp = Date.now() + (destArrivalMin * 60 * 1000)
+      const arrivalDate = new Date(arrivalTimestamp)
 
       return {
         ...train,
         _destArrivalMin: destArrivalMin,
-        _destArrivalTime: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        _destArrivalTimestamp: arrivalTimestamp,
         _realtimeSource: 'wmata' as const
       }
     }
@@ -304,6 +306,7 @@ export async function fetchDestinationArrivals(
           ...train,
           _destArrivalMin: arrivalData.minutes,
           _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          _destArrivalTimestamp: arrivalData.timestamp,
           _realtimeSource: 'gtfs-rt' as const
         }
       }

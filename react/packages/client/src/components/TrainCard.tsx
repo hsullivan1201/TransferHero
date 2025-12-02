@@ -1,9 +1,10 @@
 // react/packages/client/src/components/TrainCard.tsx
+import { useState, useEffect } from 'react'
 import { Satellite, Rss, Check } from 'lucide-react'
 import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getLineClass } from '../utils/lineColors'
 import { getDisplayName } from '../utils/displayNames'
-import { minutesToClockTime, getTrainMinutes } from '../utils/time'
+import { minutesToClockTime, getTrainMinutes, formatTimeWithSeconds, millisecondsToClockTime } from '../utils/time'
 
 interface TrainCardProps {
   train: Train | CatchableTrain
@@ -26,15 +27,42 @@ export function TrainCard({
   onClick,
   customStatus
 }: TrainCardProps) {
+  // Live countdown state - updates every second when showing seconds
+  const [now, setNow] = useState(Date.now())
+
+  // Use timestamp for precise display when available
+  const hasTimestamp = !!train._destArrivalTimestamp && train._destArrivalTimestamp > now
+  const millisRemaining = hasTimestamp && train._destArrivalTimestamp ? train._destArrivalTimestamp - now : 0
+  const shouldShowSeconds = hasTimestamp && millisRemaining < 2 * 60 * 1000 // <2 minutes
+
+  // Set up live countdown when showing seconds
+  useEffect(() => {
+    if (!shouldShowSeconds) {
+      return // No need for interval if not showing seconds
+    }
+
+    // Update every second for smooth countdown
+    const interval = setInterval(() => {
+      setNow(Date.now())
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [shouldShowSeconds])
+
   const trainMin = getTrainMinutes(train.Min)
-  const clockTime = minutesToClockTime(trainMin)
-  
+  const clockTime = shouldShowSeconds
+    ? millisecondsToClockTime(millisRemaining)
+    : minutesToClockTime(trainMin)
+
   // FIX: Handle "5" (string), 5 (number), and custom text like "12 min"
   let minDisplay = ''
   if (train.Min === 'ARR' || train.Min === 'BRD') {
     minDisplay = train.Min
+  } else if (shouldShowSeconds) {
+    // Show seconds precision when <2 min and timestamp available
+    minDisplay = formatTimeWithSeconds(millisRemaining)
   } else if (
-    typeof train.Min === 'number' || 
+    typeof train.Min === 'number' ||
     (!isNaN(Number(train.Min)) && String(train.Min).trim() !== '')
   ) {
     // It's a raw number (5 or "5"), so add " min"

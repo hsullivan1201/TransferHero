@@ -19,8 +19,16 @@ export interface Train {
   _tripId?: string
   /** Real-time arrival at destination station (minutes from now) */
   _destArrivalMin?: number
-  /** ISO timestamp of destination arrival */
+  /** Formatted clock time of destination arrival (e.g., "8:57 PM") */
   _destArrivalTime?: string
+  /** Exact Unix timestamp (ms) of destination arrival for precise calculations */
+  _destArrivalTimestamp?: number
+  /** Real-time arrival at transfer station (minutes from now) */
+  _transferArrivalMin?: number
+  /** Formatted clock time of transfer station arrival (e.g., "9:20 PM") */
+  _transferArrivalTime?: string
+  /** Exact Unix timestamp (ms) of transfer station arrival for precise calculations */
+  _transferArrivalTimestamp?: number
   /** Source of realtime data: 'wmata' or 'gtfs-rt' */
   _realtimeSource?: 'wmata' | 'gtfs-rt'
 }

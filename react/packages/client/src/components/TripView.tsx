@@ -1,4 +1,5 @@
 import { useCallback } from 'react'
+import { RefreshCw } from 'lucide-react'
 import type { Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
@@ -16,10 +17,12 @@ interface TripViewProps {
   destinationName: string
   transferName: string
   onSelectLeg1Train: (train: Train, index: number) => void
-  onClearLeg1Selection?: () => void // NEW PROP
+  onClearLeg1Selection?: () => void
   isLoadingLeg2?: boolean
   selectedLeg1Train?: Train | null
   departureTimestamp?: number | null
+  onRefresh?: () => void
+  isRefreshing?: boolean
 }
 
 export function TripView({
@@ -35,10 +38,12 @@ export function TripView({
   destinationName,
   transferName,
   onSelectLeg1Train,
-  onClearLeg1Selection, // Destructure it
+  onClearLeg1Selection,
   isLoadingLeg2,
   selectedLeg1Train,
-  departureTimestamp
+  departureTimestamp,
+  onRefresh,
+  isRefreshing
 }: TripViewProps) {
 
   // Logic for displayTrain calculation and status
@@ -73,42 +78,66 @@ export function TripView({
     if (minUntilDeparture > 0) {
       // Train hasn't departed yet - countdown based on recorded departure time
       currentMin = minUntilDeparture
-      displayTrain = { ...liveTrain, Min: minUntilDeparture }
+      // Pass departureTimestamp for precise seconds display when <2min
+      displayTrain = {
+        ...liveTrain,
+        Min: minUntilDeparture,
+        _destArrivalTimestamp: departureTimestamp // Use departure time for origin countdown
+      }
       customStatus = `Departs ${originName} in ${minUntilDeparture} min`
     } else if (minUntilDeparture >= -1) {
-      // Train is arriving or boarding - check actual live status
+      // Train is arriving or boarding
       currentMin = 0
-      const isArriving = liveTrain.Min === 'ARR'
-      displayTrain = { ...liveTrain, Min: isArriving ? 'ARR' : 'BRD' }
-      customStatus = isArriving ? `Arriving at ${originName}` : `Boarding at ${originName}`
+
+      // Smart departure detection: use transfer arrival to calculate expected departure
+      let hasActuallyDeparted = false
+      if (liveTrain._transferArrivalTimestamp && leg1Time) {
+        const expectedDepartureTime = liveTrain._transferArrivalTimestamp - (leg1Time * 60 * 1000)
+        hasActuallyDeparted = Date.now() >= expectedDepartureTime
+      }
+
+      if (hasActuallyDeparted) {
+        // Train has departed based on transfer arrival math
+        // Calculate time to transfer station
+        let minutesRemaining: number
+        if (liveTrain._transferArrivalTimestamp) {
+          minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - Date.now()) / 60000)
+        } else {
+          minutesRemaining = Math.max(0, leg1Time + minUntilDeparture)
+        }
+
+        displayTrain = {
+          ...liveTrain,
+          Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
+          _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
+        }
+        customStatus = minutesRemaining <= 0
+          ? `Arrived at ${transferName || targetName}`
+          : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
+      } else {
+        // Still boarding at origin
+        const isArriving = liveTrain.Min === 'ARR'
+        displayTrain = { ...liveTrain, Min: isArriving ? 'ARR' : 'BRD' }
+        customStatus = isArriving ? `Arriving at ${originName}` : `Boarding at ${originName}`
+      }
     } else {
       // Train has departed - use real-time arrival at destination if available
-      // Parse _destArrivalTime to get accurate minutes from now (avoid drift from backend-calculated _destArrivalMin)
+      // Use exact timestamp for most accurate calculation
       let minutesRemaining: number
-      if (liveTrain._destArrivalTime) {
-        // Parse clock time like "8:57 PM" to calculate minutes from now
-        const arrivalDate = new Date()
-        const match = liveTrain._destArrivalTime.match(/(\d+):(\d+)\s*(AM|PM)/i)
-        if (match) {
-          let hours = parseInt(match[1])
-          const minutes = parseInt(match[2])
-          const isPM = match[3].toUpperCase() === 'PM'
-          if (isPM && hours !== 12) hours += 12
-          if (!isPM && hours === 12) hours = 0
-          arrivalDate.setHours(hours, minutes, 0, 0)
-          // Handle day rollover
-          if (arrivalDate < new Date()) {
-            arrivalDate.setDate(arrivalDate.getDate() + 1)
-          }
-          minutesRemaining = Math.round((arrivalDate.getTime() - Date.now()) / 60000)
-        } else {
-          minutesRemaining = liveTrain._destArrivalMin ?? Math.max(0, leg1Time + minUntilDeparture)
-        }
+      if (liveTrain._destArrivalTimestamp) {
+        // Most accurate: use exact arrival timestamp from backend
+        minutesRemaining = Math.floor((liveTrain._destArrivalTimestamp - Date.now()) / 60000)
       } else {
+        // Fallback to other methods if timestamp not available
         minutesRemaining = liveTrain._destArrivalMin ?? Math.max(0, leg1Time + minUntilDeparture)
       }
       currentMin = -Math.abs(minUntilDeparture)
-      displayTrain = { ...liveTrain, Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining }
+      // Preserve timestamp for TrainCard to show seconds when <2min
+      displayTrain = {
+        ...liveTrain,
+        Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
+        _destArrivalTimestamp: liveTrain._destArrivalTimestamp // Pass through for precise display
+      }
       customStatus = minutesRemaining <= 0 ? `Arrived at ${targetName}` : `En Route to ${targetName}${arrivalTimeSuffix}`
     }
   } else if (liveTrain) {
@@ -135,6 +164,22 @@ export function TripView({
 
   return (
     <div className="animate-fade-in">
+      {/* Refresh Button */}
+      {onRefresh && (
+        <div className="mb-4 flex justify-end">
+          <button
+            onClick={onRefresh}
+            disabled={isRefreshing}
+            className="flex items-center gap-2 px-4 py-2 bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span className="text-sm font-medium">
+              {isRefreshing ? 'Refreshing...' : 'Refresh Trains'}
+            </span>
+          </button>
+        </div>
+      )}
+
       <div className="flex flex-col lg:flex-row gap-6 lg:items-start">
         <div className="lg:flex-[2] min-w-0">
           <LegPanel
