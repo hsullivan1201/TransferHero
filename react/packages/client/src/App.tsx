@@ -49,8 +49,10 @@ function AppContent() {
     walkTime: tripState.walkTime,
     transferStation: tripState.selectedAlternative?.station,
     enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
-    // Pass LIVE real-time arrival at transfer station (updates every 30s)
-    transferArrivalMin: liveLeg1Train?._transferArrivalMin,
+    // Pass LIVE real-time arrival at transfer station (recalculated from timestamp for freshness)
+    transferArrivalMin: liveLeg1Train?._transferArrivalTimestamp
+      ? Math.round((liveLeg1Train._transferArrivalTimestamp - Date.now()) / 60000)
+      : undefined,
     accessible: tripState.accessible,
   })
 

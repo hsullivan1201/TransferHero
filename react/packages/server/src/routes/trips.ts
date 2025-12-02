@@ -1,6 +1,6 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
-import type { Train, CatchableTrain } from '@transferhero/shared'
+import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getTrainMinutes } from '@transferhero/shared'
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
 import { getStaticTrips } from '../data/staticTrips.js'
@@ -24,6 +24,44 @@ import {
   getDirectTripCarPosition,
   type CarPosition
 } from '../data/carPositionService.js'
+import { PLATFORM_CODES, normalizePlatformCode } from '../data/platformCodes.js'
+import { LINE_STATIONS } from '../data/lineConfig.js'
+
+/**
+ * Get all lines that serve the origin station AND can reach the transfer platform
+ * For interlined origins (OR/SV at New Carrollton), this returns all valid lines
+ */
+function getInterlinesForLeg1(fromStation: { lines: Line[] }, fromPlatform: string): Line[] | undefined {
+  // Get all lines that serve the origin AND include the transfer platform in their stations
+  const validLines = fromStation.lines.filter(line => {
+    const stationsOnLine = LINE_STATIONS[line]
+    if (!stationsOnLine) return false
+    const normalizedPlatform = normalizePlatformCode(fromPlatform, stationsOnLine)
+    return stationsOnLine.includes(normalizedPlatform)
+  })
+
+  return validLines.length > 0 ? validLines : undefined
+}
+
+/**
+ * Get all lines that share a platform at a transfer station AND serve the destination
+ * For interlined segments (OR/SV/BL at Metro Center), this returns all valid lines
+ */
+function getInterlinesForLeg2(toPlatform: string, toStation: { lines: Line[] }): Line[] | undefined {
+  const platformConfig = PLATFORM_CODES[toPlatform]
+  if (!platformConfig) return undefined
+
+  // Get all lines that use this specific platform
+  const linesOnPlatform = Object.entries(platformConfig)
+    .filter(([_, code]) => code === toPlatform)
+    .map(([line]) => line as Line)
+
+  if (linesOnPlatform.length === 0) return undefined
+
+  // Intersect with destination station lines
+  const validLines = linesOnPlatform.filter(line => toStation.lines.includes(line))
+  return validLines.length > 0 ? validLines : undefined
+}
 
 const router = Router()
 
@@ -194,9 +232,10 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     fetchGTFSTripUpdates(apiKey)
   ])
 
-  // Process leg 1 trains - filter by the specific line needed for this transfer
+  // Process leg 1 trains - include all interlined trains (OR/SV share track from New Carrollton)
   const staticTrips = getStaticTrips()
-  const leg1AllowedLines = transfer.fromLine ? [transfer.fromLine] : undefined
+  const leg1AllowedLines = getInterlinesForLeg1(fromStation, transfer.fromPlatform)
+    || (transfer.fromLine ? [transfer.fromLine] : undefined)
   const leg1ApiFiltered = filterApiResponse(leg1ApiTrains, terminusFirst, leg1AllowedLines)
   const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips, leg1AllowedLines)
   const leg1MergedTrains = mergeTrainData({
@@ -252,8 +291,9 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     sortedTrains = [...sortedTrains, ...uniqueDeparted]
   }
 
-  // Process leg 2 trains - filter by the specific line needed for leg 2
-  const leg2AllowedLines = transfer.toLine ? [transfer.toLine] : undefined
+  // Process leg 2 trains - include all interlined trains (OR/SV/BL share track)
+  const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
+    || (transfer.toLine ? [transfer.toLine] : undefined)
   const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond, leg2AllowedLines)
   const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
   const leg2MergedTrains = mergeTrainData({
@@ -410,9 +450,10 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     fetchGTFSTripUpdates(apiKey)
   ])
 
-  // Filter by the specific line needed for leg 2
+  // Include all interlined trains (OR/SV/BL share track)
   const staticTrips = getStaticTrips()
-  const leg2AllowedLines = transfer.toLine ? [transfer.toLine] : undefined
+  const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
+    || (transfer.toLine ? [transfer.toLine] : undefined)
   const apiFiltered = filterApiResponse(apiTrains, terminusSecond, leg2AllowedLines)
   const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
 
