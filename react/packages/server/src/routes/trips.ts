@@ -27,12 +27,18 @@ import {
 const router = Router()
 
 // Request validation schemas
+// Helper to parse boolean from query string (z.coerce.boolean treats "false" as true)
+const booleanFromString = z.preprocess(
+  (val) => val === 'true' || val === true,
+  z.boolean().default(false)
+)
+
 const tripQuerySchema = z.object({
   from: z.string().min(2).max(4),
   to: z.string().min(2).max(4),
   walkTime: z.coerce.number().min(1).max(15).default(3),
   transferStation: z.string().optional(), // Allow specifying which transfer to use
-  accessible: z.coerce.boolean().default(false) // When true, prioritize elevator exits
+  accessible: booleanFromString // When true, prioritize elevator exits
 })
 
 const leg2QuerySchema = z.object({
@@ -42,7 +48,7 @@ const leg2QuerySchema = z.object({
   transferStation: z.string().optional(),
   // Real-time arrival at transfer station (if available from WMATA/GTFS-RT)
   transferArrivalMin: z.coerce.number().optional(),
-  accessible: z.coerce.boolean().default(false) // When true, prioritize elevator exits
+  accessible: booleanFromString // When true, prioritize elevator exits
 })
 
 // Get API key from environment
