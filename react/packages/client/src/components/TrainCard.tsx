@@ -1,3 +1,4 @@
+// react/packages/client/src/components/TrainCard.tsx
 import { Satellite, Rss, Check } from 'lucide-react'
 import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getLineClass } from '../utils/lineColors'
@@ -10,6 +11,7 @@ interface TrainCardProps {
   variant: 'selectable' | 'display'
   isSelected?: boolean
   onClick?: () => void
+  customStatus?: string
 }
 
 function isCatchableTrain(train: Train | CatchableTrain): train is CatchableTrain {
@@ -21,20 +23,37 @@ export function TrainCard({
   index,
   variant,
   isSelected,
-  onClick
+  onClick,
+  customStatus
 }: TrainCardProps) {
   const trainMin = getTrainMinutes(train.Min)
   const clockTime = minutesToClockTime(trainMin)
-  const minDisplay = train.Min === 'ARR' ? 'ARR' : train.Min === 'BRD' ? 'BRD' : `${train.Min} min`
+  
+  // FIX: Handle "5" (string), 5 (number), and custom text like "12 min"
+  let minDisplay = ''
+  if (train.Min === 'ARR' || train.Min === 'BRD') {
+    minDisplay = train.Min
+  } else if (
+    typeof train.Min === 'number' || 
+    (!isNaN(Number(train.Min)) && String(train.Min).trim() !== '')
+  ) {
+    // It's a raw number (5 or "5"), so add " min"
+    minDisplay = `${train.Min} min`
+  } else {
+    // It's already formatted text (e.g. "5 min" from TripView logic)
+    minDisplay = String(train.Min)
+  }
+
   const isArriving = train.Min === 'ARR' || train.Min === 'BRD'
 
   const showCatchability = isCatchableTrain(train)
-  const canCatch = showCatchability ? train._canCatch : true
   const isMissed = showCatchability && !train._canCatch
 
   // Determine status text
   let statusText: string
-  if (showCatchability) {
+  if (customStatus) {
+    statusText = customStatus
+  } else if (showCatchability) {
     if (train._canCatch) {
       statusText = `${train._waitTime} min wait · Arr ${train._arrivalClock}`
     } else {
@@ -100,7 +119,7 @@ export function TrainCard({
 
         {/* Time display */}
         <div className={`text-right font-bold ${isArriving ? 'animate-pulse-slow' : ''}`}>
-          <div className="text-xl">{minDisplay}</div>
+          <div className="text-xl whitespace-nowrap">{minDisplay}</div>
           <div className={`text-xs font-normal mt-0.5 ${isYellow ? 'text-black/70' : 'text-white/80'}`}>
             {clockTime}
           </div>

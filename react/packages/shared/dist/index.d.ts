@@ -11,6 +11,14 @@ export interface Train {
     Car: string;
     _gtfs?: boolean;
     _scheduled?: boolean;
+    /** Trip ID from GTFS-RT for tracking across stations */
+    _tripId?: string;
+    /** Real-time arrival at destination station (minutes from now) */
+    _destArrivalMin?: number;
+    /** ISO timestamp of destination arrival */
+    _destArrivalTime?: string;
+    /** Source of realtime data: 'wmata' or 'gtfs-rt' */
+    _realtimeSource?: 'wmata' | 'gtfs-rt';
 }
 export interface CatchableTrain extends Train {
     _waitTime: number;
@@ -46,6 +54,7 @@ export interface TransferResult extends Transfer {
     leg2Time?: number;
     alternatives?: TransferAlternative[];
     line?: Line;
+    defaultTransferName?: string;
 }
 export interface TransferAlternative extends Transfer {
     totalTime: number;

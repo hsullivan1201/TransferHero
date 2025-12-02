@@ -6,7 +6,7 @@ import { getStaticTrips } from '../data/staticTrips.js';
 import { findTransfer, getAllTerminiForStation } from '../services/pathfinding.js';
 import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from '../services/travelTime.js';
 import { mergeTrainData, sortTrains } from '../services/trainMerger.js';
-import { fetchStationPredictions, fetchGTFSTripUpdates, parseUpdatesToTrains, filterApiResponse } from '../services/wmata.js';
+import { fetchStationPredictions, fetchGTFSTripUpdates, parseUpdatesToTrains, filterApiResponse, fetchDestinationArrivals } from '../services/wmata.js';
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js';
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js';
 // NEW: Import the car position service with real exit data
@@ -20,8 +20,12 @@ const tripQuerySchema = z.object({
     transferStation: z.string().optional() // Allow specifying which transfer to use
 });
 const leg2QuerySchema = z.object({
-    departureMin: z.coerce.number().min(0).max(60),
-    walkTime: z.coerce.number().min(1).max(15).default(3)
+    // Allow negative numbers (e.g. -120) for trains that have already departed
+    departureMin: z.coerce.number().min(-120).max(120),
+    walkTime: z.coerce.number().min(1).max(15).default(3),
+    transferStation: z.string().optional(),
+    // Real-time arrival at transfer station (if available from WMATA/GTFS-RT)
+    transferArrivalMin: z.coerce.number().optional()
 });
 // Get API key from environment
 function getApiKey() {
@@ -64,10 +68,13 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
     }
     // Find transfer (first get default to access alternatives)
     let transfer = findTransfer(from, to, walkTime);
+    let defaultTransferName;
     // If a specific transfer station was requested, use that alternative instead
     if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
         const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation);
         if (requestedAlternative) {
+            // Save the default name before swapping
+            defaultTransferName = transfer.name;
             // Use the requested alternative, but keep the alternatives list from the original
             const alternatives = transfer.alternatives;
             transfer = { ...requestedAlternative, alternatives };
@@ -91,7 +98,10 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
             apiTrains: apiFiltered,
             gtfsTrains: gtfsTrains
         });
-        const sortedTrains = sortTrains(mergedTrains);
+        // Enrich trains with real-time destination arrival times
+        // Uses WMATA realtime API, falls back to GTFS-RT for further out trains
+        const trainsWithArrival = await fetchDestinationArrivals(mergedTrains, to, apiKey, gtfsEntities);
+        const sortedTrains = sortTrains(trainsWithArrival);
         // NEW: Get car position for direct trip exit
         const directCarPosition = getDirectTripCarPosition(to, // destination station code
         transfer.line, // line (RD, OR, etc.)
@@ -132,7 +142,9 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
         apiTrains: leg1ApiFiltered,
         gtfsTrains: leg1GtfsTrains
     });
-    const sortedTrains = sortTrains(leg1MergedTrains);
+    // Enrich leg1 trains with real-time arrival at transfer station
+    const leg1WithArrival = await fetchDestinationArrivals(leg1MergedTrains, transfer.fromPlatform, apiKey, gtfsEntities);
+    const sortedTrains = sortTrains(leg1WithArrival);
     // Process leg 2 trains
     const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond);
     const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips);
@@ -140,7 +152,9 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
         apiTrains: leg2ApiFiltered,
         gtfsTrains: leg2GtfsTrains
     });
-    const leg2SortedTrains = sortTrains(leg2MergedTrains);
+    // Enrich leg2 trains with real-time arrival at final destination
+    const leg2WithArrival = await fetchDestinationArrivals(leg2MergedTrains, to, apiKey, gtfsEntities);
+    const leg2SortedTrains = sortTrains(leg2WithArrival);
     // NEW: Get car positions using real exit data
     const carPositions = getTransferCarPosition(transfer.fromPlatform, // transfer station (incoming platform)
     transfer.fromLine, // incoming line (e.g., 'RD')
@@ -166,7 +180,8 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req,
                 toLine: transfer.toLine,
                 leg1Time: leg1TravelTime,
                 leg2Time: leg2TravelTime,
-                alternatives: transfer.alternatives || []
+                alternatives: transfer.alternatives || [],
+                defaultTransferName
             },
             leg1: {
                 trains: sortedTrains,
@@ -198,7 +213,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req, res) => {
     if (!result.success) {
         throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '));
     }
-    const { departureMin, walkTime } = result.data;
+    const { departureMin, walkTime, transferStation, transferArrivalMin } = result.data;
     const tripId = req.params.tripId;
     const apiKey = getApiKey();
     // Parse tripId (format: fromCode-toCode)
@@ -212,13 +227,29 @@ router.get('/:tripId/leg2', asyncHandler(async (req, res) => {
         throw new NotFoundError('Station not found');
     }
     // Find transfer
-    const transfer = findTransfer(from, to, walkTime);
+    let transfer = findTransfer(from, to, walkTime);
+    // If a specific transfer station was requested, use that alternative instead
+    if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
+        const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation);
+        if (requestedAlternative) {
+            transfer = { ...requestedAlternative, alternatives: transfer.alternatives };
+        }
+    }
     if (!transfer || transfer.direct) {
         throw new ValidationError('This trip does not require a transfer');
     }
     // Calculate when user arrives at transfer station
-    const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(from, transfer.fromPlatform, transfer.fromLine);
-    const arrivalAtTransfer = departureMin + leg1TravelTime + walkTime;
+    // Use real-time transfer arrival if provided, otherwise fall back to calculated
+    let arrivalAtTransfer;
+    if (transferArrivalMin !== undefined) {
+        // Real-time arrival at transfer + walk time to other platform
+        arrivalAtTransfer = transferArrivalMin + walkTime;
+    }
+    else {
+        // Fallback: calculate using static travel times
+        const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(from, transfer.fromPlatform, transfer.fromLine);
+        arrivalAtTransfer = departureMin + leg1TravelTime + walkTime;
+    }
     // Get terminus for leg 2
     const terminusSecond = getAllTerminiForStation(toStation, transfer.toPlatform, to);
     // Get terminus for leg 1 (needed for car position calculation)
@@ -235,15 +266,20 @@ router.get('/:tripId/leg2', asyncHandler(async (req, res) => {
         apiTrains: apiFiltered,
         gtfsTrains: gtfsTrains
     });
-    // Calculate leg 2 travel time
-    const leg2TravelTime = transfer.leg2Time || calculateRouteTravelTime(transfer.toPlatform, to, transfer.toLine);
+    // Enrich leg2 trains with real-time arrival at final destination
+    const trainsWithArrival = await fetchDestinationArrivals(mergedTrains, to, apiKey, gtfsEntities);
+    // Calculate leg 2 travel time (fallback for trains without realtime data)
+    const leg2TravelTimeFallback = transfer.leg2Time || calculateRouteTravelTime(transfer.toPlatform, to, transfer.toLine);
     // Calculate catchability for each train
     const CATCH_THRESHOLD = -3; // Can catch trains up to 3 mins before arrival (might run)
-    const trainsWithCatchability = mergedTrains.map(train => {
+    const trainsWithCatchability = trainsWithArrival.map(train => {
         const trainArrival = getTrainMinutes(train.Min);
         const waitTime = trainArrival - arrivalAtTransfer;
-        const totalJourneyTime = trainArrival + leg2TravelTime;
-        const arrivalClockTime = minutesToClockTime(totalJourneyTime);
+        // Use real-time destination arrival if available, otherwise fallback to calculated
+        const totalJourneyTime = train._destArrivalMin !== undefined
+            ? train._destArrivalMin
+            : trainArrival + leg2TravelTimeFallback;
+        const arrivalClockTime = train._destArrivalTime || minutesToClockTime(totalJourneyTime);
         return {
             ...train,
             _waitTime: waitTime,
@@ -278,7 +314,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req, res) => {
         arrivalTime: minutesToClockTime(arrivalAtTransfer),
         carPosition: carPositions.leg1, // For boarding at origin
         exitCarPosition: carPositions.leg2, // NEW: For exiting at destination
-        leg2TravelTime: leg2TravelTime,
+        leg2TravelTime: leg2TravelTimeFallback,
         meta: {
             fetchedAt: new Date().toISOString(),
             transferStation: transfer.name

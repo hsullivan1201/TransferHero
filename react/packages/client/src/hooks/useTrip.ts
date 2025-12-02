@@ -1,13 +1,16 @@
-import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
+import { useQuery, keepPreviousData } from '@tanstack/react-query'
+import { useState, useCallback, useMemo } from 'react'
 import { fetchStations, fetchTrip, fetchLeg2 } from '../api/trips'
 import type { Station, Train, TransferAlternative } from '@transferhero/shared'
 import { getTrainMinutes } from '../utils/time'
+
+// ... [Keep useStations, useTrip, useLeg2 exactly as they are] ...
 
 export function useStations() {
   return useQuery({
     queryKey: ['stations'],
     queryFn: fetchStations,
-    staleTime: 24 * 60 * 60 * 1000, // 24 hours
+    staleTime: 24 * 60 * 60 * 1000,
     gcTime: 24 * 60 * 60 * 1000,
   })
 }
@@ -24,30 +27,35 @@ export function useTrip(
     enabled: !!from && !!to,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
-    // this keeps the old UI visible while the new route fetches
     placeholderData: keepPreviousData,
   })
 }
 
 interface UseLeg2Options {
   tripId: string
-  departureMin: number
+  departureTimestamp: number | null
   walkTime: number
   transferStation?: string | null
   enabled: boolean
+  /** Real-time arrival at transfer station from selected train's _destArrivalMin */
+  transferArrivalMin?: number
 }
 
-export function useLeg2({ tripId, departureMin, walkTime, transferStation, enabled }: UseLeg2Options) {
+export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation, enabled, transferArrivalMin }: UseLeg2Options) {
   return useQuery({
-    queryKey: ['leg2', tripId, departureMin, walkTime, transferStation],
-    queryFn: () => fetchLeg2(tripId, departureMin, walkTime, transferStation || undefined),
+    queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, transferArrivalMin],
+    queryFn: () => {
+      const currentDepartureMin = departureTimestamp
+        ? Math.round((departureTimestamp - Date.now()) / 60000)
+        : 0
+
+      return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin)
+    },
     enabled,
     staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
   })
 }
-
-// Hook to manage trip state
-import { useState, useCallback, useMemo } from 'react'
 
 interface TripState {
   from: Station | null
@@ -56,6 +64,7 @@ interface TripState {
   selectedLeg1Train: Train | null
   selectedLeg1Index: number | undefined
   selectedAlternative: TransferAlternative | null
+  departureTimestamp: number | null
 }
 
 export function useTripState() {
@@ -66,6 +75,7 @@ export function useTripState() {
     selectedLeg1Train: null,
     selectedLeg1Index: undefined,
     selectedAlternative: null,
+    departureTimestamp: null,
   })
 
   const setFrom = useCallback((station: Station | null) => {
@@ -75,6 +85,7 @@ export function useTripState() {
       selectedLeg1Train: null,
       selectedLeg1Index: undefined,
       selectedAlternative: null,
+      departureTimestamp: null,
     }))
   }, [])
 
@@ -85,6 +96,7 @@ export function useTripState() {
       selectedLeg1Train: null,
       selectedLeg1Index: undefined,
       selectedAlternative: null,
+      departureTimestamp: null,
     }))
   }, [])
 
@@ -93,10 +105,24 @@ export function useTripState() {
   }, [])
 
   const selectLeg1Train = useCallback((train: Train, index: number) => {
+    const min = getTrainMinutes(train.Min)
+    const departureTimestamp = Date.now() + (min * 60 * 1000)
+
     setState(prev => ({
       ...prev,
       selectedLeg1Train: train,
       selectedLeg1Index: index,
+      departureTimestamp,
+    }))
+  }, [])
+
+  // NEW: Add this function to clear the selection
+  const clearLeg1Selection = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      selectedLeg1Train: null,
+      selectedLeg1Index: undefined,
+      departureTimestamp: null,
     }))
   }, [])
 
@@ -106,6 +132,7 @@ export function useTripState() {
       selectedAlternative: alternative,
       selectedLeg1Train: null,
       selectedLeg1Index: undefined,
+      departureTimestamp: null,
     }))
   }, [])
 
@@ -117,6 +144,7 @@ export function useTripState() {
       selectedLeg1Train: null,
       selectedLeg1Index: undefined,
       selectedAlternative: null,
+      departureTimestamp: null,
     })
   }, [])
 
@@ -128,6 +156,7 @@ export function useTripState() {
       selectedLeg1Train: null,
       selectedLeg1Index: undefined,
       selectedAlternative: null,
+      departureTimestamp: null,
     })
   }, [])
 
@@ -136,19 +165,14 @@ export function useTripState() {
     return `${state.from.code}-${state.to.code}`
   }, [state.from, state.to])
 
-  const departureMin = useMemo(() => {
-    if (!state.selectedLeg1Train) return 0
-    return getTrainMinutes(state.selectedLeg1Train.Min)
-  }, [state.selectedLeg1Train])
-
   return {
     ...state,
     tripId,
-    departureMin,
     setFrom,
     setTo,
     setWalkTime,
     selectLeg1Train,
+    clearLeg1Selection, // Export it
     selectAlternative,
     startTrip,
     reset,

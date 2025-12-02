@@ -7,3 +7,5 @@ react/node_modules
 react/packages/server/.env
 react/packages/client/node_modules
 react/packages/client/dist
+react/packages/server/dist
+react/packages/shared/dist
