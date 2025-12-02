@@ -98,6 +98,8 @@ export interface ExitOption {
   description?: string
   /** Platform x-position for reference */
   xPosition?: number
+  /** Whether this is the preferred/recommended exit */
+  preferred?: boolean
 }
 
 /**

@@ -38,6 +38,9 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
     ? [...new Set(exits.map(e => e.car))]
     : [highlightCar]
   
+  // Find the preferred car (car with preferred exit)
+  const preferredCar = exits.find(e => e.preferred)?.car
+  
   const showExitLabels = type === 'exit' && exits.length > 0
 
   return (
@@ -52,6 +55,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
             const isPrimary = carNum === highlightCar
+            const isPreferred = carNum === preferredCar
 
             return (
               <div key={i} className="w-9 flex items-end justify-center">
@@ -60,11 +64,13 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
                     className={`w-5 h-5 ${
                       type === 'board' 
                         ? 'text-green-600' 
-                        : isPrimary 
-                          ? 'text-yellow-600' 
-                          : 'text-yellow-400'
+                        : isPreferred
+                          ? 'text-blue-600'
+                          : isPrimary 
+                            ? 'text-yellow-600' 
+                            : 'text-yellow-400'
                     }`}
-                    strokeWidth={isPrimary ? 3 : 2}
+                    strokeWidth={isPreferred || isPrimary ? 3 : 2}
                   />
                 )}
               </div>
@@ -77,10 +83,13 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
             const isPrimary = carNum === highlightCar
+            const isPreferred = carNum === preferredCar
             
             let highlightClass = ''
             if (type === 'board') {
               highlightClass = 'bg-green-100 border-green-500 text-green-700 font-bold'
+            } else if (isPreferred) {
+              highlightClass = 'bg-blue-100 border-blue-500 text-blue-700 font-bold'
             } else if (isPrimary) {
               highlightClass = 'bg-yellow-100 border-yellow-500 text-yellow-700 font-bold'
             } else if (isHighlighted) {
@@ -139,9 +148,9 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
       {showExitLabels && (
         <div className="text-[11px] text-[var(--text-secondary)] text-center mt-2 space-x-3">
           {exits.map((exit, idx) => (
-            <span key={idx} className="inline-flex items-center gap-1">
-              <span className="font-semibold text-[var(--text-primary)]">{exit.car}:</span>
-              <ExitTypeIcon type={exit.type} className="w-3 h-3" />
+            <span key={idx} className={`inline-flex items-center gap-1 ${exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
+              <span className={`font-semibold ${exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>
+              <ExitTypeIcon type={exit.type} className={`w-3 h-3 ${exit.preferred ? 'text-blue-600' : ''}`} />
               <span className="truncate max-w-[100px]">{exit.label}</span>
             </span>
           ))}

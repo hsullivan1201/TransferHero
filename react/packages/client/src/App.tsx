@@ -135,6 +135,7 @@ function AppContent() {
                 refetchLeg2()
               }}
               isRefreshing={tripLoading || leg2Loading}
+              isDirect={tripData.trip.isDirect}
           />
           ) : !tripLoading && !tripError && (
             <EmptyState />

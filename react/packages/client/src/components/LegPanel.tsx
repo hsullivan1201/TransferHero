@@ -14,7 +14,8 @@ interface LegPanelProps {
   onClearSelection?: () => void // NEW PROP
   selectedNumCars?: number
   isLoading?: boolean
-  customStatus?: string 
+  customStatus?: string
+  isDirect?: boolean
 }
 
 export function LegPanel({
@@ -28,10 +29,12 @@ export function LegPanel({
   onClearSelection, // Destructure new prop
   selectedNumCars,
   isLoading,
-  customStatus
+  customStatus,
+  isDirect
 }: LegPanelProps) {
   const variant = leg === 1 ? 'selectable' : 'display'
-  const carDiagramType = leg === 1 ? 'board' : 'exit'
+  // Direct trips: leg 1 IS the destination, so show exit info
+  const carDiagramType = (leg === 1 && !isDirect) ? 'board' : 'exit'
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">

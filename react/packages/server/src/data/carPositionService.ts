@@ -352,6 +352,28 @@ function getAllValidExits(
 }
 
 /**
+ * Mark the preferred exit within a list
+ * Only marks as preferred if the source egress actually had preferred: true
+ */
+function markPreferredExit(exits: ExitOption[], targetEgress: Egress | null): ExitOption[] {
+  // Only mark preferred if the source egress was actually preferred in the data
+  if (!targetEgress || !targetEgress.preferred) return exits
+  const { x, x2, type } = targetEgress
+
+  return exits.map(exit => {
+    const exitX = exit.xPosition
+    const withinRange = exitX !== undefined && (
+      Math.abs(exitX - x) < 0.01 ||
+      (x2 !== undefined && exitX >= x && exitX <= x2)
+    )
+    return {
+      ...exit,
+      preferred: withinRange && exit.type === type,
+    }
+  })
+}
+
+/**
  * Find egress that leads to a connecting platform (for transfers)
  * @param outgoingDestination - Terminus of the outgoing train (for direction-specific matching)
  * @param accessible - When true, prefer elevator egresses
@@ -456,6 +478,7 @@ export function getDirectTripCarPosition(
 
   // Get all valid exits for destinations
   const exits = getAllValidExits(egresses, track, accessible)
+  const exitsWithPreferred = markPreferredExit(exits, bestEgress)
 
   return {
     boardCar: adjustedCar,
@@ -463,7 +486,7 @@ export function getDirectTripCarPosition(
     boardPosition: getPositionDescription(adjustedCar),
     legend: `Board car ${adjustedCar} for quick exit at ${station.name}`,
     confidence: 'high',
-    exits,
+    exits: exitsWithPreferred,
     details: {
       exitType: bestEgress.type,
       exitDescription: bestEgress.description,
@@ -590,7 +613,8 @@ export function getTransferCarPosition(
           xPosition: destEgress.x,
         }
         // Get all valid exits for leg2 destination
-        leg2Exits = getAllValidExits(destEgresses, destTrack, accessible)
+        const allExits = getAllValidExits(destEgresses, destTrack, accessible)
+        leg2Exits = markPreferredExit(allExits, destEgress)
       }
     }
   }

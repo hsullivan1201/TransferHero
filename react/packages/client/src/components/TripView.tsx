@@ -23,6 +23,7 @@ interface TripViewProps {
   departureTimestamp?: number | null
   onRefresh?: () => void
   isRefreshing?: boolean
+  isDirect?: boolean
 }
 
 export function TripView({
@@ -43,7 +44,8 @@ export function TripView({
   selectedLeg1Train,
   departureTimestamp,
   onRefresh,
-  isRefreshing
+  isRefreshing,
+  isDirect = false
 }: TripViewProps) {
 
   // Logic for displayTrain calculation and status
@@ -61,7 +63,6 @@ export function TripView({
   let customStatus: string | undefined = undefined
 
   // Determine target name (transfer station or destination for direct trips)
-  const isDirect = transfer?.direct ?? false
   const targetName = isDirect ? destinationName : transferName
 
   // Build arrival time suffix if real-time data available (use live train data)
@@ -193,6 +194,7 @@ export function TripView({
             onTrainSelect={onSelectLeg1Train}
             onClearSelection={onClearLeg1Selection} // Pass it here
             selectedNumCars={selectedNumCars}
+            isDirect={isDirect}
           />
         </div>
         
