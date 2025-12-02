@@ -1,4 +1,4 @@
-import { useQuery, useMutation } from '@tanstack/react-query'
+import { useQuery, useMutation, keepPreviousData } from '@tanstack/react-query'
 import { fetchStations, fetchTrip, fetchLeg2 } from '../api/trips'
 import type { Station, Train, TransferAlternative } from '@transferhero/shared'
 import { getTrainMinutes } from '../utils/time'
@@ -22,8 +22,10 @@ export function useTrip(
     queryKey: ['trip', from, to, walkTime, transferStation],
     queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined),
     enabled: !!from && !!to,
-    staleTime: 30 * 1000, // 30 seconds for real-time data
-    refetchInterval: 30 * 1000, // Auto-refresh every 30 seconds
+    staleTime: 30 * 1000,
+    refetchInterval: 30 * 1000,
+    // this keeps the old UI visible while the new route fetches
+    placeholderData: keepPreviousData,
   })
 }
 

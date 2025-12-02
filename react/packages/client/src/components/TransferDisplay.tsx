@@ -67,14 +67,14 @@ export function TransferDisplay({
           {/* Fastest option */}
           <button
             onClick={() => onSelectAlternative(null)}
-            className={`w-full text-left p-2 rounded flex items-center justify-between transition-colors ${
+            className={`w-full text-left p-2 rounded flex items-center justify-between cursor-pointer transition-colors ${
               selectedIndex === -1
                 ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                 : 'hover:bg-[var(--suggestion-hover)]'
             }`}
           >
             <span>
-              <strong>{transfer.name}</strong>
+              <strong>{transfer.defaultTransferName || transfer.name}</strong>
               <span className="text-xs ml-2">(fastest)</span>
             </span>
             {selectedIndex === -1 && <Check className="w-4 h-4" />}
@@ -87,7 +87,7 @@ export function TransferDisplay({
               <button
                 key={alt.station}
                 onClick={() => onSelectAlternative(alt)}
-                className={`w-full text-left p-2 rounded flex items-center justify-between transition-colors ${
+                className={`w-full text-left p-2 rounded flex items-center justify-between cursor-pointer transition-colors ${
                   isSelected
                     ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
                     : 'hover:bg-[var(--suggestion-hover)]'

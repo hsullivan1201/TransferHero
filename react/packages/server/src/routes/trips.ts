@@ -86,11 +86,14 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
 
   // Find transfer (first get default to access alternatives)
   let transfer = findTransfer(from, to, walkTime)
+  let defaultTransferName: string | undefined
 
   // If a specific transfer station was requested, use that alternative instead
   if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
     const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation)
     if (requestedAlternative) {
+      // Save the default name before swapping
+      defaultTransferName = transfer.name
       // Use the requested alternative, but keep the alternatives list from the original
       const alternatives = transfer.alternatives
       transfer = { ...requestedAlternative, alternatives }
@@ -222,7 +225,8 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         toLine: transfer.toLine,
         leg1Time: leg1TravelTime,
         leg2Time: leg2TravelTime,
-        alternatives: transfer.alternatives || []
+        alternatives: transfer.alternatives || [],
+        defaultTransferName
       },
       leg1: {
         trains: sortedTrains,

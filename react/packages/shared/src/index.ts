@@ -62,6 +62,7 @@ export interface TransferAlternative extends Transfer {
   leg1Time: number
   leg2Time: number
   timeDiff: number
+  defaultTransferName?: string
 }
 
 /**
