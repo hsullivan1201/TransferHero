@@ -1,1 +1,0 @@
-{"version":3,"file":"staticTrips.d.ts","sourceRoot":"","sources":["../../src/data/staticTrips.ts"],"names":[],"mappings":"AAIA,MAAM,WAAW,cAAc;IAC7B,QAAQ,EAAE,MAAM,CAAA;IAChB,IAAI,EAAE,MAAM,CAAA;CACb;AAED,MAAM,MAAM,cAAc,GAAG,MAAM,CAAC,MAAM,EAAE,cAAc,CAAC,CAAA;AAI3D;;;GAGG;AACH,wBAAgB,eAAe,IAAI,cAAc,CA0BhD;AAED;;GAEG;AACH,wBAAgB,cAAc,IAAI,cAAc,CAE/C"}
