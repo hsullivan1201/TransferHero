@@ -45,13 +45,15 @@ export async function fetchTrip(
   to: string,
   walkTime: number = 3,
   transferStation?: string,
-  accessible: boolean = false
+  accessible: boolean = false,
+  includeDeparted: boolean = false
 ): Promise<TripResponse> {
   const params = new URLSearchParams({
     from,
     to,
     walkTime: walkTime.toString(),
-    accessible: accessible.toString()
+    accessible: accessible.toString(),
+    includeDeparted: includeDeparted.toString()
   })
   if (transferStation) {
     params.set('transferStation', transferStation)

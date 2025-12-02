@@ -26,7 +26,8 @@ function AppContent() {
     tripState.to?.code ?? null,
     tripState.walkTime,
     tripState.selectedAlternative?.station ?? null,
-    tripState.accessible
+    tripState.accessible,
+    tripState.showDeparted
   )
 
   // Find live version of selected train from refreshed data for accurate timing
@@ -136,6 +137,8 @@ function AppContent() {
               }}
               isRefreshing={tripLoading || leg2Loading}
               isDirect={tripData.trip.isDirect}
+              showDeparted={tripState.showDeparted}
+              onToggleShowDeparted={tripState.toggleShowDeparted}
           />
           ) : !tripLoading && !tripError && (
             <EmptyState />

@@ -328,7 +328,7 @@ function buildExitLabel(egress: Egress): string {
 
 /**
  * Get all valid exits for a destination (used for direct trips and leg2)
- * Returns an array of labeled exit options
+ * Returns an array of labeled exit options with preferred status from source data
  */
 function getAllValidExits(
   egresses: Egress[],
@@ -347,28 +347,7 @@ function getAllValidExits(
       label: buildExitLabel(egress),
       description: egress.description,
       xPosition: egress.x,
-    }
-  })
-}
-
-/**
- * Mark the preferred exit within a list
- * Only marks as preferred if the source egress actually had preferred: true
- */
-function markPreferredExit(exits: ExitOption[], targetEgress: Egress | null): ExitOption[] {
-  // Only mark preferred if the source egress was actually preferred in the data
-  if (!targetEgress || !targetEgress.preferred) return exits
-  const { x, x2, type } = targetEgress
-
-  return exits.map(exit => {
-    const exitX = exit.xPosition
-    const withinRange = exitX !== undefined && (
-      Math.abs(exitX - x) < 0.01 ||
-      (x2 !== undefined && exitX >= x && exitX <= x2)
-    )
-    return {
-      ...exit,
-      preferred: withinRange && exit.type === type,
+      preferred: egress.preferred,
     }
   })
 }
@@ -478,7 +457,7 @@ export function getDirectTripCarPosition(
 
   // Get all valid exits for destinations
   const exits = getAllValidExits(egresses, track, accessible)
-  const exitsWithPreferred = markPreferredExit(exits, bestEgress)
+  // getAllValidExits already preserves preferred status from source data
 
   return {
     boardCar: adjustedCar,
@@ -486,7 +465,7 @@ export function getDirectTripCarPosition(
     boardPosition: getPositionDescription(adjustedCar),
     legend: `Board car ${adjustedCar} for quick exit at ${station.name}`,
     confidence: 'high',
-    exits: exitsWithPreferred,
+    exits,
     details: {
       exitType: bestEgress.type,
       exitDescription: bestEgress.description,
@@ -612,9 +591,8 @@ export function getTransferCarPosition(
           exitDescription: destEgress.description,
           xPosition: destEgress.x,
         }
-        // Get all valid exits for leg2 destination
-        const allExits = getAllValidExits(destEgresses, destTrack, accessible)
-        leg2Exits = markPreferredExit(allExits, destEgress)
+        // Get all valid exits for leg2 destination (preferred status preserved from source)
+        leg2Exits = getAllValidExits(destEgresses, destTrack, accessible)
       }
     }
   }

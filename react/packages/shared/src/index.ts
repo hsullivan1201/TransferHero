@@ -31,6 +31,10 @@ export interface Train {
   _transferArrivalTimestamp?: number
   /** Source of realtime data: 'wmata' or 'gtfs-rt' */
   _realtimeSource?: 'wmata' | 'gtfs-rt'
+  /** Whether this train has already departed the origin station */
+  _departed?: boolean
+  /** Name of the next stop (for departed trains to help identify which train user is on) */
+  _nextStop?: string
 }
 
 export interface CatchableTrain extends Train {

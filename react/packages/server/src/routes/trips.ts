@@ -12,7 +12,8 @@ import {
   fetchGTFSTripUpdates,
   parseUpdatesToTrains,
   filterApiResponse,
-  fetchDestinationArrivals
+  fetchDestinationArrivals,
+  findDepartedTrains
 } from '../services/wmata.js'
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js'
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js'
@@ -38,7 +39,8 @@ const tripQuerySchema = z.object({
   to: z.string().min(2).max(4),
   walkTime: z.coerce.number().min(1).max(15).default(3),
   transferStation: z.string().optional(), // Allow specifying which transfer to use
-  accessible: booleanFromString // When true, prioritize elevator exits
+  accessible: booleanFromString, // When true, prioritize elevator exits
+  includeDeparted: booleanFromString // When true, include trains that have already departed
 })
 
 const leg2QuerySchema = z.object({
@@ -82,7 +84,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { from, to, walkTime, transferStation, accessible } = result.data
+  const { from, to, walkTime, transferStation, accessible, includeDeparted } = result.data
   const apiKey = getApiKey()
 
   // Find stations
@@ -225,7 +227,30 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     apiKey,
     gtfsEntities
   )
-  const sortedTrains = sortTrains(leg1WithArrival)
+  let sortedTrains = sortTrains(leg1WithArrival)
+
+  // Include departed trains if requested
+  if (includeDeparted && transfer.fromLine) {
+    const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(
+      from,
+      transfer.fromPlatform,
+      transfer.fromLine
+    )
+    const departedTrains = findDepartedTrains(
+      from,
+      transfer.fromPlatform,
+      transfer.fromLine,
+      leg1TravelTime,
+      gtfsEntities,
+      staticTrips,
+      terminusFirst
+    )
+    // Dedupe: remove any departed trains that already exist in sorted trains (by tripId)
+    const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
+    const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
+    // Departed trains go at the end (they've already left)
+    sortedTrains = [...sortedTrains, ...uniqueDeparted]
+  }
 
   // Process leg 2 trains - filter by the specific line needed for leg 2
   const leg2AllowedLines = transfer.toLine ? [transfer.toLine] : undefined

@@ -24,6 +24,8 @@ interface TripViewProps {
   onRefresh?: () => void
   isRefreshing?: boolean
   isDirect?: boolean
+  showDeparted?: boolean
+  onToggleShowDeparted?: () => void
 }
 
 export function TripView({
@@ -45,7 +47,9 @@ export function TripView({
   departureTimestamp,
   onRefresh,
   isRefreshing,
-  isDirect = false
+  isDirect = false,
+  showDeparted = false,
+  onToggleShowDeparted
 }: TripViewProps) {
 
   // Logic for displayTrain calculation and status
@@ -76,7 +80,23 @@ export function TripView({
     const msUntilDeparture = departureTimestamp - now
     const minUntilDeparture = Math.round(msUntilDeparture / 60000)
 
-    if (minUntilDeparture > 0) {
+    // Handle departed trains selected from "Already on a train?" section
+    if (liveTrain._departed && liveTrain._transferArrivalTimestamp) {
+      // Departed train - show countdown to transfer station
+      const minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - now) / 60000)
+      currentMin = minutesRemaining
+      
+      displayTrain = {
+        ...liveTrain,
+        Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
+        _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
+      }
+      
+      const nextStopInfo = liveTrain._nextStop ? ` · Next: ${liveTrain._nextStop}` : ''
+      customStatus = minutesRemaining <= 0
+        ? `Arrived at ${transferName || targetName}`
+        : `En Route to ${transferName || targetName}${nextStopInfo} · Arr ${liveTrain._transferArrivalTime || ''}`
+    } else if (minUntilDeparture > 0) {
       // Train hasn't departed yet - countdown based on recorded departure time
       currentMin = minUntilDeparture
       // Pass departureTimestamp for precise seconds display when <2min
@@ -192,9 +212,11 @@ export function TripView({
             selectedTrain={displayTrain}
             customStatus={customStatus}
             onTrainSelect={onSelectLeg1Train}
-            onClearSelection={onClearLeg1Selection} // Pass it here
+            onClearSelection={onClearLeg1Selection}
             selectedNumCars={selectedNumCars}
             isDirect={isDirect}
+            showDeparted={showDeparted}
+            onToggleShowDeparted={onToggleShowDeparted}
           />
         </div>
         

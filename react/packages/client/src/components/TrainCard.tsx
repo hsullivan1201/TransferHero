@@ -50,13 +50,23 @@ export function TrainCard({
   }, [shouldShowSeconds])
 
   const trainMin = getTrainMinutes(train.Min)
+  
+  // Detect departed trains - but NOT when selected (user is on the train, show arrival countdown)
+  const isDeparted = !isSelected && (train._departed === true || (typeof trainMin === 'number' && trainMin < 0))
+  const departedMinAgo = isDeparted ? Math.abs(trainMin) : 0
+  
   const clockTime = shouldShowSeconds
     ? millisecondsToClockTime(millisRemaining)
-    : minutesToClockTime(trainMin)
+    : isDeparted && train._transferArrivalTime
+      ? train._transferArrivalTime // Show transfer arrival time for departed trains
+      : minutesToClockTime(trainMin)
 
   // FIX: Handle "5" (string), 5 (number), and custom text like "12 min"
   let minDisplay = ''
-  if (train.Min === 'ARR' || train.Min === 'BRD') {
+  if (isDeparted) {
+    // Departed train - show "Left X min ago"
+    minDisplay = `Left ${departedMinAgo}m ago`
+  } else if (train.Min === 'ARR' || train.Min === 'BRD') {
     minDisplay = train.Min
   } else if (shouldShowSeconds) {
     // Show seconds precision when <2 min and timestamp available
@@ -81,6 +91,19 @@ export function TrainCard({
   let statusText: string
   if (customStatus) {
     statusText = customStatus
+  } else if (isDeparted) {
+    // Departed train - show next stop and transfer arrival
+    const nextStopPart = train._nextStop ? `Next: ${train._nextStop}` : ''
+    const arrivalPart = train._transferArrivalTime ? `Arr ${train._transferArrivalTime}` : ''
+    if (nextStopPart && arrivalPart) {
+      statusText = `${nextStopPart} · ${arrivalPart}`
+    } else if (nextStopPart) {
+      statusText = nextStopPart
+    } else if (arrivalPart) {
+      statusText = arrivalPart
+    } else {
+      statusText = 'En route'
+    }
   } else if (showCatchability) {
     if (train._canCatch) {
       statusText = `${train._waitTime} min wait · Arr ${train._arrivalClock}`
@@ -106,6 +129,8 @@ export function TrainCard({
         isSelected ? 'border-l-[6px] scale-[1.02] shadow-lg pr-12' : ''
       } ${
         isMissed ? 'opacity-50' : ''
+      } ${
+        isDeparted && !isSelected ? 'opacity-75' : ''
       }`}
       style={{ animationDelay: `${index * 0.05}s` }}
       onClick={onClick}
@@ -137,6 +162,13 @@ export function TrainCard({
                 isYellow ? 'bg-black/15 text-[#333]' : 'bg-black/30 text-white'
               }`}>
                 Sched
+              </span>
+            )}
+            {isDeparted && (
+              <span className={`text-xs px-1.5 py-0.5 rounded ${
+                isYellow ? 'bg-black/20 text-[#333]' : 'bg-black/40 text-white'
+              }`}>
+                En Route
               </span>
             )}
           </div>

@@ -20,11 +20,12 @@ export function useTrip(
   to: string | null,
   walkTime: number,
   transferStation?: string | null,
-  accessible: boolean = false
+  accessible: boolean = false,
+  showDeparted: boolean = false
 ) {
   return useQuery({
-    queryKey: ['trip', from, to, walkTime, transferStation, accessible],
-    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible),
+    queryKey: ['trip', from, to, walkTime, transferStation, accessible, showDeparted],
+    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible, showDeparted),
     enabled: !!from && !!to,
     staleTime: 30 * 1000,
     refetchInterval: 30 * 1000,
@@ -68,6 +69,7 @@ interface TripState {
   selectedAlternative: TransferAlternative | null
   departureTimestamp: number | null
   accessible: boolean
+  showDeparted: boolean
 }
 
 export function useTripState() {
@@ -80,6 +82,7 @@ export function useTripState() {
     selectedAlternative: null,
     departureTimestamp: null,
     accessible: false,
+    showDeparted: false,
   })
 
   const setFrom = useCallback((station: Station | null) => {
@@ -147,6 +150,13 @@ export function useTripState() {
     }))
   }, [])
 
+  const toggleShowDeparted = useCallback(() => {
+    setState(prev => ({
+      ...prev,
+      showDeparted: !prev.showDeparted,
+    }))
+  }, [])
+
   const startTrip = useCallback((from: Station, to: Station, walkTime: number) => {
     setState(prev => ({
       from,
@@ -157,6 +167,7 @@ export function useTripState() {
       selectedAlternative: null,
       departureTimestamp: null,
       accessible: prev.accessible, // Preserve accessibility setting
+      showDeparted: prev.showDeparted, // Preserve show departed setting
     }))
   }, [])
 
@@ -170,6 +181,7 @@ export function useTripState() {
       selectedAlternative: null,
       departureTimestamp: null,
       accessible: prev.accessible, // Preserve accessibility setting
+      showDeparted: false, // Reset show departed on full reset
     }))
   }, [])
 
@@ -188,6 +200,7 @@ export function useTripState() {
     clearLeg1Selection,
     selectAlternative,
     toggleAccessible,
+    toggleShowDeparted,
     startTrip,
     reset,
   }

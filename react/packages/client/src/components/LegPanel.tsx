@@ -1,7 +1,9 @@
+import { useMemo } from 'react'
 import type { Train, CatchableTrain, CarPosition } from '@transferhero/shared'
 import { TrainList } from './TrainList'
 import { CarDiagram } from './CarDiagram'
 import { TrainCard } from './TrainCard'
+import { getTrainMinutes } from '../utils/time'
 
 interface LegPanelProps {
   leg: 1 | 2
@@ -11,11 +13,18 @@ interface LegPanelProps {
   carPosition: CarPosition | null
   selectedTrain?: Train | CatchableTrain | null 
   onTrainSelect?: (train: Train | CatchableTrain, index: number) => void
-  onClearSelection?: () => void // NEW PROP
+  onClearSelection?: () => void
   selectedNumCars?: number
   isLoading?: boolean
   customStatus?: string
   isDirect?: boolean
+  showDeparted?: boolean
+  onToggleShowDeparted?: () => void
+}
+
+function isDepartedTrain(train: Train | CatchableTrain): boolean {
+  const min = getTrainMinutes(train.Min)
+  return train._departed === true || (typeof min === 'number' && min < 0)
 }
 
 export function LegPanel({
@@ -26,15 +35,31 @@ export function LegPanel({
   carPosition,
   selectedTrain,
   onTrainSelect,
-  onClearSelection, // Destructure new prop
+  onClearSelection,
   selectedNumCars,
   isLoading,
   customStatus,
-  isDirect
+  isDirect,
+  showDeparted,
+  onToggleShowDeparted
 }: LegPanelProps) {
   const variant = leg === 1 ? 'selectable' : 'display'
   // Direct trips: leg 1 IS the destination, so show exit info
   const carDiagramType = (leg === 1 && !isDirect) ? 'board' : 'exit'
+
+  // Split trains into regular and departed
+  const { regularTrains, departedTrains } = useMemo(() => {
+    const regular: (Train | CatchableTrain)[] = []
+    const departed: (Train | CatchableTrain)[] = []
+    for (const train of trains) {
+      if (isDepartedTrain(train)) {
+        departed.push(train)
+      } else {
+        regular.push(train)
+      }
+    }
+    return { regularTrains: regular, departedTrains: departed }
+  }, [trains])
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
@@ -89,11 +114,44 @@ export function LegPanel({
             )}
 
             <TrainList
-              trains={trains}
+              trains={regularTrains}
               variant={variant}
               selectedIndex={-1} 
               onSelect={onTrainSelect}
             />
+
+            {/* Departed Trains Section - only for Leg 1 */}
+            {leg === 1 && onToggleShowDeparted && (
+              <div className="mt-4">
+                <button
+                  onClick={onToggleShowDeparted}
+                  className="w-full py-3 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors flex items-center justify-center gap-2 border border-dashed border-[var(--border-color)] rounded-lg hover:border-solid"
+                >
+                  <span className="text-xs">{showDeparted ? '▼' : '▶'}</span>
+                  {showDeparted ? 'Hide departed trains' : 'Already on a train?'}
+                </button>
+                
+                {showDeparted && departedTrains.length > 0 && (
+                  <div className="mt-4 pt-4 border-t border-[var(--border-color)]">
+                    <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-3">
+                      Trains Already Departed
+                    </div>
+                    <TrainList
+                      trains={departedTrains}
+                      variant={variant}
+                      selectedIndex={-1}
+                      onSelect={onTrainSelect}
+                    />
+                  </div>
+                )}
+                
+                {showDeparted && departedTrains.length === 0 && (
+                  <div className="mt-4 text-center text-sm text-[var(--text-secondary)] py-4">
+                    No recently departed trains found
+                  </div>
+                )}
+              </div>
+            )}
 
             {carPosition && selectedNumCars && (
               <CarDiagram
