@@ -2,7 +2,7 @@ import type { Line, Station, Transfer, EvaluatedRoute, TransferResult, TransferA
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
 import { TRANSFERS } from '../data/transfers.js'
 import { LINE_STATIONS, TERMINI } from '../data/lineConfig.js'
-import { PLATFORM_CODES, getPlatformForLine } from '../data/platformCodes.js'
+import { PLATFORM_CODES, getPlatformForLine, normalizePlatformCode } from '../data/platformCodes.js'
 import { calculateRouteTravelTime, getTerminus } from './travelTime.js'
 
 /**
@@ -205,8 +205,19 @@ export function getAllTerminiForStation(
 ): string[] {
   const allTermini: string[] = []
 
-  // Get termini for each line serving this station
-  station.lines.forEach((line: Line) => {
+  const candidateLines = station.lines.filter((line: Line) => {
+    const stationsOnLine = LINE_STATIONS[line]
+    if (!stationsOnLine || stationsOnLine.length === 0) return false
+
+    const normalizedFrom = normalizePlatformCode(fromPlatform, stationsOnLine)
+    const normalizedTo = normalizePlatformCode(toStationCode, stationsOnLine)
+
+    return stationsOnLine.includes(normalizedFrom) && stationsOnLine.includes(normalizedTo)
+  })
+
+  const linesToUse = candidateLines.length > 0 ? candidateLines : station.lines
+
+  linesToUse.forEach((line: Line) => {
     const termini = getTerminus(line, fromPlatform, toStationCode)
     allTermini.push(...termini)
   })

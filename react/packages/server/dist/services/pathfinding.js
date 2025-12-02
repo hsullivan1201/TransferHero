@@ -1,7 +1,7 @@
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js';
 import { TRANSFERS } from '../data/transfers.js';
 import { LINE_STATIONS } from '../data/lineConfig.js';
-import { PLATFORM_CODES, getPlatformForLine } from '../data/platformCodes.js';
+import { PLATFORM_CODES, getPlatformForLine, normalizePlatformCode } from '../data/platformCodes.js';
 import { calculateRouteTravelTime, getTerminus } from './travelTime.js';
 /**
  * Default transfer walk time in minutes
@@ -158,8 +158,16 @@ export function findTransfer(fromCode, toCode, transferWalkTime = DEFAULT_TRANSF
  */
 export function getAllTerminiForStation(station, fromPlatform, toStationCode) {
     const allTermini = [];
-    // Get termini for each line serving this station
-    station.lines.forEach((line) => {
+    const candidateLines = station.lines.filter((line) => {
+        const stationsOnLine = LINE_STATIONS[line];
+        if (!stationsOnLine || stationsOnLine.length === 0)
+            return false;
+        const normalizedFrom = normalizePlatformCode(fromPlatform, stationsOnLine);
+        const normalizedTo = normalizePlatformCode(toStationCode, stationsOnLine);
+        return stationsOnLine.includes(normalizedFrom) && stationsOnLine.includes(normalizedTo);
+    });
+    const linesToUse = candidateLines.length > 0 ? candidateLines : station.lines;
+    linesToUse.forEach((line) => {
         const termini = getTerminus(line, fromPlatform, toStationCode);
         allTermini.push(...termini);
     });

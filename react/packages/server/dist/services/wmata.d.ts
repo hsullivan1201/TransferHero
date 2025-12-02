@@ -1,4 +1,4 @@
-import type { Train } from '@transferhero/shared';
+import type { Train, Line } from '@transferhero/shared';
 /**
  * Fetch station predictions from WMATA API
  */
@@ -13,7 +13,7 @@ export declare function fetchGTFSTripUpdates(apiKey: string): Promise<any[]>;
 export declare function parseUpdatesToTrains(entities: any[], stationCode: string, terminusList: string[], staticTrips?: Record<string, {
     line: string;
     headsign: string;
-}>): Train[];
+}>, allowedLines?: Line[]): Train[];
 interface ArrivalData {
     minutes: number;
     timestamp: number;
@@ -33,8 +33,9 @@ export declare function enrichTrainsWithDestinationArrival(trains: Train[], enti
  */
 export declare function fetchDestinationArrivals(originTrains: Train[], destinationCode: string, apiKey: string, gtfsEntities?: any[]): Promise<Train[]>;
 /**
- * Filter API response trains by terminus
+ * Filter API response trains by terminus and optionally by line
+ * Also normalizes destination names to display format
  */
-export declare function filterApiResponse(trains: Train[], terminus: string | string[]): Train[];
+export declare function filterApiResponse(trains: Train[], terminus: string | string[], allowedLines?: Line[]): Train[];
 export {};
 //# sourceMappingURL=wmata.d.ts.map

@@ -36,12 +36,21 @@ export interface Station {
         description: string;
     }>;
 }
+export interface ExitOption {
+    car: number;
+    position: 'front' | 'middle' | 'back';
+    type: 'escalator' | 'elevator' | 'stairs' | 'exit';
+    label: string;
+    description?: string;
+    xPosition?: number;
+}
 export interface CarPosition {
     boardCar: number;
     exitCar: number;
     boardPosition: 'front' | 'middle' | 'back';
     legend: string;
     confidence: 'high' | 'medium' | 'low';
+    exits?: ExitOption[];
     details?: {
         exitType?: string;
         exitDescription?: string;
@@ -80,8 +89,9 @@ export declare function findClosestDoor(x: number): {
 export declare function adjustCarForTrack(car: number, track: TrackDirection): number;
 /**
  * Get car position for a direct (non-transfer) trip
+ * @param accessible - When true, prioritize elevator exits
  */
-export declare function getDirectTripCarPosition(destinationCode: string, line: string, trainDestination: string): CarPosition;
+export declare function getDirectTripCarPosition(destinationCode: string, line: string, trainDestination: string, accessible?: boolean): CarPosition;
 /**
  * Get car positions for a transfer trip
  *
@@ -91,8 +101,9 @@ export declare function getDirectTripCarPosition(destinationCode: string, line: 
  * @param incomingDestination - Terminus of your incoming train
  * @param destinationCode - Final destination station
  * @param finalDestination - Terminus of your outgoing train
+ * @param accessible - When true, prioritize elevator exits
  */
-export declare function getTransferCarPosition(transferCode: string, incomingLine: string, outgoingLine: string, incomingDestination: string, destinationCode: string, finalDestination: string): {
+export declare function getTransferCarPosition(transferCode: string, incomingLine: string, outgoingLine: string, incomingDestination: string, destinationCode: string, finalDestination: string, accessible?: boolean): {
     leg1: CarPosition;
     leg2: CarPosition;
 };

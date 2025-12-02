@@ -168,39 +168,108 @@ function getEgressesForTrack(platform, track) {
     return trackEgresses.length > 0 ? trackEgresses : platform.egresses.shared;
 }
 /**
- * Find the best egress from a list
- * Prioritizes: preferred > escalator > stairs > elevator > exit
+ * Filter egresses based on accessibility mode
+ * When accessible=false, filter out elevators
+ * When accessible=true, prioritize elevators
  */
-function findBestEgress(egresses, preferType) {
-    if (egresses.length === 0)
+function filterEgressesByAccessibility(egresses, accessible) {
+    if (accessible) {
+        // Accessible mode: prioritize elevators, but include all if no elevators
+        const elevators = egresses.filter(e => e.type === 'elevator');
+        return elevators.length > 0 ? elevators : egresses;
+    }
+    // Non-accessible mode: filter out elevators
+    return egresses.filter(e => e.type !== 'elevator');
+}
+/**
+ * Find the best egress from a list
+ * Prioritizes: preferred > escalator > stairs > exit > elevator
+ * @param accessible - When true, prioritize elevators; when false, filter them out
+ */
+function findBestEgress(egresses, accessible = false, preferType) {
+    const filtered = filterEgressesByAccessibility(egresses, accessible);
+    if (filtered.length === 0)
         return null;
     // First check for preferred egress
-    const preferred = egresses.find(e => e.preferred);
+    const preferred = filtered.find(e => e.preferred);
     if (preferred && (!preferType || preferred.type === preferType)) {
         return preferred;
     }
     // If specific type requested, try to find it
     if (preferType) {
-        const ofType = egresses.find(e => e.type === preferType);
+        const ofType = filtered.find(e => e.type === preferType);
         if (ofType)
             return ofType;
     }
     // Priority order for speed: escalator > stairs > exit > elevator
-    const priority = ['escalator', 'stairs', 'exit', 'elevator'];
+    const priority = accessible
+        ? ['elevator', 'escalator', 'stairs', 'exit']
+        : ['escalator', 'stairs', 'exit', 'elevator'];
     for (const type of priority) {
-        const egress = egresses.find(e => e.type === type);
+        const egress = filtered.find(e => e.type === type);
         if (egress)
             return egress;
     }
-    return egresses[0];
+    return filtered[0];
+}
+/**
+ * Build a label for an exit from exitLabel and description
+ */
+function buildExitLabel(egress) {
+    if (egress.exitLabel && egress.description) {
+        return `Exit ${egress.exitLabel}: ${egress.description}`;
+    }
+    if (egress.exitLabel) {
+        return `Exit ${egress.exitLabel}`;
+    }
+    if (egress.description) {
+        return egress.description;
+    }
+    // Fallback: use type
+    return egress.type.charAt(0).toUpperCase() + egress.type.slice(1);
+}
+/**
+ * Get all valid exits for a destination (used for direct trips and leg2)
+ * Returns an array of labeled exit options
+ */
+function getAllValidExits(egresses, track, accessible) {
+    const filtered = filterEgressesByAccessibility(egresses, accessible);
+    return filtered.map(egress => {
+        const rawCar = xToCar(egress.x);
+        const adjustedCar = adjustCarForTrack(rawCar, track);
+        return {
+            car: adjustedCar,
+            position: getPositionDescription(adjustedCar),
+            type: egress.type,
+            label: buildExitLabel(egress),
+            description: egress.description,
+            xPosition: egress.x,
+        };
+    });
 }
 /**
  * Find egress that leads to a connecting platform (for transfers)
+ * @param outgoingDestination - Terminus of the outgoing train (for direction-specific matching)
+ * @param accessible - When true, prefer elevator egresses
  */
-function findTransferEgress(platform, track, targetLines) {
+function findTransferEgress(platform, track, targetLines, outgoingDestination, accessible = false) {
     const egresses = getEgressesForTrack(platform, track);
-    // Look for egresses with descriptions mentioning the target line
-    for (const egress of egresses) {
+    const filtered = filterEgressesByAccessibility(egresses, accessible);
+    // First, try to find direction-specific egress (e.g., "RD Trains to Glenmont")
+    if (outgoingDestination) {
+        for (const egress of filtered) {
+            if (egress.description) {
+                const desc = egress.description.toLowerCase();
+                const destLower = outgoingDestination.toLowerCase();
+                // Check for direction-specific match like "RD Trains to Glenmont"
+                if (desc.includes(destLower) || desc.includes(`to ${destLower}`)) {
+                    return egress;
+                }
+            }
+        }
+    }
+    // Fall back to line-only match
+    for (const egress of filtered) {
         if (egress.description) {
             const desc = egress.description.toLowerCase();
             for (const line of targetLines) {
@@ -216,15 +285,16 @@ function findTransferEgress(platform, track, targetLines) {
         }
     }
     // Fall back to best egress
-    return findBestEgress(egresses);
+    return findBestEgress(egresses, accessible);
 }
 // ============================================================================
 // Public API
 // ============================================================================
 /**
  * Get car position for a direct (non-transfer) trip
+ * @param accessible - When true, prioritize elevator exits
  */
-export function getDirectTripCarPosition(destinationCode, line, trainDestination) {
+export function getDirectTripCarPosition(destinationCode, line, trainDestination, accessible = false) {
     const station = getStation(destinationCode);
     if (!station) {
         return {
@@ -247,7 +317,7 @@ export function getDirectTripCarPosition(destinationCode, line, trainDestination
     }
     const track = getTrackDirection(platform, trainDestination);
     const egresses = getEgressesForTrack(platform, track);
-    const bestEgress = findBestEgress(egresses);
+    const bestEgress = findBestEgress(egresses, accessible);
     if (!bestEgress) {
         return {
             boardCar: 4,
@@ -259,12 +329,15 @@ export function getDirectTripCarPosition(destinationCode, line, trainDestination
     }
     const rawCar = xToCar(bestEgress.x);
     const adjustedCar = adjustCarForTrack(rawCar, track);
+    // Get all valid exits for destinations
+    const exits = getAllValidExits(egresses, track, accessible);
     return {
         boardCar: adjustedCar,
         exitCar: adjustedCar,
         boardPosition: getPositionDescription(adjustedCar),
         legend: `Board car ${adjustedCar} for quick exit at ${station.name}`,
         confidence: 'high',
+        exits,
         details: {
             exitType: bestEgress.type,
             exitDescription: bestEgress.description,
@@ -281,8 +354,9 @@ export function getDirectTripCarPosition(destinationCode, line, trainDestination
  * @param incomingDestination - Terminus of your incoming train
  * @param destinationCode - Final destination station
  * @param finalDestination - Terminus of your outgoing train
+ * @param accessible - When true, prioritize elevator exits
  */
-export function getTransferCarPosition(transferCode, incomingLine, outgoingLine, incomingDestination, destinationCode, finalDestination) {
+export function getTransferCarPosition(transferCode, incomingLine, outgoingLine, incomingDestination, destinationCode, finalDestination, accessible = false) {
     const transferStation = getStation(transferCode);
     const destStation = getStation(destinationCode);
     // Default fallback
@@ -309,9 +383,11 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
     let leg1Legend;
     let leg1Confidence = 'high';
     let leg1Details;
-    // Check for explicit transfer mapping first
-    const transferKey = `${incomingLine}_to_${outgoingLine}`;
-    const explicitTransfer = transferStation.transfers?.[transferKey];
+    // Check for explicit transfer mapping first - try direction-specific key, then fallback
+    const directionKey = `${incomingLine}_to_${outgoingLine}_${finalDestination}`;
+    const fallbackKey = `${incomingLine}_to_${outgoingLine}`;
+    const explicitTransfer = transferStation.transfers?.[directionKey]
+        || transferStation.transfers?.[fallbackKey];
     if (explicitTransfer) {
         // Use the explicit transfer mapping
         const rawCar = xToCar(explicitTransfer.x);
@@ -330,7 +406,8 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
     }
     else {
         // Different platforms - find the egress to the other platform
-        const transferEgress = findTransferEgress(inPlatform, inTrack, [outgoingLine]);
+        // Pass finalDestination for direction-aware matching
+        const transferEgress = findTransferEgress(inPlatform, inTrack, [outgoingLine], finalDestination, accessible);
         if (transferEgress) {
             const rawCar = xToCar(transferEgress.x);
             leg1Car = adjustCarForTrack(rawCar, inTrack);
@@ -352,12 +429,13 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
     let leg2Legend = leg1Legend;
     let leg2Confidence = 'medium';
     let leg2Details;
+    let leg2Exits;
     if (destStation) {
         const destPlatform = findPlatformForLine(destStation, outgoingLine);
         if (destPlatform) {
             const destTrack = getTrackDirection(destPlatform, finalDestination);
             const destEgresses = getEgressesForTrack(destPlatform, destTrack);
-            const destEgress = findBestEgress(destEgresses);
+            const destEgress = findBestEgress(destEgresses, accessible);
             if (destEgress) {
                 const rawCar = xToCar(destEgress.x);
                 leg2Car = adjustCarForTrack(rawCar, destTrack);
@@ -368,6 +446,8 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
                     exitDescription: destEgress.description,
                     xPosition: destEgress.x,
                 };
+                // Get all valid exits for leg2 destination
+                leg2Exits = getAllValidExits(destEgresses, destTrack, accessible);
             }
         }
     }
@@ -379,6 +459,7 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
             legend: leg1Legend,
             confidence: leg1Confidence,
             details: leg1Details,
+            // leg1 does NOT get exits array - single preferred position only
         },
         leg2: {
             boardCar: leg2Car,
@@ -387,6 +468,7 @@ export function getTransferCarPosition(transferCode, incomingLine, outgoingLine,
             legend: leg2Legend,
             confidence: leg2Confidence,
             details: leg2Details,
+            exits: leg2Exits,
         },
     };
 }

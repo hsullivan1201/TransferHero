@@ -43,6 +43,10 @@ const DESTINATION_ALIASES: Record<string, string> = {
   'mt vernon': 'mt vernon sq',
   'mt vernon sq': 'mt vernon sq',
   'mtvrnonsq': 'mt vernon sq',
+  'mtvern sq': 'mt vernon sq',
+  'mtvernsq': 'mt vernon sq',
+  'mount vernon square': 'mt vernon sq',
+  'mount vernon sq': 'mt vernon sq',
 }
 
 /**

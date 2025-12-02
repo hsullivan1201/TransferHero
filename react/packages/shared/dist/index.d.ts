@@ -71,6 +71,23 @@ export interface TransferAlternative extends Transfer {
     timeDiff: number;
 }
 /**
+ * Individual exit option at a station
+ */
+export interface ExitOption {
+    /** Which car to exit from (1-8) */
+    car: number;
+    /** Position in train (front/middle/back) */
+    position: 'front' | 'middle' | 'back';
+    /** Type of exit */
+    type: 'escalator' | 'elevator' | 'stairs' | 'exit';
+    /** Human-readable label (e.g., "Exit 1: Q St" or "12th & G") */
+    label: string;
+    /** Optional additional description */
+    description?: string;
+    /** Platform x-position for reference */
+    xPosition?: number;
+}
+/**
  * Car position recommendation for optimal boarding/exiting
  * Based on real platform exit data from DCMetroStationExits dataset
  */
@@ -85,7 +102,9 @@ export interface CarPosition {
     legend: string;
     /** Confidence level of the recommendation */
     confidence?: 'high' | 'medium' | 'low';
-    /** Additional details about the exit */
+    /** All valid exits at destination (for direct trips and leg2 only) */
+    exits?: ExitOption[];
+    /** Additional details about the primary exit */
     details?: {
         exitType?: 'escalator' | 'elevator' | 'stairs' | 'exit';
         exitDescription?: string;

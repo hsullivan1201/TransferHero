@@ -1,4 +1,4 @@
-import { getTrainMinutes, ensureArray, normalizeDestination } from '@transferhero/shared';
+import { getTrainMinutes, ensureArray, normalizeDestination, getDisplayName } from '@transferhero/shared';
 import protobuf from 'protobufjs';
 import fetch from 'node-fetch';
 // Cached protobuf root
@@ -84,7 +84,7 @@ export async function fetchGTFSTripUpdates(apiKey) {
 /**
  * Parse GTFS-RT entities to train format
  */
-export function parseUpdatesToTrains(entities, stationCode, terminusList, staticTrips = {}) {
+export function parseUpdatesToTrains(entities, stationCode, terminusList, staticTrips = {}, allowedLines) {
     const relevantTrains = [];
     const now = Date.now() / 1000;
     const target = stationCode.trim().toUpperCase();
@@ -115,6 +115,11 @@ export function parseUpdatesToTrains(entities, stationCode, terminusList, static
         const staticInfo = staticTrips[trip.tripId];
         const line = staticInfo ? staticInfo.line : (trip.routeId || '');
         const destName = staticInfo ? staticInfo.headsign : 'Check Board';
+        // Filter by allowed lines if specified
+        if (allowedLines && allowedLines.length > 0) {
+            if (!allowedLines.includes(line))
+                return;
+        }
         // Filter by terminus/destination
         const normalizedDest = normalizeDestination(destName);
         const normalizedTermini = ensureArray(terminusList).map(t => normalizeDestination(t));
@@ -131,7 +136,7 @@ export function parseUpdatesToTrains(entities, stationCode, terminusList, static
             return;
         relevantTrains.push({
             Line: line,
-            DestinationName: destName,
+            DestinationName: getDisplayName(destName),
             Min: minutesUntil <= 0 ? 'ARR' : minutesUntil.toString(),
             Car: '8',
             _gtfs: true,
@@ -263,14 +268,21 @@ export async function fetchDestinationArrivals(originTrains, destinationCode, ap
     });
 }
 /**
- * Filter API response trains by terminus
+ * Filter API response trains by terminus and optionally by line
+ * Also normalizes destination names to display format
  */
-export function filterApiResponse(trains, terminus) {
+export function filterApiResponse(trains, terminus, allowedLines) {
     if (!trains || trains.length === 0)
         return [];
     const terminusList = ensureArray(terminus);
     const normalizedTermini = terminusList.map(t => normalizeDestination(t));
-    return trains.filter(train => {
+    return trains
+        .filter(train => {
+        // Filter by line if specified
+        if (allowedLines && allowedLines.length > 0) {
+            if (!allowedLines.includes(train.Line))
+                return false;
+        }
         const dest = train.Destination || train.DestinationName || '';
         if (!dest || dest === 'No Passenger' || dest === 'Train' || dest === 'ssenger' || dest === '---') {
             return false;
@@ -287,6 +299,10 @@ export function filterApiResponse(trains, terminus) {
             const termFirst = term.split(/[\s\-\/]/)[0];
             return destFirst === termFirst;
         });
-    });
+    })
+        .map(train => ({
+        ...train,
+        DestinationName: getDisplayName(train.DestinationName)
+    }));
 }
 //# sourceMappingURL=wmata.js.map

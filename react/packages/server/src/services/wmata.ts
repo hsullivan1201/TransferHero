@@ -1,5 +1,5 @@
 import type { Train, Line } from '@transferhero/shared'
-import { getTrainMinutes, ensureArray, normalizeDestination } from '@transferhero/shared'
+import { getTrainMinutes, ensureArray, normalizeDestination, getDisplayName } from '@transferhero/shared'
 import protobuf from 'protobufjs'
 import fetch from 'node-fetch'
 
@@ -102,7 +102,8 @@ export function parseUpdatesToTrains(
   entities: any[],
   stationCode: string,
   terminusList: string[],
-  staticTrips: Record<string, { line: string; headsign: string }> = {}
+  staticTrips: Record<string, { line: string; headsign: string }> = {},
+  allowedLines?: Line[]
 ): Train[] {
   const relevantTrains: Train[] = []
   const now = Date.now() / 1000
@@ -138,6 +139,11 @@ export function parseUpdatesToTrains(
     const line = staticInfo ? staticInfo.line : (trip.routeId || '')
     const destName = staticInfo ? staticInfo.headsign : 'Check Board'
 
+    // Filter by allowed lines if specified
+    if (allowedLines && allowedLines.length > 0) {
+      if (!allowedLines.includes(line as Line)) return
+    }
+
     // Filter by terminus/destination
     const normalizedDest = normalizeDestination(destName)
     const normalizedTermini = ensureArray(terminusList).map(t => normalizeDestination(t))
@@ -154,7 +160,7 @@ export function parseUpdatesToTrains(
 
     relevantTrains.push({
       Line: line as Line,
-      DestinationName: destName,
+      DestinationName: getDisplayName(destName),
       Min: minutesUntil <= 0 ? 'ARR' : minutesUntil.toString(),
       Car: '8',
       _gtfs: true,
@@ -318,30 +324,45 @@ export async function fetchDestinationArrivals(
 }
 
 /**
- * Filter API response trains by terminus
+ * Filter API response trains by terminus and optionally by line
+ * Also normalizes destination names to display format
  */
-export function filterApiResponse(trains: Train[], terminus: string | string[]): Train[] {
+export function filterApiResponse(
+  trains: Train[],
+  terminus: string | string[],
+  allowedLines?: Line[]
+): Train[] {
   if (!trains || trains.length === 0) return []
 
   const terminusList = ensureArray(terminus)
   const normalizedTermini = terminusList.map(t => normalizeDestination(t))
 
-  return trains.filter(train => {
-    const dest = (train as any).Destination || train.DestinationName || ''
-    if (!dest || dest === 'No Passenger' || dest === 'Train' || dest === 'ssenger' || dest === '---') {
-      return false
-    }
+  return trains
+    .filter(train => {
+      // Filter by line if specified
+      if (allowedLines && allowedLines.length > 0) {
+        if (!allowedLines.includes(train.Line)) return false
+      }
 
-    const normalizedDest = normalizeDestination(dest)
-    const normalizedDestName = normalizeDestination(train.DestinationName)
+      const dest = (train as any).Destination || train.DestinationName || ''
+      if (!dest || dest === 'No Passenger' || dest === 'Train' || dest === 'ssenger' || dest === '---') {
+        return false
+      }
 
-    return normalizedTermini.some(term => {
-      if (normalizedDest === term || normalizedDestName === term) return true
-      if (normalizedDest.includes(term) || term.includes(normalizedDest) ||
-          normalizedDestName.includes(term) || term.includes(normalizedDestName)) return true
-      const destFirst = normalizedDest.split(/[\s\-\/]/)[0]
-      const termFirst = term.split(/[\s\-\/]/)[0]
-      return destFirst === termFirst
+      const normalizedDest = normalizeDestination(dest)
+      const normalizedDestName = normalizeDestination(train.DestinationName)
+
+      return normalizedTermini.some(term => {
+        if (normalizedDest === term || normalizedDestName === term) return true
+        if (normalizedDest.includes(term) || term.includes(normalizedDest) ||
+            normalizedDestName.includes(term) || term.includes(normalizedDestName)) return true
+        const destFirst = normalizedDest.split(/[\s\-\/]/)[0]
+        const termFirst = term.split(/[\s\-\/]/)[0]
+        return destFirst === termFirst
+      })
     })
-  })
+    .map(train => ({
+      ...train,
+      DestinationName: getDisplayName(train.DestinationName)
+    }))
 }
