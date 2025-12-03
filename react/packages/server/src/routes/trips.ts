@@ -184,7 +184,30 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       gtfsEntities
     )
 
-    const sortedTrains = sortTrains(trainsWithArrival)
+    let sortedTrains = sortTrains(trainsWithArrival)
+
+    // Include departed trains if requested
+    if (includeDeparted && transfer.line) {
+      const directTravelTime = calculateRouteTravelTime(
+        from,
+        to,
+        transfer.line
+      )
+      const departedTrains = findDepartedTrains(
+        from,
+        to,
+        transfer.line,
+        directTravelTime,
+        gtfsEntities,
+        staticTrips,
+        terminus
+      )
+      // Dedupe: remove any departed trains that already exist in sorted trains (by tripId)
+      const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
+      const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
+      // Departed trains go at the end (they've already left)
+      sortedTrains = [...sortedTrains, ...uniqueDeparted]
+    }
 
     // NEW: Get car position for direct trip exit
     const directCarPosition = getDirectTripCarPosition(
