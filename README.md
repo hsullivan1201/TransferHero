@@ -275,26 +275,6 @@ See `react/TESTING.md` for comprehensive testing guide and test cases.
 3. Frontend components in `react/packages/client/src/components/`
 4. API routes in `react/packages/server/src/routes/`
 
-## Todo
-
-### Short Term
-- [ ] Complete GTFS static schedule implementation (see `react/GTFS_STATIC_TODO.md`)
-- [ ] Persist station selections in localStorage
-- [ ] Show platform-level transfer walking directions
-- [ ] Mobile-responsive design improvements
-
-### Medium Term
-- [ ] Multi-leg journey planning (A → B → C)
-- [ ] Service advisories and alerts integration
-- [ ] Use MetroHero open source algorithm for train time predictions
-- [ ] Add actual train car locations from PDF data
-
-### Long Term
-- [ ] Overhaul UI to be prettier (modern design refresh)
-- [ ] Push notifications for departure reminders
-- [ ] Mobile app (React Native or PWA)
-- [ ] Offline support with service workers
-
 ## API Key
 
 The app requires a WMATA API key. Register for your own at [developer.wmata.com](https://developer.wmata.com/).
