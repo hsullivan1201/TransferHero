@@ -13,6 +13,8 @@ export interface Train {
   DestinationName: string
   Min: string | number
   Car: string
+  TrainNumber?: string | number
+  TrainId?: string | number
   _gtfs?: boolean
   _scheduled?: boolean
   /** Trip ID from GTFS-RT for tracking across stations */

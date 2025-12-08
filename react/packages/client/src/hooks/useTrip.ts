@@ -4,7 +4,7 @@ import { fetchStations, fetchTrip, fetchLeg2 } from '../api/trips'
 import type { Station, Train, TransferAlternative } from '@transferhero/shared'
 import { getTrainMinutes } from '../utils/time'
 
-// ... [Keep useStations, useTrip, useLeg2 exactly as they are] ...
+// please don't touch these hooks—they've earned their keep.
 
 export function useStations() {
   return useQuery({
@@ -39,7 +39,7 @@ interface UseLeg2Options {
   walkTime: number
   transferStation?: string | null
   enabled: boolean
-  /** Real-time arrival at transfer station from selected train's _destArrivalMin */
+  /** realtime arrival at the transfer stop from the picked train's _destArrivalMin */
   transferArrivalMin?: number
   accessible?: boolean
 }
@@ -123,7 +123,7 @@ export function useTripState() {
     }))
   }, [])
 
-  // NEW: Add this function to clear the selection
+  // little helper to wipe the picked train
   const clearLeg1Selection = useCallback(() => {
     setState(prev => ({
       ...prev,
@@ -166,8 +166,8 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-      accessible: prev.accessible, // Preserve accessibility setting
-      showDeparted: prev.showDeparted, // Preserve show departed setting
+      accessible: prev.accessible, // keep whatever accessibility mode the rider picked
+      showDeparted: prev.showDeparted, // keep the departed toggle as-is
     }))
   }, [])
 
@@ -180,8 +180,8 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-      accessible: prev.accessible, // Preserve accessibility setting
-      showDeparted: false, // Reset show departed on full reset
+      accessible: prev.accessible, // keep accessibility preference
+      showDeparted: false, // but drop the departed toggle on a full reset
     }))
   }, [])
 

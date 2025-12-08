@@ -1,24 +1,24 @@
 import type { Train } from '@transferhero/shared'
-import { getTrainMinutes } from '@transferhero/shared'
+import { getTrainMinutes, normalizeDestination } from '@transferhero/shared'
 
 export interface MergeTrainDataOptions {
-  /** Trains from WMATA API */
+  /** trains from the WMATA API */
   apiTrains: Train[]
-  /** Trains from GTFS-RT feed */
+  /** trains from the GTFS-RT feed */
   gtfsTrains: Train[]
-  /** Trains from static schedule (optional) */
+  /** trains from the static schedule (optional) */
   scheduledTrains?: Train[]
-  /** Deduplication threshold for GTFS trains (minutes) */
+  /** dedupe window for GTFS trains (minutes) */
   gtfsThreshold?: number
-  /** Deduplication threshold for scheduled trains (minutes) */
+  /** dedupe window for scheduled trains (minutes) */
   scheduleThreshold?: number
 }
 
 /**
- * Merges train data from multiple sources (API, GTFS-RT, Schedule)
- * Deduplicates based on arrival time and line
+ * merge train data from API/GTFS-RT/schedule
+ * dedupe on arrival time + line so we don't double-count
  *
- * Priority: API > GTFS-RT > Schedule
+ * priority: api > gtfs-rt > schedule
  */
 export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
   const {
@@ -31,17 +31,29 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
 
   const merged: Train[] = [...apiTrains]
 
-  // Merge GTFS-RT trains (avoid duplicates within threshold)
+  // pull in gtfs-rt trains, skipping near-duplicates
   gtfsTrains.forEach(gTrain => {
     const gMin = getTrainMinutes(gTrain.Min)
+    const gDest = normalizeDestination(gTrain.DestinationName || '')
+
+    // only dedupe against other gtfs entries; api trains can coexist
     const duplicate = merged.some(mTrain => {
+      if (!mTrain._gtfs) return false
+
       const mMin = getTrainMinutes(mTrain.Min)
-      return Math.abs(mMin - gMin) <= gtfsThreshold && mTrain.Line === gTrain.Line
+      const mDest = normalizeDestination(mTrain.DestinationName || '')
+
+      return (
+        Math.abs(mMin - gMin) <= gtfsThreshold &&
+        mTrain.Line === gTrain.Line &&
+        mDest === gDest
+      )
     })
+
     if (!duplicate) merged.push(gTrain)
   })
 
-  // Merge scheduled trains (avoid duplicates within threshold)
+  // now sprinkle in scheduled trains, still avoiding near-duplicates
   scheduledTrains.forEach(sTrain => {
     const sMin = getTrainMinutes(sTrain.Min)
     const duplicate = merged.some(mTrain => {
@@ -57,20 +69,36 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
     }
   })
 
-  return merged
+  // final cleanup: prefer earlier entries (api first), drop duplicate tripIds
+  // and any exact line/destination/min combos that snuck through
+  const seenTripIds = new Set<string>()
+  const seenComposite = new Set<string>()
+
+  return merged.filter(train => {
+    if (train._tripId) {
+      if (seenTripIds.has(train._tripId)) return false
+      seenTripIds.add(train._tripId)
+    }
+
+    const destKey = (train.DestinationName || '').toLowerCase()
+    const compositeKey = `${train.Line}_${destKey}_${getTrainMinutes(train.Min)}`
+    if (seenComposite.has(compositeKey)) return false
+    seenComposite.add(compositeKey)
+    return true
+  })
 }
 
 /**
- * Sort trains by arrival time, prioritizing live data over scheduled
+ * sort trains by arrival time, favoring live data over scheduled
  */
 export function sortTrains(trains: Train[]): Train[] {
   return [...trains].sort((a, b) => {
-    // Live trains first (API or GTFS-RT)
+    // live trains first (api or gtfs-rt)
     const aIsLive = !a._scheduled
     const bIsLive = !b._scheduled
     if (aIsLive !== bIsLive) return aIsLive ? -1 : 1
 
-    // Then by arrival time
+    // then by arrival time
     return getTrainMinutes(a.Min) - getTrainMinutes(b.Min)
   })
 }

@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Train, CatchableTrain, CarPosition } from '@transferhero/shared'
 import { TrainList } from './TrainList'
 import { CarDiagram } from './CarDiagram'
@@ -44,14 +44,29 @@ export function LegPanel({
   onToggleShowDeparted
 }: LegPanelProps) {
   const variant = leg === 1 ? 'selectable' : 'display'
-  // Direct trips: leg 1 IS the destination, so show exit info
+  // direct trips: leg 1 is basically the destination, so show exit info anyway
   const carDiagramType = (leg === 1 && !isDirect) ? 'board' : 'exit'
+  const [collapsed, setCollapsed] = useState(false)
 
-  // Split trains into regular and departed
+  // auto-collapse leg 1 when something is picked; pop back open when cleared
+  useEffect(() => {
+    if (leg !== 1) return
+    setCollapsed(!!selectedTrain)
+  }, [selectedTrain, leg])
+
+  // split trains into regular vs already-gone
   const { regularTrains, departedTrains } = useMemo(() => {
     const regular: (Train | CatchableTrain)[] = []
     const departed: (Train | CatchableTrain)[] = []
+    const isSelectedTrain = (train: Train | CatchableTrain) => {
+      if (!selectedTrain) return false
+      if (selectedTrain._tripId && train._tripId) return train._tripId === selectedTrain._tripId
+      return train.Line === selectedTrain.Line
+        && train.DestinationName === selectedTrain.DestinationName
+        && train.Min === selectedTrain.Min
+    }
     for (const train of trains) {
+      if (leg === 1 && isSelectedTrain(train)) continue
       if (isDepartedTrain(train)) {
         departed.push(train)
       } else {
@@ -59,7 +74,7 @@ export function LegPanel({
       }
     }
     return { regularTrains: regular, departedTrains: departed }
-  }, [trains])
+  }, [trains, selectedTrain, leg])
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
@@ -77,14 +92,14 @@ export function LegPanel({
           </div>
         ) : (
           <>
-            {/* PINNED SELECTION */}
+            {/* pinned pick */}
             {selectedTrain && leg === 1 && (
               <div className="mb-6 animate-fade-in">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                     Current Ride
                   </div>
-                  {/* UPDATED BUTTON */}
+                  {/* tiny "change" link */}
                   <button 
                     onClick={onClearSelection} 
                     className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
@@ -113,15 +128,31 @@ export function LegPanel({
               </div>
             )}
 
-            <TrainList
-              trains={regularTrains}
-              variant={variant}
-              selectedIndex={-1} 
-              onSelect={onTrainSelect}
-            />
+            {leg === 1 && selectedTrain && (
+              <div className="flex items-center justify-between mb-3">
+                <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                  Other Departures
+                </div>
+                <button
+                  onClick={() => setCollapsed(!collapsed)}
+                  className="text-xs text-blue-400 hover:text-blue-300 cursor-pointer"
+                >
+                  {collapsed ? 'Show' : 'Hide'}
+                </button>
+              </div>
+            )}
 
-            {/* Departed Trains Section - only for Leg 1 */}
-            {leg === 1 && onToggleShowDeparted && (
+            {!collapsed && (
+              <TrainList
+                trains={regularTrains}
+                variant={variant}
+                selectedIndex={-1} 
+                onSelect={onTrainSelect}
+              />
+            )}
+
+            {/* departed trains (leg 1 only) */}
+            {leg === 1 && onToggleShowDeparted && !collapsed && (
               <div className="mt-4">
                 <button
                   onClick={onToggleShowDeparted}

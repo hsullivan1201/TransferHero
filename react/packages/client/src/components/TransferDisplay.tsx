@@ -5,7 +5,7 @@ import type { TransferResult, TransferAlternative } from '@transferhero/shared'
 interface TransferDisplayProps {
   transfer: TransferResult
   onSelectAlternative: (alternative: TransferAlternative | null) => void
-  selectedIndex: number // -1 means fastest (default) is selected
+  selectedIndex: number // -1 = stick with the fastest pick
 }
 
 export function TransferDisplay({
@@ -15,11 +15,11 @@ export function TransferDisplay({
 }: TransferDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // Filter meaningful alternatives (within 10 minutes of fastest)
+  // only keep alternatives that aren't wildly slower (within 10 min)
   const alternatives = (transfer.alternatives || []).filter(alt => alt.timeDiff <= 10)
   const hasAlternatives = alternatives.length > 0
 
-  // Determine the display name for the header (selected alternative or original)
+  // figure out what to show in the header: chosen alt or the default
   const selectedAlt = selectedIndex >= 0 ? transfer.alternatives?.[selectedIndex] : null
   const headerName = selectedAlt ? selectedAlt.name : transfer.name
 

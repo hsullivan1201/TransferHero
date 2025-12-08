@@ -18,7 +18,7 @@ import {
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js'
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js'
 
-// NEW: Import the car position service with real exit data
+// car position service with the real exit intel
 import {
   getTransferCarPosition,
   getDirectTripCarPosition,
@@ -28,11 +28,11 @@ import { PLATFORM_CODES, normalizePlatformCode } from '../data/platformCodes.js'
 import { LINE_STATIONS } from '../data/lineConfig.js'
 
 /**
- * Get all lines that serve the origin station AND can reach the transfer platform
- * For interlined origins (OR/SV at New Carrollton), this returns all valid lines
+ * get all lines that serve the origin and can reach the transfer platform.
+ * interlined origins (like OR/SV at new carrollton) get the full menu.
  */
 function getInterlinesForLeg1(fromStation: { lines: Line[] }, fromPlatform: string): Line[] | undefined {
-  // Get all lines that serve the origin AND include the transfer platform in their stations
+  // lines that hit the origin and also include the transfer platform
   const validLines = fromStation.lines.filter(line => {
     const stationsOnLine = LINE_STATIONS[line]
     if (!stationsOnLine) return false
@@ -44,8 +44,8 @@ function getInterlinesForLeg1(fromStation: { lines: Line[] }, fromPlatform: stri
 }
 
 /**
- * Get all lines that share a platform at a transfer station AND serve the destination
- * For interlined segments (OR/SV/BL at Metro Center), this returns all valid lines
+ * get all lines that share a transfer platform and still serve the destination.
+ * interlined segments (OR/SV/BL at metro center, etc.) get the full list.
  */
 function getInterlinesForLeg2(toPlatform: string, toStation: { lines: Line[] }): Line[] | undefined {
   const platformConfig = PLATFORM_CODES[toPlatform]
@@ -65,8 +65,8 @@ function getInterlinesForLeg2(toPlatform: string, toStation: { lines: Line[] }):
 
 const router = Router()
 
-// Request validation schemas
-// Helper to parse boolean from query string (z.coerce.boolean treats "false" as true)
+// request validation schemas
+// boolean helper because z.coerce.boolean thinks "false" is true (rude)
 const booleanFromString = z.preprocess(
   (val) => val === 'true' || val === true,
   z.boolean().default(false)
@@ -76,22 +76,22 @@ const tripQuerySchema = z.object({
   from: z.string().min(2).max(4),
   to: z.string().min(2).max(4),
   walkTime: z.coerce.number().min(1).max(15).default(3),
-  transferStation: z.string().optional(), // Allow specifying which transfer to use
-  accessible: booleanFromString, // When true, prioritize elevator exits
-  includeDeparted: booleanFromString // When true, include trains that have already departed
+  transferStation: z.string().optional(), // pick a specific transfer if you fancy
+  accessible: booleanFromString, // true = favor elevators
+  includeDeparted: booleanFromString // true = also show trains that already bailed
 })
 
 const leg2QuerySchema = z.object({
-  // Allow negative numbers (e.g. -120) for trains that have already departed
+  // allow negative numbers (e.g. -120) for already-departed trains
   departureMin: z.coerce.number().min(-120).max(120),
   walkTime: z.coerce.number().min(1).max(15).default(3),
   transferStation: z.string().optional(),
-  // Real-time arrival at transfer station (if available from WMATA/GTFS-RT)
+  // realtime arrival at transfer station (if WMATA/GTFS-RT feels helpful)
   transferArrivalMin: z.coerce.number().optional(),
-  accessible: booleanFromString // When true, prioritize elevator exits
+  accessible: booleanFromString // true = elevator life
 })
 
-// Get API key from environment
+// pull WMATA api key from env
 function getApiKey(): string {
   const key = process.env.WMATA_API_KEY
   if (!key) {
@@ -101,8 +101,7 @@ function getApiKey(): string {
 }
 
 /**
- * Helper to get terminus string from terminus array
- * The car position service needs a single destination string for track direction
+ * get a single terminus string from an array—car position service wants one value
  */
 function getTerminusString(terminus: string | string[]): string {
   if (Array.isArray(terminus)) {
@@ -113,10 +112,10 @@ function getTerminusString(terminus: string | string[]): string {
 
 /**
  * GET /api/trips
- * Returns complete trip plan with trains
+ * returns a full trip plan with trains
  */
 router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req: Request, res: Response) => {
-  // Validate request
+  // validate request
   const result = tripQuerySchema.safeParse(req.query)
   if (!result.success) {
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
@@ -125,7 +124,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   const { from, to, walkTime, transferStation, accessible, includeDeparted } = result.data
   const apiKey = getApiKey()
 
-  // Find stations
+  // find stations
   const fromStation = findStationByCode(from)
   const toStation = findStationByCode(to)
 
@@ -136,11 +135,11 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new NotFoundError(`Destination station not found: ${to}`)
   }
 
-  // Find transfer (first get default to access alternatives)
+  // find transfer (grab default first so we know the alternatives)
   let transfer = findTransfer(from, to, walkTime)
   let defaultTransferName: string | undefined
 
-  // If a specific transfer station was requested, use that alternative instead
+  // if a specific transfer was requested, swap it in
   if (transferStation && transfer && !transfer.direct && transfer.alternatives) {
     const requestedAlternative = transfer.alternatives.find(alt => alt.station === transferStation)
     if (requestedAlternative) {
@@ -156,17 +155,18 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     throw new NotFoundError('No route found between stations')
   }
 
-  // Handle direct route
+  // handle direct route
   if (transfer.direct) {
     const terminus = getTerminus(transfer.line!, from, to)
 
-    // Fetch trains
-    const [apiTrains, gtfsEntities] = await Promise.all([
+    // batch fetch: origin predictions, destination predictions, and GTFS-RT
+    const [originPreds, destPreds, gtfsEntities] = await Promise.all([
       fetchStationPredictions(from, apiKey),
+      fetchStationPredictions(to, apiKey),
       fetchGTFSTripUpdates(apiKey)
     ])
 
-    const apiFiltered = filterApiResponse(apiTrains, terminus)
+    const apiFiltered = filterApiResponse(originPreds, terminus)
     const staticTrips = getStaticTrips()
     const gtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminus, staticTrips)
 
@@ -175,18 +175,18 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       gtfsTrains: gtfsTrains
     })
 
-    // Enrich trains with real-time destination arrival times
-    // Uses WMATA realtime API, falls back to GTFS-RT for further out trains
+    // add realtime destination arrivals (using prefetched destPreds to avoid another call)
     const trainsWithArrival = await fetchDestinationArrivals(
       mergedTrains,
       to,
       apiKey,
-      gtfsEntities
+      gtfsEntities,
+      destPreds  // Prefetched predictions
     )
 
     let sortedTrains = sortTrains(trainsWithArrival)
 
-    // Include departed trains if requested
+    // optionally include trains that already left
     if (includeDeparted && transfer.line) {
       const directTravelTime = calculateRouteTravelTime(
         from,
@@ -202,14 +202,14 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         staticTrips,
         terminus
       )
-      // Dedupe: remove any departed trains that already exist in sorted trains (by tripId)
+      // dedupe departed trains against what's already in sortedTrains
       const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
       const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
-      // Departed trains go at the end (they've already left)
+      // departed trains sit at the end—they already left the party
       sortedTrains = [...sortedTrains, ...uniqueDeparted]
     }
 
-    // NEW: Get car position for direct trip exit
+    // grab car position for the direct trip exit
     const directCarPosition = getDirectTripCarPosition(
       to,                           // destination station code
       transfer.line!,               // line (RD, OR, etc.)
@@ -226,7 +226,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         alternatives: [],
         leg1: {
           trains: sortedTrains,
-          carPosition: directCarPosition  // NEW: Real car position for exit
+          carPosition: directCarPosition  // real car position for exit
         }
       },
       meta: {
@@ -236,162 +236,212 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     })
   }
 
-  // Handle transfer route
-  const terminusFirst = getAllTerminiForStation(
-    fromStation,
-    from,
-    transfer.fromPlatform || 'C01'
-  )
-  const terminusSecond = getAllTerminiForStation(
-    toStation,
-    transfer.toPlatform || 'A01',
-    to
-  )
-
-  // Fetch leg 1 and leg 2 trains in parallel
-  const [leg1ApiTrains, leg2ApiTrains, gtfsEntities] = await Promise.all([
-    fetchStationPredictions(from, apiKey),
-    fetchStationPredictions(transfer.toPlatform, apiKey),
-    fetchGTFSTripUpdates(apiKey)
-  ])
-
-  // Process leg 1 trains - include all interlined trains (OR/SV share track from New Carrollton)
-  const staticTrips = getStaticTrips()
-  const leg1AllowedLines = getInterlinesForLeg1(fromStation, transfer.fromPlatform)
-    || (transfer.fromLine ? [transfer.fromLine] : undefined)
-  const leg1ApiFiltered = filterApiResponse(leg1ApiTrains, terminusFirst, leg1AllowedLines)
-  const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips, leg1AllowedLines)
-  const leg1MergedTrains = mergeTrainData({
-    apiTrains: leg1ApiFiltered,
-    gtfsTrains: leg1GtfsTrains
-  })
-
-  // Enrich leg1 trains with real-time arrival at transfer station
-  const leg1WithTransferArrival = await fetchDestinationArrivals(
-    leg1MergedTrains,
-    transfer.fromPlatform,
-    apiKey,
-    gtfsEntities
-  )
-
-  // Copy transfer arrival to dedicated fields
-  const leg1WithBothArrivals = leg1WithTransferArrival.map(train => ({
-    ...train,
-    _transferArrivalMin: train._destArrivalMin,
-    _transferArrivalTime: train._destArrivalTime,
-    _transferArrivalTimestamp: train._destArrivalTimestamp
-  }))
-
-  // Now enrich with FINAL destination arrivals
-  const leg1WithArrival = await fetchDestinationArrivals(
-    leg1WithBothArrivals,
-    to,
-    apiKey,
-    gtfsEntities
-  )
-  let sortedTrains = sortTrains(leg1WithArrival)
-
-  // Include departed trains if requested
-  if (includeDeparted && transfer.fromLine) {
-    const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(
-      from,
-      transfer.fromPlatform,
-      transfer.fromLine
-    )
-    const departedTrains = findDepartedTrains(
-      from,
-      transfer.fromPlatform,
-      transfer.fromLine,
-      leg1TravelTime,
-      gtfsEntities,
-      staticTrips,
-      terminusFirst
-    )
-    // Dedupe: remove any departed trains that already exist in sorted trains (by tripId)
-    const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
-    const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
-    // Departed trains go at the end (they've already left)
-    sortedTrains = [...sortedTrains, ...uniqueDeparted]
+  const yellowStations = LINE_STATIONS['YL'] || []
+  const mtVernonIdx = yellowStations.indexOf('E01')
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const destinationToCode = (destName: string) => {
+    const normalized = normalizeName(destName)
+    const match = ALL_STATIONS.find(st => normalizeName(st.name) === normalized)
+    return match?.code
+  }
+  const isNorthOfMtVernon = (code: string) => {
+    if (mtVernonIdx === -1) return false
+    const normalized = normalizePlatformCode(code, yellowStations)
+    const idx = yellowStations.indexOf(normalized)
+    if (idx === -1) return false
+    return idx > mtVernonIdx
   }
 
-  // Process leg 2 trains - include all interlined trains (OR/SV/BL share track)
-  const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
-    || (transfer.toLine ? [transfer.toLine] : undefined)
-  const leg2ApiFiltered = filterApiResponse(leg2ApiTrains, terminusSecond, leg2AllowedLines)
-  const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
-  const leg2MergedTrains = mergeTrainData({
-    apiTrains: leg2ApiFiltered,
-    gtfsTrains: leg2GtfsTrains
-  })
+  const buildTransferTrip = async (
+    currentTransfer: typeof transfer,
+    options: { allowYellowFallback?: boolean, branchWarning?: string, defaultTransferName?: string } = {}
+  ): Promise<any> => {
+    const { allowYellowFallback = false, branchWarning, defaultTransferName: optDefaultName } = options
 
-  // Enrich leg2 trains with real-time arrival at final destination
-  const leg2WithArrival = await fetchDestinationArrivals(
-    leg2MergedTrains,
-    to,
-    apiKey,
-    gtfsEntities
-  )
-  const leg2SortedTrains = sortTrains(leg2WithArrival)
+    const terminusFirst = getAllTerminiForStation(
+      fromStation,
+      from,
+      currentTransfer.fromPlatform || 'C01'
+    )
+    const terminusSecond = getAllTerminiForStation(
+      toStation,
+      currentTransfer.toPlatform || 'A01',
+      to
+    )
 
-  // NEW: Get car positions using real exit data
-  const carPositions = getTransferCarPosition(
-    transfer.fromPlatform,                  // transfer station (incoming platform)
-    transfer.fromLine!,                     // incoming line (e.g., 'RD')
-    transfer.toLine!,                       // outgoing line (e.g., 'BL')
-    getTerminusString(terminusFirst),       // incoming train destination
-    to,                                     // final destination station code
-    getTerminusString(terminusSecond),      // outgoing train destination
-    accessible                              // accessibility mode
-  )
+    // batch fetch all station predictions + GTFS-RT (4 calls instead of 6)
+    const [originPreds, transferPreds, destPreds, gtfsEntities] = await Promise.all([
+      fetchStationPredictions(from, apiKey),
+      fetchStationPredictions(currentTransfer.toPlatform, apiKey),
+      fetchStationPredictions(to, apiKey),
+      fetchGTFSTripUpdates(apiKey)
+    ])
 
-  // Calculate travel times
-  const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(
-    from,
-    transfer.fromPlatform,
-    transfer.fromLine!
-  )
-  const leg2TravelTime = transfer.leg2Time || calculateRouteTravelTime(
-    transfer.toPlatform,
-    to,
-    transfer.toLine!
-  )
+    const staticTrips = getStaticTrips()
+    const leg1AllowedLines = getInterlinesForLeg1(fromStation, currentTransfer.fromPlatform)
+      || (currentTransfer.fromLine ? [currentTransfer.fromLine] : undefined)
+    const leg1ApiFiltered = filterApiResponse(originPreds, terminusFirst, leg1AllowedLines)
+    const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips, leg1AllowedLines)
+    const leg1MergedTrains = mergeTrainData({
+      apiTrains: leg1ApiFiltered,
+      gtfsTrains: leg1GtfsTrains
+    })
 
-  res.json({
-    trip: {
-      origin: fromStation,
-      destination: toStation,
-      isDirect: false,
-      transfer: {
-        station: transfer.station,
-        name: transfer.name,
-        fromPlatform: transfer.fromPlatform,
-        toPlatform: transfer.toPlatform,
-        fromLine: transfer.fromLine,
-        toLine: transfer.toLine,
-        leg1Time: leg1TravelTime,
-        leg2Time: leg2TravelTime,
-        alternatives: transfer.alternatives || [],
-        defaultTransferName
-      },
-      leg1: {
-        trains: sortedTrains,
-        carPosition: carPositions.leg1,  // NEW: Real car position for transfer
-        terminus: terminusFirst,
-        travelTime: leg1TravelTime
-      },
-      leg2: {
-        trains: leg2SortedTrains,
-        terminus: terminusSecond,
-        travelTime: leg2TravelTime,
-        carPosition: carPositions.leg2   // NEW: Real car position for exit
-      }
-    },
-    meta: {
-      fetchedAt: new Date().toISOString(),
-      sources: ['api', 'gtfs-rt'],
-      walkTime: walkTime
+    // reuse transferPreds so we don't refetch
+    const leg1WithTransferArrival = await fetchDestinationArrivals(
+      leg1MergedTrains,
+      currentTransfer.fromPlatform,
+      apiKey,
+      gtfsEntities,
+      transferPreds  // Prefetched transfer station predictions
+    )
+
+    const leg1WithBothArrivals = leg1WithTransferArrival.map(train => ({
+      ...train,
+      _transferArrivalMin: train._destArrivalMin,
+      _transferArrivalTime: train._destArrivalTime,
+      _transferArrivalTimestamp: train._destArrivalTimestamp
+    }))
+
+    // reuse destPreds so we don't refetch
+    const leg1WithArrival = await fetchDestinationArrivals(
+      leg1WithBothArrivals,
+      to,
+      apiKey,
+      gtfsEntities,
+      destPreds  // Prefetched destination predictions
+    )
+    let sortedTrains = sortTrains(leg1WithArrival)
+
+    if (includeDeparted && currentTransfer.fromLine) {
+      const leg1TravelTime = currentTransfer.leg1Time || calculateRouteTravelTime(
+        from,
+        currentTransfer.fromPlatform,
+        currentTransfer.fromLine
+      )
+      const departedTrains = findDepartedTrains(
+        from,
+        currentTransfer.fromPlatform,
+        currentTransfer.fromLine,
+        leg1TravelTime,
+        gtfsEntities,
+        staticTrips,
+        terminusFirst
+      )
+      const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
+      const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
+      sortedTrains = [...sortedTrains, ...uniqueDeparted]
     }
-  })
+
+    const leg2AllowedLines = getInterlinesForLeg2(currentTransfer.toPlatform, toStation)
+      || (currentTransfer.toLine ? [currentTransfer.toLine] : undefined)
+    const leg2ApiFiltered = filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
+    const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, currentTransfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
+    const leg2MergedTrains = mergeTrainData({
+      apiTrains: leg2ApiFiltered,
+      gtfsTrains: leg2GtfsTrains
+    })
+
+    // reuse destPreds so we don't refetch
+    const leg2WithArrival = await fetchDestinationArrivals(
+      leg2MergedTrains,
+      to,
+      apiKey,
+      gtfsEntities,
+      destPreds  // Prefetched destination predictions
+    )
+    const leg2SortedTrains = sortTrains(leg2WithArrival)
+
+    let branchWarningToUse = branchWarning
+    const destinationIsNorth = isNorthOfMtVernon(to)
+    if (currentTransfer.toLine === 'YL' && destinationIsNorth && mtVernonIdx !== -1) {
+      const yellowTrains = leg2WithArrival.filter(train => train.Line === 'YL')
+      const hasYellowBeyondMtVernon = yellowTrains.some(train => {
+        const destCode = destinationToCode(train.DestinationName || '')
+        if (!destCode) return false
+        const normalizedDest = normalizePlatformCode(destCode, yellowStations)
+        const destIdx = yellowStations.indexOf(normalizedDest)
+        return destIdx > mtVernonIdx
+      })
+
+      if (!hasYellowBeyondMtVernon) {
+        branchWarningToUse = 'yellow_branch_inactive'
+        if (allowYellowFallback) {
+          const greenAlt = currentTransfer.alternatives?.find(alt => alt.toLine === 'GR')
+          if (greenAlt) {
+            const fallbackTransfer = { ...greenAlt, alternatives: currentTransfer.alternatives }
+            return buildTransferTrip(fallbackTransfer, {
+              allowYellowFallback: false,
+              branchWarning: branchWarningToUse,
+              defaultTransferName: optDefaultName ?? currentTransfer.name
+            })
+          }
+        }
+      }
+    }
+
+    const carPositions = getTransferCarPosition(
+      currentTransfer.fromPlatform,                  // transfer station (incoming platform)
+      currentTransfer.fromLine!,                     // incoming line (e.g., 'RD')
+      currentTransfer.toLine!,                       // outgoing line (e.g., 'BL')
+      getTerminusString(terminusFirst),              // incoming train destination
+      to,                                            // final destination station code
+      getTerminusString(terminusSecond),             // outgoing train destination
+      accessible                                     // accessibility mode
+    )
+
+    const leg1TravelTime = currentTransfer.leg1Time || calculateRouteTravelTime(
+      from,
+      currentTransfer.fromPlatform,
+      currentTransfer.fromLine!
+    )
+    const leg2TravelTime = currentTransfer.leg2Time || calculateRouteTravelTime(
+      currentTransfer.toPlatform,
+      to,
+      currentTransfer.toLine!
+    )
+
+    return {
+      trip: {
+        origin: fromStation,
+        destination: toStation,
+        isDirect: false,
+        transfer: {
+          station: currentTransfer.station,
+          name: currentTransfer.name,
+          fromPlatform: currentTransfer.fromPlatform,
+          toPlatform: currentTransfer.toPlatform,
+          fromLine: currentTransfer.fromLine,
+          toLine: currentTransfer.toLine,
+          leg1Time: leg1TravelTime,
+          leg2Time: leg2TravelTime,
+          alternatives: currentTransfer.alternatives || [],
+          defaultTransferName: optDefaultName
+        },
+        leg1: {
+          trains: sortedTrains,
+            carPosition: carPositions.leg1,  // real car position for transfer
+          terminus: terminusFirst,
+          travelTime: leg1TravelTime
+        },
+        leg2: {
+          trains: leg2SortedTrains,
+          terminus: terminusSecond,
+          travelTime: leg2TravelTime,
+            carPosition: carPositions.leg2   // real car position for exit
+        }
+      },
+      meta: {
+        fetchedAt: new Date().toISOString(),
+        sources: ['api', 'gtfs-rt'],
+        walkTime: walkTime,
+        branchWarning: branchWarningToUse
+      }
+    }
+  }
+
+  const transferTrip = await buildTransferTrip(transfer, { allowYellowFallback: true, defaultTransferName })
+  res.json(transferTrip)
 }))
 
 /**
@@ -437,14 +487,14 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     throw new ValidationError('This trip does not require a transfer')
   }
 
-  // Calculate when user arrives at transfer station
-  // Use real-time transfer arrival if provided, otherwise fall back to calculated
+  // figure out when the rider reaches the transfer station
+  // prefer realtime arrival, otherwise fall back to math
   let arrivalAtTransfer: number
   if (transferArrivalMin !== undefined) {
-    // Real-time arrival at transfer + walk time to other platform
+    // realtime arrival at transfer + walk time to the other platform
     arrivalAtTransfer = transferArrivalMin + walkTime
   } else {
-    // Fallback: calculate using static travel times
+    // fallback: use static travel times
     const leg1TravelTime = transfer.leg1Time || calculateRouteTravelTime(
       from,
       transfer.fromPlatform,
@@ -453,31 +503,32 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     arrivalAtTransfer = departureMin + leg1TravelTime + walkTime
   }
 
-  // Get terminus for leg 2
+  // grab terminus for leg 2
   const terminusSecond = getAllTerminiForStation(
     toStation,
     transfer.toPlatform,
     to
   )
 
-  // Get terminus for leg 1 (needed for car position calculation)
+  // grab terminus for leg 1 (needed for car position calc)
   const terminusFirst = getAllTerminiForStation(
     fromStation,
     from,
     transfer.fromPlatform
   )
 
-  // Fetch leg 2 trains from transfer station
-  const [apiTrains, gtfsEntities] = await Promise.all([
+  // batch fetch: transfer platform, destination, and GTFS-RT
+  const [transferPreds, destPreds, gtfsEntities] = await Promise.all([
     fetchStationPredictions(transfer.toPlatform, apiKey),
+    fetchStationPredictions(to, apiKey),
     fetchGTFSTripUpdates(apiKey)
   ])
 
-  // Include all interlined trains (OR/SV/BL share track)
+  // include all interlined trains (OR/SV/BL share track)
   const staticTrips = getStaticTrips()
   const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
     || (transfer.toLine ? [transfer.toLine] : undefined)
-  const apiFiltered = filterApiResponse(apiTrains, terminusSecond, leg2AllowedLines)
+  const apiFiltered = filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
   const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
 
   const mergedTrains = mergeTrainData({
@@ -485,28 +536,29 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     gtfsTrains: gtfsTrains
   })
 
-  // Enrich leg2 trains with real-time arrival at final destination
+  // add realtime arrival at the final destination (reusing destPreds)
   const trainsWithArrival = await fetchDestinationArrivals(
     mergedTrains,
     to,
     apiKey,
-    gtfsEntities
+    gtfsEntities,
+    destPreds  // Prefetched destination predictions
   )
 
-  // Calculate leg 2 travel time (fallback for trains without realtime data)
+  // leg 2 travel time fallback for trains without realtime data
   const leg2TravelTimeFallback = transfer.leg2Time || calculateRouteTravelTime(
     transfer.toPlatform,
     to,
     transfer.toLine!
   )
 
-  // Calculate catchability for each train
-  const CATCH_THRESHOLD = -3  // Can catch trains up to 3 mins before arrival (might run)
+  // calculate catchability for each train
+  const CATCH_THRESHOLD = -3  // can catch trains up to 3 min before arrival (might require a jog)
   const trainsWithCatchability: CatchableTrain[] = trainsWithArrival.map(train => {
     const trainArrival = getTrainMinutes(train.Min)
     const waitTime = trainArrival - arrivalAtTransfer
 
-    // Use real-time destination arrival if available, otherwise fallback to calculated
+    // prefer realtime destination arrival, otherwise fall back to calculated
     const totalJourneyTime = train._destArrivalMin !== undefined
       ? train._destArrivalMin
       : trainArrival + leg2TravelTimeFallback
@@ -521,10 +573,10 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     }
   })
 
-  // Filter to only catchable trains
+  // filter to only the trains you can actually catch
   const catchableTrains = trainsWithCatchability.filter(t => t._canCatch)
 
-  // Sort: live trains first, then by arrival time
+  // sort: live trains first, then by arrival time
   const sortedTrains = catchableTrains.sort((a, b) => {
     const aIsLive = !a._scheduled
     const bIsLive = !b._scheduled
@@ -533,7 +585,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     return getTrainMinutes(a.Min) - getTrainMinutes(b.Min)
   })
 
-  // NEW: Get car positions using real exit data
+  // grab car positions using real exit data
   const carPositions = getTransferCarPosition(
     transfer.fromPlatform,                  // transfer station (incoming platform)
     transfer.fromLine!,                     // incoming line
@@ -548,8 +600,8 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     trains: sortedTrains,
     arrivalAtTransfer: arrivalAtTransfer,
     arrivalTime: minutesToClockTime(arrivalAtTransfer),
-    carPosition: carPositions.leg1,     // For boarding at origin
-    exitCarPosition: carPositions.leg2, // NEW: For exiting at destination
+    carPosition: carPositions.leg1,     // for boarding at origin
+    exitCarPosition: carPositions.leg2, // for exiting at destination
     leg2TravelTime: leg2TravelTimeFallback,
     meta: {
       fetchedAt: new Date().toISOString(),

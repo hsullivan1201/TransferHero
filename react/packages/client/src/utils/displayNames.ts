@@ -1,11 +1,11 @@
-// react/packages/client/src/utils/displayNames.ts
+// welcome to displayNames.ts (react/packages/client/src/utils)
 
 const DESTINATION_ALIASES: Record<string, string> = {
   'Largo': 'Largo Town Center',
   'NewCrltn': 'New Carrollton',
   'Glenmont': 'Glenmont',
   'Shady Gr': 'Shady Grove',
-  'Shady Grv': 'Shady Grove', // added this bc wmata real-time is quirky
+  'Shady Grv': 'Shady Grove', // added this because wmata realtime loves being quirky
   'Greenbelt': 'Greenbelt',
   'Huntingtn': 'Huntington',
   'Frncnia': 'Franconia',
@@ -36,20 +36,20 @@ const DISPLAY_NAMES: Record<string, string> = {
 
 function toTitleCase(str: string): string {
   return str.toLowerCase()
-    .replace(/\b\w/g, c => c.toUpperCase()) // title case words
-    .replace(/'S\b/g, "'s") // fix possessives like George's
+    .replace(/\b\w/g, c => c.toUpperCase()) // title-case the words so they stop yelling
+    .replace(/'S\b/g, "'s") // fix possessives like george's
 }
 
 export function normalizeDestination(dest: string): string {
-  // 1. check for direct alias match (e.g. "Shady Grv", "NewCrltn")
+  // step 1: try a straight-up alias match (e.g. "Shady Grv", "NewCrltn")
   if (DESTINATION_ALIASES[dest]) {
     return DESTINATION_ALIASES[dest]
   }
 
-  // 2. if it's screaming (ALL CAPS), calm it down
+  // step 2: if it's screaming in all caps, chill it out
   if (dest && dest === dest.toUpperCase()) {
     const titleCased = toTitleCase(dest)
-    // check aliases again for the title cased version
+    // give aliases another shot after title casing
     // e.g. "SHADY GR" -> "Shady Gr" -> "Shady Grove"
     return DESTINATION_ALIASES[titleCased] || titleCased
   }

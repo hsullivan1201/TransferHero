@@ -12,8 +12,8 @@ export type StaticTripsMap = Record<string, StaticTripInfo>
 let cachedStaticTrips: StaticTripsMap | null = null
 
 /**
- * Load static trips data from the root static-trips.js file
- * This maps trip IDs to their headsign/line info for GTFS-RT lookups
+ * load static trips from the root static-trips.js file.
+ * maps trip ids to headsign/line so GTFS-RT lookups aren't guessing.
  */
 export function loadStaticTrips(): StaticTripsMap {
   if (cachedStaticTrips) {
@@ -21,13 +21,13 @@ export function loadStaticTrips(): StaticTripsMap {
   }
 
   try {
-    // Navigate from server/src/data to project root's static-trips.js
+    // hop from server/src/data up to the root static-trips.js
     const __dirname = dirname(fileURLToPath(import.meta.url))
     const staticTripsPath = resolve(__dirname, '../../../../../static-trips.js')
 
     const fileContent = readFileSync(staticTripsPath, 'utf-8')
 
-    // Extract JSON from: const STATIC_TRIPS = {...}
+    // peel out the json from `const STATIC_TRIPS = {...}`
     const jsonMatch = fileContent.match(/const\s+STATIC_TRIPS\s*=\s*(\{[\s\S]*\})/)
     if (!jsonMatch) {
       console.warn('[StaticTrips] Could not parse static-trips.js format')
@@ -44,8 +44,18 @@ export function loadStaticTrips(): StaticTripsMap {
 }
 
 /**
- * Get static trips (uses cached data after first load)
+ * get static trips (uses the cache after first load)
  */
 export function getStaticTrips(): StaticTripsMap {
   return cachedStaticTrips ?? loadStaticTrips()
+}
+
+/**
+ * clear cache and reload static trips from disk.
+ * called by the GTFS refresh job after updating static-trips.js.
+ */
+export function reloadStaticTrips(): void {
+  cachedStaticTrips = null
+  loadStaticTrips()
+  console.log('[StaticTrips] Reloaded from disk')
 }

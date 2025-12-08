@@ -3,6 +3,7 @@ import { RefreshCw } from 'lucide-react'
 import type { Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
+import { deriveWaitMinutes, computeTotalMinutes, resolveArrivalClock } from '../utils/time'
 
 interface TripViewProps {
   transfer: TransferResult | null
@@ -52,9 +53,8 @@ export function TripView({
   onToggleShowDeparted
 }: TripViewProps) {
 
-  // Logic for displayTrain calculation and status
-  // Find the live version of the selected train from refreshed data
-  // ONLY match by exact tripId - Line+Destination matching is unreliable and causes wrong train bugs
+  // displayTrain brain dump: pick a live copy of the selected train
+  // match only by exact tripId—line+destination roulette gave us ghost trains
   const liveTrain = selectedLeg1Train
     ? (selectedLeg1Train._tripId
         ? leg1Trains.find(t => t._tripId === selectedLeg1Train._tripId)
@@ -66,23 +66,23 @@ export function TripView({
   let currentMin: number | undefined = undefined
   let customStatus: string | undefined = undefined
 
-  // Determine target name (transfer station or destination for direct trips)
+  // decide if we're talking to the transfer stop or the final stop
   const targetName = isDirect ? destinationName : transferName
 
-  // Build arrival time suffix if real-time data available (use live train data)
+  // tack on an arrival suffix if realtime feels generous
   const arrivalTimeSuffix = liveTrain?._destArrivalTime
     ? ` · Arr ${liveTrain._destArrivalTime}`
     : ''
 
   if (liveTrain && departureTimestamp) {
     const now = Date.now()
-    // Use departureTimestamp as source of truth (not liveMin which might be from wrong train)
+    // trust the saved departure time; live min sometimes fibs
     const msUntilDeparture = departureTimestamp - now
     const minUntilDeparture = Math.round(msUntilDeparture / 60000)
 
-    // Handle departed trains selected from "Already on a train?" section
+    // if the user picked an already-gone train from "already on a train?"
     if (liveTrain._departed && liveTrain._transferArrivalTimestamp) {
-      // Departed train - show countdown to transfer station (same format as regular trains)
+      // departed train: countdown to the transfer like any other
       const minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - now) / 60000)
       currentMin = minutesRemaining
       
@@ -96,20 +96,20 @@ export function TripView({
         ? `Arrived at ${transferName || targetName}`
         : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
     } else if (minUntilDeparture > 0) {
-      // Train hasn't departed yet - countdown based on recorded departure time
+      // not left yet: countdown from the timestamp we recorded
       currentMin = minUntilDeparture
-      // Pass departureTimestamp for precise seconds display when <2min
+      // hand off the timestamp so seconds view can be crisp
       displayTrain = {
         ...liveTrain,
         Min: minUntilDeparture,
-        _destArrivalTimestamp: departureTimestamp // Use departure time for origin countdown
+        _destArrivalTimestamp: departureTimestamp // use the timestamp for the origin clock
       }
       customStatus = `Departs ${originName} in ${minUntilDeparture} min`
     } else if (minUntilDeparture >= -1) {
-      // Train is arriving or boarding
+      // living in the arr/brd limbo
       currentMin = 0
 
-      // Smart departure detection: use transfer arrival to calculate expected departure
+      // sanity check: back-calc departure from transfer arrival
       let hasActuallyDeparted = false
       if (liveTrain._transferArrivalTimestamp && leg1Time) {
         const expectedDepartureTime = liveTrain._transferArrivalTimestamp - (leg1Time * 60 * 1000)
@@ -117,8 +117,7 @@ export function TripView({
       }
 
       if (hasActuallyDeparted) {
-        // Train has departed based on transfer arrival math
-        // Calculate time to transfer station
+        // seems like it left based on the math—countdown to transfer
         let minutesRemaining: number
         if (liveTrain._transferArrivalTimestamp) {
           minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - Date.now()) / 60000)
@@ -135,33 +134,33 @@ export function TripView({
           ? `Arrived at ${transferName || targetName}`
           : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
       } else {
-        // Still boarding at origin
+        // still loitering at the origin
         const isArriving = liveTrain.Min === 'ARR'
         displayTrain = { ...liveTrain, Min: isArriving ? 'ARR' : 'BRD' }
         customStatus = isArriving ? `Arriving at ${originName}` : `Boarding at ${originName}`
       }
     } else {
-      // Train has departed - use real-time arrival at destination if available
-      // Use exact timestamp for most accurate calculation
+      // already departed: lean on destination realtime if we have it
+      // use timestamps when possible; they're less dramatic than mins
       let minutesRemaining: number
       if (liveTrain._destArrivalTimestamp) {
-        // Most accurate: use exact arrival timestamp from backend
+        // best case: backend handed us an exact arrival
         minutesRemaining = Math.floor((liveTrain._destArrivalTimestamp - Date.now()) / 60000)
       } else {
-        // Fallback to other methods if timestamp not available
+        // otherwise, use whatever fallback math we have
         minutesRemaining = liveTrain._destArrivalMin ?? Math.max(0, leg1Time + minUntilDeparture)
       }
       currentMin = -Math.abs(minUntilDeparture)
-      // Preserve timestamp for TrainCard to show seconds when <2min
+      // keep the timestamp so TrainCard can flex seconds view
       displayTrain = {
         ...liveTrain,
         Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
-        _destArrivalTimestamp: liveTrain._destArrivalTimestamp // Pass through for precise display
+        _destArrivalTimestamp: liveTrain._destArrivalTimestamp // pass it through for precise display
       }
       customStatus = minutesRemaining <= 0 ? `Arrived at ${targetName}` : `En Route to ${targetName}${arrivalTimeSuffix}`
     }
   } else if (liveTrain) {
-    // Train selected but departure not yet tracked - use live Min for display
+    // selected train but no timestamp yet? lean on live min
     const liveMin = typeof liveTrain.Min === 'number'
       ? liveTrain.Min
       : liveTrain.Min === 'ARR' || liveTrain.Min === 'BRD'
@@ -178,13 +177,18 @@ export function TripView({
   }
 
   const selectedNumCars = selectedLeg1Train ? parseInt(selectedLeg1Train.Car || '8', 10) : undefined
+
   const arrivalTime = selectedLeg1Train && leg2Trains.length > 0 && leg2Trains[0]._canCatch
     ? leg2Trains[0]._arrivalClock
     : undefined
 
+  const waitMinutes = deriveWaitMinutes(liveTrain, departureTimestamp)
+  const totalMinutes = computeTotalMinutes([waitMinutes, leg1Time, walkTime, leg2Time])
+  const arrivalClock = resolveArrivalClock(totalMinutes, arrivalTime)
+
   return (
     <div className="animate-fade-in">
-      {/* Refresh Button */}
+      {/* refresh button, aka the "did it change yet?" switch */}
       {onRefresh && (
         <div className="mb-4 flex justify-end">
           <button
@@ -219,15 +223,16 @@ export function TripView({
           />
         </div>
         
-        {/* ... [Rest of JSX remains the same] ... */}
+        {/* rest of the layout stays boringly unchanged */}
         {!isDirect && (
           <div className="hidden lg:flex shrink-0 lg:w-64">
             <JourneyInfo
               leg1Time={leg1Time}
               transferTime={walkTime}
               leg2Time={leg2Time}
-              selectedTrainMin={currentMin}
-              arrivalTime={arrivalTime}
+              waitMinutes={waitMinutes}
+              totalMinutes={totalMinutes}
+              arrivalClock={arrivalClock ?? undefined}
             />
           </div>
         )}
@@ -253,8 +258,9 @@ export function TripView({
             leg1Time={leg1Time}
             transferTime={walkTime}
             leg2Time={leg2Time}
-            selectedTrainMin={currentMin}
-            arrivalTime={arrivalTime}
+            waitMinutes={waitMinutes}
+            totalMinutes={totalMinutes}
+            arrivalClock={arrivalClock ?? undefined}
           />
         </div>
       )}

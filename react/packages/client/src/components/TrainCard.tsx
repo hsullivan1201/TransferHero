@@ -27,21 +27,21 @@ export function TrainCard({
   onClick,
   customStatus
 }: TrainCardProps) {
-  // Live countdown state - updates every second when showing seconds
+  // live countdown brain: tick every second only when we're in seconds-mode
   const [now, setNow] = useState(Date.now())
 
-  // Use timestamp for precise display when available
+  // trust the timestamp when we have it; eyeballing is for humans
   const hasTimestamp = !!train._destArrivalTimestamp && train._destArrivalTimestamp > now
   const millisRemaining = hasTimestamp && train._destArrivalTimestamp ? train._destArrivalTimestamp - now : 0
-  const shouldShowSeconds = hasTimestamp && millisRemaining < 2 * 60 * 1000 // <2 minutes
+  const shouldShowSeconds = hasTimestamp && millisRemaining < 2 * 60 * 1000 // under 2 minutes
 
-  // Set up live countdown when showing seconds
+  // spin up a tiny metronome only when showing seconds
   useEffect(() => {
     if (!shouldShowSeconds) {
-      return // No need for interval if not showing seconds
+      return // skip the timer if we're in minute-land
     }
 
-    // Update every second for smooth countdown
+    // ping every second so the clock feels alive
     const interval = setInterval(() => {
       setNow(Date.now())
     }, 1000)
@@ -51,7 +51,7 @@ export function TrainCard({
 
   const trainMin = getTrainMinutes(train.Min)
   
-  // Detect departed trains - but NOT when selected (user is on the train, show arrival countdown)
+  // figure out if the train already bailed—except when it's the one we picked
   const isDeparted = !isSelected && (train._departed === true || (typeof trainMin === 'number' && trainMin < 0))
   const departedMinAgo = isDeparted ? Math.abs(trainMin) : 0
   
@@ -61,24 +61,24 @@ export function TrainCard({
       ? train._transferArrivalTime // Show transfer arrival time for departed trains
       : minutesToClockTime(trainMin)
 
-  // FIX: Handle "5" (string), 5 (number), and custom text like "12 min"
+  // handles 5, '5', and whatever creative string shows up
   let minDisplay = ''
   if (isDeparted) {
-    // Departed train - show "Left X min ago"
+    // departed train? say how long ago it ghosted
     minDisplay = `Left ${departedMinAgo}m ago`
   } else if (train.Min === 'ARR' || train.Min === 'BRD') {
     minDisplay = train.Min
   } else if (shouldShowSeconds) {
-    // Show seconds precision when <2 min and timestamp available
+    // seconds view for under 2 minutes when we have a timestamp
     minDisplay = formatTimeWithSeconds(millisRemaining)
   } else if (
     typeof train.Min === 'number' ||
     (!isNaN(Number(train.Min)) && String(train.Min).trim() !== '')
   ) {
-    // It's a raw number (5 or "5"), so add " min"
+    // raw number? slap 'min' on it
     minDisplay = `${train.Min} min`
   } else {
-    // It's already formatted text (e.g. "5 min" from TripView logic)
+    // otherwise keep the fancy formatting it came with
     minDisplay = String(train.Min)
   }
 
@@ -87,12 +87,12 @@ export function TrainCard({
   const showCatchability = isCatchableTrain(train)
   const isMissed = showCatchability && !train._canCatch
 
-  // Determine status text
+  // craft the little status blurb
   let statusText: string
   if (customStatus) {
     statusText = customStatus
   } else if (isDeparted) {
-    // Departed train - show next stop and transfer arrival
+    // if it left, talk next stop plus transfer eta
     const nextStopPart = train._nextStop ? `Next: ${train._nextStop}` : ''
     const arrivalPart = train._transferArrivalTime ? `Arr ${train._transferArrivalTime}` : ''
     if (nextStopPart && arrivalPart) {
@@ -114,12 +114,13 @@ export function TrainCard({
     statusText = `${train.Car || '8'}-car train`
   }
 
-  // Source indicator
+  // tiny badge for where this data came from
   const SourceIcon = train._gtfs ? Satellite : train._scheduled ? null : Rss
   const sourceTitle = train._gtfs ? 'Tracked via GPS' : train._scheduled ? 'Scheduled' : 'Live at Station'
 
   const lineClass = getLineClass(train.Line as Line)
   const isYellow = train.Line === 'YL'
+  const trainNumber = train.TrainNumber ?? train.TrainId
 
   return (
     <div
@@ -149,6 +150,11 @@ export function TrainCard({
         <div className="flex-1 min-w-0">
           <div className="text-base font-semibold flex items-center gap-1.5">
             {getDisplayName(train.DestinationName)}
+            {trainNumber && (
+              <span className={`text-[10px] font-medium leading-none ${isYellow ? 'text-black/60' : 'text-white/70'}`}>
+                #{trainNumber}
+              </span>
+            )}
             {SourceIcon && (
               <span title={sourceTitle}>
                 <SourceIcon

@@ -38,7 +38,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
     ? [...new Set(exits.map(e => e.car))]
     : [highlightCar]
   
-  // Find the preferred car (car with preferred exit)
+  // pick the car with the favored exit (teacher's pet car)
   const preferredCar = exits.find(e => e.preferred)?.car
   
   const showExitLabels = type === 'exit' && exits.length > 0

@@ -30,8 +30,8 @@ function AppContent() {
     tripState.showDeparted
   )
 
-  // Find live version of selected train from refreshed data for accurate timing
-  // ONLY match by exact tripId - Line+Destination matching causes wrong train bugs
+  // grab a fresh copy of the selected train for timing math
+  // only trust exact tripId; line+destination matching was chaos
   const liveLeg1Train = tripState.selectedLeg1Train && tripData?.trip.leg1.trains
     ? (tripState.selectedLeg1Train._tripId
         ? tripData.trip.leg1.trains.find(t => t._tripId === tripState.selectedLeg1Train!._tripId)
@@ -49,7 +49,7 @@ function AppContent() {
     walkTime: tripState.walkTime,
     transferStation: tripState.selectedAlternative?.station,
     enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
-    // Pass LIVE real-time arrival at transfer station (recalculated from timestamp for freshness)
+    // pass along realtime transfer arrival, recalculated so it's not stale
     transferArrivalMin: liveLeg1Train?._transferArrivalTimestamp
       ? Math.round((liveLeg1Train._transferArrivalTimestamp - Date.now()) / 60000)
       : undefined,

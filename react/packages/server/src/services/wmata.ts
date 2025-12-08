@@ -4,10 +4,33 @@ import protobuf from 'protobufjs'
 import fetch from 'node-fetch'
 import { findStationByCode } from '../data/stations.js'
 
-// Cached protobuf root
+// cached protobuf root so we don't rebuild it every call
 let protoRoot: protobuf.Root | null = null
 
-// GTFS-RT Protobuf schema definition
+// wmata api cache layer — keeps us from spamming their servers every second
+const PREDICTION_TTL = 15_000  // 15 seconds
+const GTFS_TTL = 10_000        // 10 seconds
+
+interface CacheEntry<T> {
+  data: T
+  ts: number
+}
+
+const predictionCache = new Map<string, CacheEntry<Train[]>>()
+let gtfsCache: CacheEntry<any[]> | null = null
+
+// cache stats for logging and bragging
+let cacheStats = { predictionHits: 0, predictionMisses: 0, gtfsHits: 0, gtfsMisses: 0 }
+
+export function getWmataCacheStats() {
+  return { ...cacheStats }
+}
+
+export function resetWmataCacheStats() {
+  cacheStats = { predictionHits: 0, predictionMisses: 0, gtfsHits: 0, gtfsMisses: 0 }
+}
+
+// GTFS-RT protobuf schema definition
 const GTFS_RT_SCHEMA = {
   nested: {
     transit_realtime: {
@@ -50,12 +73,23 @@ async function initProto(): Promise<protobuf.Root> {
 }
 
 /**
- * Fetch station predictions from WMATA API
+ * Fetch station predictions from WMATA API (with caching)
  */
 export async function fetchStationPredictions(
   stationCode: string,
   apiKey: string
 ): Promise<Train[]> {
+  const key = stationCode.toUpperCase()
+  const now = Date.now()
+
+  // check cache first
+  const cached = predictionCache.get(key)
+  if (cached && (now - cached.ts) < PREDICTION_TTL) {
+    cacheStats.predictionHits++
+    return cached.data
+  }
+
+  cacheStats.predictionMisses++
   const url = `https://api.wmata.com/StationPrediction.svc/json/GetPrediction/${stationCode}`
 
   const response = await fetch(url, {
@@ -67,13 +101,28 @@ export async function fetchStationPredictions(
   }
 
   const data = await response.json() as { Trains?: Train[] }
-  return data.Trains || []
+  const trains = data.Trains || []
+
+  // stash in cache
+  predictionCache.set(key, { data: trains, ts: now })
+
+  return trains
 }
 
 /**
- * Fetch GTFS-RT trip updates
+ * Fetch GTFS-RT trip updates (with caching)
  */
 export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
+  const now = Date.now()
+
+  // check cache first
+  if (gtfsCache && (now - gtfsCache.ts) < GTFS_TTL) {
+    cacheStats.gtfsHits++
+    return gtfsCache.data
+  }
+
+  cacheStats.gtfsMisses++
+
   try {
     const root = await initProto()
     const response = await fetch('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
@@ -89,7 +138,12 @@ export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
     const message = FeedMessage.decode(new Uint8Array(buffer))
     const object = FeedMessage.toObject(message, { longs: String })
 
-    return object.entity || []
+    const entities = object.entity || []
+
+    // stash in cache
+    gtfsCache = { data: entities, ts: now }
+
+    return entities
   } catch (e) {
     console.error('[GTFS] Fetch Error:', e)
     return []
@@ -116,7 +170,7 @@ export function parseUpdatesToTrains(
     const trip = entity.tripUpdate.trip
     const updates = entity.tripUpdate.stopTimeUpdate
 
-    // Find matching stop update (handles pf_x_y format)
+    // find the stop update (pf_x_y friendly)
     const stopUpdate = updates.find((u: any) => {
       if (!u.stopId) return false
       const parts = u.stopId.split('_')
@@ -132,20 +186,31 @@ export function parseUpdatesToTrains(
     const time = parseInt(event.time)
     const minutesUntil = Math.floor((time - now) / 60)
 
-    // Skip trains that have already departed
+    // skip trains that already ghosted
     if (minutesUntil < -1) return
 
-    // Get static trip info if available
+    // pull static trip info if we have it
     const staticInfo = staticTrips[trip.tripId]
-    const line = staticInfo ? staticInfo.line : (trip.routeId || '')
+    
+    // map routeId to line code (GTFS yells "ORANGE", we need "OR")
+    const ROUTE_TO_LINE: Record<string, Line> = {
+      'ORANGE': 'OR', 'OR': 'OR',
+      'SILVER': 'SV', 'SV': 'SV',
+      'BLUE': 'BL', 'BL': 'BL',
+      'RED': 'RD', 'RD': 'RD',
+      'YELLOW': 'YL', 'YL': 'YL',
+      'GREEN': 'GR', 'GR': 'GR',
+    }
+    const rawLine = staticInfo ? staticInfo.line : (trip.routeId || '')
+    const line = ROUTE_TO_LINE[rawLine.toUpperCase()] || rawLine as Line
     const destName = staticInfo ? staticInfo.headsign : 'Check Board'
 
-    // Filter by allowed lines if specified
+    // filter by allowed lines if provided
     if (allowedLines && allowedLines.length > 0) {
-      if (!allowedLines.includes(line as Line)) return
+      if (!allowedLines.includes(line)) return
     }
 
-    // Filter by terminus/destination
+    // filter by terminus/destination
     const normalizedDest = normalizeDestination(destName)
     const normalizedTermini = ensureArray(terminusList).map(t => normalizeDestination(t))
 
@@ -170,7 +235,7 @@ export function parseUpdatesToTrains(
     })
   })
 
-  // Deduplicate
+  // dedupe the pile
   const uniqueTrains: Train[] = []
   const seen = new Set<string>()
   relevantTrains.forEach(t => {
@@ -186,12 +251,12 @@ export function parseUpdatesToTrains(
 
 interface ArrivalData {
   minutes: number
-  timestamp: number  // Unix timestamp in milliseconds
+  timestamp: number  // unix timestamp in ms because dates are hard
 }
 
 /**
- * Get arrival time at a destination station from GTFS-RT data
- * Returns arrival minutes and exact timestamp, or undefined if not found
+ * get arrival time at a destination from GTFS-RT.
+ * returns minutes + exact timestamp, or undefined if we can't find it.
  */
 export function getArrivalAtStation(
   entities: any[],
@@ -208,7 +273,7 @@ export function getArrivalAtStation(
     const updates = entity.tripUpdate.stopTimeUpdate || []
     for (const update of updates) {
       if (!update.stopId) continue
-      // Handle pf_x_y format
+      // pf_x_y safe parsing
       const parts = update.stopId.split('_')
       const extractedCode = (parts[0] === 'PF') ? parts[1] : parts[0]
 
@@ -218,7 +283,7 @@ export function getArrivalAtStation(
           const time = parseInt(event.time)
           return {
             minutes: Math.floor((time - now) / 60),
-            timestamp: time * 1000  // Convert to milliseconds
+                timestamp: time * 1000  // convert to milliseconds
           }
         }
       }
@@ -240,7 +305,7 @@ export function enrichTrainsWithDestinationArrival(
 
     const arrivalData = getArrivalAtStation(entities, train._tripId, destinationCode)
     if (arrivalData) {
-      // Use exact timestamp from GTFS-RT for accurate clock time
+      // prefer the exact GTFS-RT timestamp for clock time
       const arrivalDate = new Date(arrivalData.timestamp)
       return {
         ...train,
@@ -256,38 +321,41 @@ export function enrichTrainsWithDestinationArrival(
 /**
  * Fetch predictions at destination and match to origin trains
  * WMATA realtime is preferred for displayed times, GTFS-RT used as fallback
+ * 
+ * @param prefetchedPredictions - Optional pre-fetched predictions to avoid redundant API calls
  */
 export async function fetchDestinationArrivals(
   originTrains: Train[],
   destinationCode: string,
   apiKey: string,
-  gtfsEntities?: any[]
+  gtfsEntities?: any[],
+  prefetchedPredictions?: Train[]
 ): Promise<Train[]> {
-  // Fetch real-time predictions at destination station
-  const destPredictions = await fetchStationPredictions(destinationCode, apiKey)
+  // reuse prefetched predictions if we have them; otherwise fetch (cache helps)
+  const destPredictions = prefetchedPredictions ?? await fetchStationPredictions(destinationCode, apiKey)
 
   return originTrains.map(train => {
     const originMin = getTrainMinutes(train.Min)
 
-    // PREFERRED: Try WMATA realtime at destination first
-    // Match by Line + Destination + reasonable travel time window
-    const minTravelTime = 2  // Minimum 2 minutes between any two stations
-    const maxTravelTime = 45 // Maximum reasonable travel time on metro
+    // prefer WMATA realtime at destination first
+    // match by line + destination within a sane travel window
+    const minTravelTime = 2  // at least 2 minutes between any two stations
+    const maxTravelTime = 45 // cap it so we don't pair nonsense trips
 
     const matchingTrains = destPredictions.filter(destTrain => {
       if (destTrain.Line !== train.Line) return false
-      // Must have same destination name (same direction)
+      // must share the same destination name/direction
       if (normalizeDestination(destTrain.DestinationName) !== normalizeDestination(train.DestinationName)) return false
 
       const destMin = getTrainMinutes(destTrain.Min)
       const impliedTravelTime = destMin - originMin
 
-      // Destination arrival must be after origin departure with reasonable travel time
+      // arrival must be after departure with a reasonable travel time
       return impliedTravelTime >= minTravelTime && impliedTravelTime <= maxTravelTime
     })
 
     if (matchingTrains.length > 0) {
-      // Sort by arrival time and take the first one
+      // sort by arrival time and grab the first
       matchingTrains.sort((a, b) => getTrainMinutes(a.Min) - getTrainMinutes(b.Min))
       const matched = matchingTrains[0]
       const destArrivalMin = getTrainMinutes(matched.Min)
@@ -304,7 +372,7 @@ export async function fetchDestinationArrivals(
       }
     }
 
-    // FALLBACK: Use GTFS-RT tripId for accurate matching if no WMATA match
+    // fallback: use GTFS-RT tripId if WMATA didn't have a match
     if (gtfsEntities && train._tripId) {
       const arrivalData = getArrivalAtStation(gtfsEntities, train._tripId, destinationCode)
       if (arrivalData) {
@@ -319,14 +387,13 @@ export async function fetchDestinationArrivals(
       }
     }
 
-    // No reliable match found - don't set _destArrivalMin, let fallback calculation be used
+    // no reliable match—leave _destArrivalMin alone and let the fallback math run
     return train
   })
 }
 
 /**
- * Filter API response trains by terminus and optionally by line
- * Also normalizes destination names to display format
+ * filter API trains by terminus (and optionally line), normalizing destinations
  */
 export function filterApiResponse(
   trains: Train[],
@@ -340,7 +407,7 @@ export function filterApiResponse(
 
   return trains
     .filter(train => {
-      // Filter by line if specified
+      // optionally filter by line
       if (allowedLines && allowedLines.length > 0) {
         if (!allowedLines.includes(train.Line)) return false
       }
@@ -377,8 +444,7 @@ function extractStationCode(stopId: string): string {
 }
 
 /**
- * Find trains that have already departed the origin station
- * by looking for them arriving at the transfer station
+ * find trains that already left the origin by spotting them at the transfer station
  */
 export function findDepartedTrains(
   originCode: string,
@@ -401,14 +467,25 @@ export function findDepartedTrains(
     const trip = entity.tripUpdate.trip
     const updates = entity.tripUpdate.stopTimeUpdate
 
-    // Get static trip info
+    // grab static trip info if available
     const staticInfo = staticTrips[trip.tripId]
-    const tripLine = staticInfo ? staticInfo.line : (trip.routeId || '')
+    
+    // map routeId to line code (GTFS shouts "ORANGE", we want "OR")
+    const ROUTE_TO_LINE: Record<string, Line> = {
+      'ORANGE': 'OR', 'OR': 'OR',
+      'SILVER': 'SV', 'SV': 'SV',
+      'BLUE': 'BL', 'BL': 'BL',
+      'RED': 'RD', 'RD': 'RD',
+      'YELLOW': 'YL', 'YL': 'YL',
+      'GREEN': 'GR', 'GR': 'GR',
+    }
+    const rawTripLine = staticInfo ? staticInfo.line : (trip.routeId || '')
+    const tripLine = ROUTE_TO_LINE[rawTripLine.toUpperCase()] || rawTripLine as Line
 
-    // Filter by line
+    // filter by line
     if (tripLine !== line) continue
 
-    // Filter by terminus/direction
+    // filter by terminus/direction
     const tripDestination = staticInfo ? staticInfo.headsign : ''
     if (tripDestination && normalizedTermini.length > 0) {
       const normalizedDest = normalizeDestination(tripDestination)
@@ -422,7 +499,7 @@ export function findDepartedTrains(
       if (!matchesTerminus) continue
     }
 
-    // Find stop update for transfer station
+    // find stop update for the transfer station
     const transferUpdate = updates.find((u: any) => {
       if (!u.stopId) return false
       return extractStationCode(u.stopId) === targetTransfer
@@ -436,14 +513,14 @@ export function findDepartedTrains(
     const arrivalAtTransferSec = parseInt(event.time)
     const arrivalAtTransferMin = Math.floor((arrivalAtTransferSec - now) / 60)
 
-    // Calculate when train departed origin: arrival at transfer - travel time
+    // back into departure time: arrival at transfer minus travel time
     const departureFromOriginSec = arrivalAtTransferSec - (leg1TravelTime * 60)
     const departedMinAgo = Math.floor((now - departureFromOriginSec) / 60)
 
-    // Only include trains that have actually departed (departed > 0) but not too long ago
+    // include only trains that actually left (and not ages ago)
     if (departedMinAgo <= 0 || departedMinAgo > 30) continue
 
-    // Get next stop - find the first stop with arrival time in the future
+    // find the next stop with an arrival time in the future
     let nextStopName: string | undefined
     for (const update of updates) {
       if (!update.stopId) continue
@@ -451,7 +528,7 @@ export function findDepartedTrains(
       if (!stopEvent?.time) continue
       
       const stopTime = parseInt(stopEvent.time)
-      // This stop is in the future - it's the next stop
+      // first stop in the future wins
       if (stopTime > now) {
         const nextStopCode = extractStationCode(update.stopId)
         const nextStation = findStationByCode(nextStopCode)
@@ -460,17 +537,17 @@ export function findDepartedTrains(
       }
     }
 
-    // Get destination name
+    // destination name
     const destName = staticInfo ? staticInfo.headsign : 'Check Board'
 
-    // Calculate arrival time at transfer
+    // arrival time at transfer
     const arrivalTimestamp = arrivalAtTransferSec * 1000
     const arrivalDate = new Date(arrivalTimestamp)
 
     departedTrains.push({
       Line: tripLine as Line,
       DestinationName: getDisplayName(destName),
-      Min: -departedMinAgo, // Negative = departed X min ago
+      Min: -departedMinAgo, // negative = departed X min ago
       Car: '8',
       _gtfs: true,
       _scheduled: false,
@@ -483,7 +560,7 @@ export function findDepartedTrains(
     })
   }
 
-  // Deduplicate by tripId
+  // dedupe by tripId
   const uniqueTrains: Train[] = []
   const seen = new Set<string>()
   for (const train of departedTrains) {
@@ -493,7 +570,7 @@ export function findDepartedTrains(
     }
   }
 
-  // Sort by most recently departed first (least negative Min)
+  // sort by most recently departed first (least negative Min)
   uniqueTrains.sort((a, b) => {
     const aMin = typeof a.Min === 'number' ? a.Min : parseInt(String(a.Min))
     const bMin = typeof b.Min === 'number' ? b.Min : parseInt(String(b.Min))

@@ -79,7 +79,7 @@ export async function fetchLeg2(
   if (transferStation) {
     params.set('transferStation', transferStation)
   }
-  // Pass real-time transfer arrival if available
+  // toss in realtime transfer arrival if we have it
   if (transferArrivalMin !== undefined) {
     params.set('transferArrivalMin', transferArrivalMin.toString())
   }

@@ -2,6 +2,7 @@ import type { Line } from '@transferhero/shared'
 import { TRAVEL_TIMES } from '../data/travelTimes.js'
 import { LINE_STATIONS, TERMINI } from '../data/lineConfig.js'
 import { normalizePlatformCode, getAllPlatformCodes } from '../data/platformCodes.js'
+import { ALL_STATIONS } from '../data/stations.js'
 
 /**
  * Calculate travel time between two stations on a given line
@@ -65,8 +66,28 @@ export function getTerminus(line: Line, fromStation: string, toStation: string):
   const toIdx = stations.indexOf(normalizedTo)
   const t = TERMINI[line] || { toward_a: [], toward_b: [] }
 
+  const normalizeName = (name: string) => name.toLowerCase().replace(/[^a-z0-9]/g, '')
+  const findStationCodeByName = (name: string) => {
+    const normalized = normalizeName(name)
+    const match = ALL_STATIONS.find(s => normalizeName(s.name) === normalized)
+    return match?.code
+  }
+
   if (fromIdx === -1 || toIdx === -1) return [...t.toward_a, ...t.toward_b]
-  return toIdx < fromIdx ? t.toward_a : t.toward_b
+
+  const direction = toIdx < fromIdx ? 'toward_a' : 'toward_b'
+  const directionTermini = t[direction] || []
+
+  const filtered = directionTermini.filter(terminusName => {
+    const terminusCode = findStationCodeByName(terminusName)
+    if (!terminusCode) return false
+    const normalizedTerminus = normalizePlatformCode(terminusCode, stations)
+    const terminusIdx = stations.indexOf(normalizedTerminus)
+    if (terminusIdx === -1) return false
+    return direction === 'toward_b' ? terminusIdx >= toIdx : terminusIdx <= toIdx
+  })
+
+  return filtered.length > 0 ? filtered : directionTermini
 }
 
 /**
