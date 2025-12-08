@@ -2,7 +2,7 @@
 
 A DC Metro transfer assistant that helps riders plan connections across all Metro lines using real-time WMATA data and GTFS Realtime updates. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
 
-![demo](./transferhero demo.gif)
+![demo](./transferhero-demo.gif)
 
 ## Features
 
