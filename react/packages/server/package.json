@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "nodemon --exec node --loader ts-node/esm src/index.ts --ext ts",
     "build": "tsc && cp src/data/*.json dist/data/",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test": "node --loader ts-node/esm src/services/trainMerger.test.ts && node --loader ts-node/esm src/data/carPositionService.test.ts"
   },
   "dependencies": {
     "@transferhero/shared": "*",

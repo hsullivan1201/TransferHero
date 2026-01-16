@@ -31,22 +31,33 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
 
   const merged: Train[] = [...apiTrains]
 
-  // pull in gtfs-rt trains, skipping near-duplicates
+  // pull in gtfs-rt trains, skipping near-duplicates (api wins)
   gtfsTrains.forEach(gTrain => {
     const gMin = getTrainMinutes(gTrain.Min)
     const gDest = normalizeDestination(gTrain.DestinationName || '')
 
-    // only dedupe against other gtfs entries; api trains can coexist
+    // dedupe against any existing train (api first, then gtfs already added)
     const duplicate = merged.some(mTrain => {
-      if (!mTrain._gtfs) return false
-
       const mMin = getTrainMinutes(mTrain.Min)
       const mDest = normalizeDestination(mTrain.DestinationName || '')
 
+      const normalizedDest = (dest: string) => {
+        const norm = normalizeDestination(dest || '')
+        return (!norm || norm.includes('check board')) ? '*' : norm
+      }
+      const destMatch = (() => {
+        const m = normalizedDest(mDest)
+        const g = normalizedDest(gDest)
+        return m === '*' || g === '*' || m === g
+      })()
+
+      const withinThreshold = Math.abs(mMin - gMin) <= gtfsThreshold
+      const withinOneMinute = Math.abs(mMin - gMin) <= 1
+
       return (
-        Math.abs(mMin - gMin) <= gtfsThreshold &&
         mTrain.Line === gTrain.Line &&
-        mDest === gDest
+        withinThreshold &&
+        (destMatch || withinOneMinute)
       )
     })
 

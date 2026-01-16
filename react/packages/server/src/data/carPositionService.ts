@@ -249,6 +249,16 @@ export function adjustCarForTrack(car: number, track: TrackDirection): number {
 }
 
 /**
+ * Build a leg1 transfer legend, flagging elevator transfers in accessible mode.
+ */
+function buildTransferLegend(car: number, outgoingLine: string, exitType?: Egress['type']): string {
+  if (exitType === 'elevator') {
+    return `Board car ${car} for elevator transfer to ${outgoingLine} line`
+  }
+  return `Board car ${car} for quick transfer to ${outgoingLine} line`
+}
+
+/**
  * Get egresses for a platform based on track direction
  */
 function getEgressesForTrack(platform: Platform, track: TrackDirection): Egress[] {
@@ -521,6 +531,11 @@ export function getTransferCarPosition(
   const inTrack = getTrackDirection(inPlatform, incomingDestination)
   const outTrack = getTrackDirection(outPlatform, finalDestination)
 
+  // Accessible mode: try to use an elevator-based egress even if an explicit transfer mapping exists
+  const accessibleTransferEgress = accessible
+    ? findTransferEgress(inPlatform, inTrack, [outgoingLine], finalDestination, true)
+    : null
+
   // Calculate Leg 1 board car (to optimize transfer)
   let leg1Car: number
   let leg1Legend: string
@@ -533,7 +548,16 @@ export function getTransferCarPosition(
   const explicitTransfer = transferStation.transfers?.[directionKey] 
                         || transferStation.transfers?.[fallbackKey]
 
-  if (explicitTransfer) {
+  if (accessibleTransferEgress) {
+    const rawCar = xToCar(accessibleTransferEgress.x)
+    leg1Car = adjustCarForTrack(rawCar, inTrack)
+    leg1Legend = buildTransferLegend(leg1Car, outgoingLine, accessibleTransferEgress.type)
+    leg1Details = {
+      exitType: accessibleTransferEgress.type,
+      exitDescription: accessibleTransferEgress.description,
+      xPosition: accessibleTransferEgress.x,
+    }
+  } else if (explicitTransfer) {
     // Use the explicit transfer mapping
     const rawCar = xToCar(explicitTransfer.x)
     leg1Car = adjustCarForTrack(rawCar, inTrack)
@@ -554,7 +578,7 @@ export function getTransferCarPosition(
     if (transferEgress) {
       const rawCar = xToCar(transferEgress.x)
       leg1Car = adjustCarForTrack(rawCar, inTrack)
-      leg1Legend = `Board car ${leg1Car} for quick transfer to ${outgoingLine} line`
+      leg1Legend = buildTransferLegend(leg1Car, outgoingLine, transferEgress.type)
       leg1Details = {
         exitType: transferEgress.type,
         exitDescription: transferEgress.description,

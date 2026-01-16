@@ -120,7 +120,7 @@ async function parseTripsFromZip(zipPath: string): Promise<Map<string, TripInfo>
  */
 async function writeStaticTripsFile(trips: Map<string, TripInfo>): Promise<void> {
   // drop it in the project root (same spot as before)
-  const outputPath = resolve(__dirname, '../../../../../../static-trips.js')
+  const outputPath = resolve(__dirname, '../../../../../static-trips.js')
 
   const output: Record<string, TripInfo> = {}
   for (const [tripId, info] of trips) {
@@ -227,7 +227,7 @@ export function initGtfsRefreshJob(): void {
  */
 async function checkAndRefreshIfStale(): Promise<void> {
   try {
-    const staticTripsPath = resolve(__dirname, '../../../../../../static-trips.js')
+    const staticTripsPath = resolve(__dirname, '../../../../../static-trips.js')
     if (!existsSync(staticTripsPath)) {
       console.log('[GTFS Refresh] no static-trips.js found, running initial refresh...')
       await refreshGtfs()

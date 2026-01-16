@@ -7,6 +7,19 @@ export interface Station {
   name: string
   lines: Line[]
 }
+export interface StationExit {
+  id: string;
+  name: string;
+  lat: number;
+  lon: number;
+  isAccessible: boolean;
+}
+
+// update your existing Station interface to include this if you want
+// or just keep it separate for the destination endpoint
+export interface StationWithExits extends Station {
+  exits: StationExit[];
+}
 
 export interface Train {
   Line: Line
