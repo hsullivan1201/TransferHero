@@ -504,77 +504,13 @@ react/
 }
 ```
 
-## Estimated Effort
+## Remaining work
 
-| Task | Time |
-|------|------|
-| Download and validate CSV data | 30 min |
-| Write data processing script | 1-2 hours |
-| Implement core algorithm | 2-3 hours |
-| Handle track direction logic | 1-2 hours |
-| Multi-platform station handling | 2-3 hours |
-| Integration with existing code | 1 hour |
-| Testing and validation | 2-3 hours |
-| **Total** | **10-15 hours** |
-
-## Next Steps
-
-1. ✅ Document the data source and structure (this file)
-2. ✅ Download CSV files from GitHub
-3. ✅ Write data processing script (`processExitData.ts`)
-4. ✅ Implement `carPositionService.ts`
-5. ⬜ Update trip routes to use real data
-6. ⬜ Test with common routes
-7. ⬜ Handle edge cases (6-car trains, missing data)
-
----
-
-## Phase 1 Completion Notes
-
-### Generated Files
-
-| File | Size | Description |
-|------|------|-------------|
-| `stationExits.json` | 122 KB | Processed exit data for all 98 stations, 405 egresses |
-| `carPositionService.ts` | ~10 KB | TypeScript service with lookup and calculation functions |
-| `processExitData.ts` | ~10 KB | CSV → JSON processor script |
-
-### Test Results
-
-| Test Case | Result | Recommendation |
-|-----------|--------|----------------|
-| Direct trip (Bethesda toward Shady Grove) | ✅ | Car 3 - stairs at x=21 |
-| Direct trip (Bethesda toward Glenmont) | ✅ | Car 6 - correctly flipped |
-| Transfer (Metro Center RD→BL) | ✅ | Car 5 - "Exit to BL/OR/SV trains, 12th & G" |
-| Transfer (Gallery Place RD→GR) | ✅ | Car 7 - "Escalator to GR/YL platform" |
-| Transfer (L'Enfant Plaza OR→GR) | ✅ | Car 2 - "Escalator to GR/YL trains" |
-| Side platform (Dupont Circle) | ✅ | Car 3 (Shady Grove) / Car 6 (Glenmont) |
-| Multi-exit (Anacostia) | ✅ | Car 1 (from Branch Ave) / Car 8 (toward Branch Ave) |
-| Terminus (Shady Grove) | ✅ | Car 5 |
-
-### Key Features Implemented
-
-1. **X-to-car conversion**: Accurate mapping from platform position (1-72) to car number (1-8)
-2. **Track direction handling**: Correct car flip for opposite-direction trains
-3. **Multi-platform stations**: Explicit transfer mappings for Metro Center, Gallery Place, L'Enfant Plaza, Fort Totten
-4. **Station lookup**: Works with names, WMATA codes, and multi-level station codes (A01, B01, etc.)
-5. **Egress prioritization**: Prefers preferred exits, then escalators > stairs > elevators
-
-### Data Processing Notes
-
-- **Transfer Mappings**: Added explicit `transfers` field to multi-platform stations with x-coordinates for platform connections
-- **Exit Labels**: 71 exit descriptions linked from Exits.csv
-- **Side Platforms**: Egresses correctly separated by track (y=1 for track2, y=2 for track1)
-
-### Remaining Work
-
-1. **Integration**: Update trip routes to use `carPositionService` instead of placeholder data
-2. **6-car trains**: Adjust car boundaries for shorter trains (x/12 instead of x/9)
-3. **Elevator preference**: Add API option for accessibility routing
+- Update trip routes to use `carPositionService` instead of placeholder data
+- Handle 6-car trains (adjust car boundaries)
+- Add elevator preference option for accessibility
 
 ## References
 
-- **Dataset**: https://github.com/eable2/DCMetroStationExits
-- **PDF Guide**: WMATA Metro Station Platform Exit Guide (June 2025)
-- **Reddit Post**: https://www.reddit.com/r/washingtondc/comments/15mbos4/
-- **WMATA Station Codes**: https://developer.wmata.com/docs/services/
+- https://github.com/eable2/DCMetroStationExits
+- https://www.reddit.com/r/washingtondc/comments/15mbos4/

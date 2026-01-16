@@ -34,12 +34,6 @@ app.use(cors({
 // parse json bodies
 app.use(express.json())
 
-// simple console log so we know what's hitting us
-app.use((req, _res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`)
-  next()
-})
-
 // api routes
 app.use('/api/stations', stationsRouter)
 app.use('/api/trips', tripsRouter)

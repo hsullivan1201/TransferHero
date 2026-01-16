@@ -3,9 +3,8 @@ config.js
 metro-gtfs/
 metro-gtfs-old/
 .DS_Store
-react/node_modules
-react/packages/server/.env
-react/packages/client/node_modules
-react/packages/client/dist
-react/packages/server/dist
-react/packages/shared/dist
+node_modules
+packages/server/.env
+packages/client/dist
+packages/server/dist
+packages/shared/dist
