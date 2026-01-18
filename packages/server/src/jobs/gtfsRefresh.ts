@@ -9,18 +9,9 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { setGtfsLastUpdated } from '../routes/health.js'
 import { clearAllCache } from '../middleware/cache.js'
+import { ROUTE_TO_LINE } from '@transferhero/shared'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
-
-// map WMATA route names to our line codes
-const ROUTE_TO_LINE: Record<string, string> = {
-  'RED': 'RD',
-  'BLUE': 'BL',
-  'ORANGE': 'OR',
-  'SILVER': 'SV',
-  'GREEN': 'GR',
-  'YELLOW': 'YL'
-}
 
 interface TripInfo {
   headsign: string

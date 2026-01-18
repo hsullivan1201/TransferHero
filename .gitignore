@@ -3,6 +3,7 @@ config.js
 metro-gtfs/
 metro-gtfs-old/
 .DS_Store
+.claude/
 node_modules
 packages/server/.env
 packages/client/dist

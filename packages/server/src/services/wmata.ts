@@ -1,5 +1,5 @@
 import type { Train, Line } from '@transferhero/shared'
-import { getTrainMinutes, ensureArray, normalizeDestination, getDisplayName } from '@transferhero/shared'
+import { getTrainMinutes, ensureArray, normalizeDestination, getDisplayName, ROUTE_TO_LINE } from '@transferhero/shared'
 import protobuf from 'protobufjs'
 import fetch from 'node-fetch'
 import { findStationByCode } from '../data/stations.js'
@@ -191,16 +191,7 @@ export function parseUpdatesToTrains(
 
     // pull static trip info if we have it
     const staticInfo = staticTrips[trip.tripId]
-    
-    // map routeId to line code (GTFS yells "ORANGE", we need "OR")
-    const ROUTE_TO_LINE: Record<string, Line> = {
-      'ORANGE': 'OR', 'OR': 'OR',
-      'SILVER': 'SV', 'SV': 'SV',
-      'BLUE': 'BL', 'BL': 'BL',
-      'RED': 'RD', 'RD': 'RD',
-      'YELLOW': 'YL', 'YL': 'YL',
-      'GREEN': 'GR', 'GR': 'GR',
-    }
+
     const rawLine = staticInfo ? staticInfo.line : (trip.routeId || '')
     const line = ROUTE_TO_LINE[rawLine.toUpperCase()] || rawLine as Line
     const destName = staticInfo ? staticInfo.headsign : 'Check Board'
@@ -469,16 +460,7 @@ export function findDepartedTrains(
 
     // grab static trip info if available
     const staticInfo = staticTrips[trip.tripId]
-    
-    // map routeId to line code (GTFS shouts "ORANGE", we want "OR")
-    const ROUTE_TO_LINE: Record<string, Line> = {
-      'ORANGE': 'OR', 'OR': 'OR',
-      'SILVER': 'SV', 'SV': 'SV',
-      'BLUE': 'BL', 'BL': 'BL',
-      'RED': 'RD', 'RD': 'RD',
-      'YELLOW': 'YL', 'YL': 'YL',
-      'GREEN': 'GR', 'GR': 'GR',
-    }
+
     const rawTripLine = staticInfo ? staticInfo.line : (trip.routeId || '')
     const tripLine = ROUTE_TO_LINE[rawTripLine.toUpperCase()] || rawTripLine as Line
 

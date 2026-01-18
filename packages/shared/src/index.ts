@@ -2,6 +2,16 @@
 
 export type Line = 'RD' | 'OR' | 'SV' | 'BL' | 'YL' | 'GR'
 
+// Maps WMATA/GTFS route names to our line codes
+export const ROUTE_TO_LINE: Record<string, Line> = {
+  'ORANGE': 'OR', 'OR': 'OR',
+  'SILVER': 'SV', 'SV': 'SV',
+  'BLUE': 'BL', 'BL': 'BL',
+  'RED': 'RD', 'RD': 'RD',
+  'YELLOW': 'YL', 'YL': 'YL',
+  'GREEN': 'GR', 'GR': 'GR',
+}
+
 export interface Station {
   code: string
   name: string

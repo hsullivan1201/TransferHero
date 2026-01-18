@@ -5,21 +5,20 @@
   "workspaces": [
     "packages/*"
   ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "scripts": {
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
     "dev:client": "npm run dev -w @transferhero/client",
     "dev:server": "npm run dev -w @transferhero/server",
     "build": "npm run build -w @transferhero/shared && npm run build -w @transferhero/server && npm run build -w @transferhero/client",
     "build:client": "npm run build -w @transferhero/client",
-    "build:server": "npm run build -w @transferhero/server"
+    "build:server": "npm run build -w @transferhero/server",
+    "start:prod": "cd packages/server && npm start"
   },
   "devDependencies": {
     "concurrently": "^8.2.2",
     "typescript": "^5.3.3"
-  },
-  "dependencies": {
-    "csv-parse": "^6.1.0",
-    "csv-parser": "^3.2.0",
-    "fs": "^0.0.1-security"
   }
 }
