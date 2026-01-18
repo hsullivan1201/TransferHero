@@ -71,7 +71,7 @@ export function deriveWaitMinutes(
  * sum up journey parts, ignore the junk, and never go below zero
  */
 export function computeTotalMinutes(parts: Array<number | null | undefined>): number {
-  const total = parts.reduce((acc, part) => {
+  const total = parts.reduce<number>((acc, part) => {
     return acc + (typeof part === 'number' && Number.isFinite(part) ? part : 0)
   }, 0)
 
