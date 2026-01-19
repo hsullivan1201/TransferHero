@@ -124,6 +124,9 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   const { from, to, walkTime, transferStation, accessible, includeDeparted } = result.data
   const apiKey = getApiKey()
 
+  // log the trip request for debugging
+  console.log(`[Trip] Request: ${from} → ${to} | walkTime=${walkTime}min${transferStation ? ` | transfer=${transferStation}` : ''}${accessible ? ' | accessible' : ''}${includeDeparted ? ' | includeDeparted' : ''}`)
+
   // find stations
   const fromStation = findStationByCode(from)
   const toStation = findStationByCode(to)
@@ -490,6 +493,9 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   const { departureMin, walkTime, transferStation, transferArrivalMin, accessible } = result.data
   const tripId = req.params.tripId
   const apiKey = getApiKey()
+
+  // log the leg2 request for debugging
+  console.log(`[Trip] Leg2 Request: ${tripId} | departureMin=${departureMin} | walkTime=${walkTime}min${transferStation ? ` | transfer=${transferStation}` : ''}${transferArrivalMin !== undefined ? ` | transferArrival=${transferArrivalMin}min` : ''}${accessible ? ' | accessible' : ''}`)
 
   // Parse tripId (format: fromCode-toCode)
   const [from, to] = tripId.split('-')
