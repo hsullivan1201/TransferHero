@@ -96,5 +96,5 @@ export function getTerminus(line: Line, fromStation: string, toStation: string):
 export function minutesToClockTime(minutesFromNow: number): string {
   const now = new Date()
   now.setMinutes(now.getMinutes() + minutesFromNow)
-  return now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+  return now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' })
 }

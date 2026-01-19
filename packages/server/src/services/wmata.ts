@@ -301,7 +301,7 @@ export function enrichTrainsWithDestinationArrival(
       return {
         ...train,
         _destArrivalMin: arrivalData.minutes,
-        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
         _destArrivalTimestamp: arrivalData.timestamp
       }
     }
@@ -357,7 +357,7 @@ export async function fetchDestinationArrivals(
       return {
         ...train,
         _destArrivalMin: destArrivalMin,
-        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
         _destArrivalTimestamp: arrivalTimestamp,
         _realtimeSource: 'wmata' as const
       }
@@ -371,7 +371,7 @@ export async function fetchDestinationArrivals(
         return {
           ...train,
           _destArrivalMin: arrivalData.minutes,
-          _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
           _destArrivalTimestamp: arrivalData.timestamp,
           _realtimeSource: 'gtfs-rt' as const
         }
@@ -537,7 +537,7 @@ export function findDepartedTrains(
       _departed: true,
       _nextStop: nextStopName,
       _transferArrivalMin: arrivalAtTransferMin,
-      _transferArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+      _transferArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
       _transferArrivalTimestamp: arrivalTimestamp
     })
   }
