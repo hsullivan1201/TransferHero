@@ -48,7 +48,7 @@ function AppContent() {
     departureTimestamp: tripState.departureTimestamp,
     walkTime: tripState.walkTime,
     transferStation: tripState.selectedAlternative?.station,
-    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null,
+    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null && tripData?.trip.isDirect !== true,
     // pass along realtime transfer arrival, recalculated so it's not stale
     transferArrivalMin: liveLeg1Train?._transferArrivalTimestamp
       ? Math.round((liveLeg1Train._transferArrivalTimestamp - Date.now()) / 60000)

@@ -24,7 +24,7 @@ import {
   getDirectTripCarPosition,
   type CarPosition
 } from '../data/carPositionService.js'
-import { PLATFORM_CODES, normalizePlatformCode } from '../data/platformCodes.js'
+import { PLATFORM_CODES, normalizePlatformCode, getPlatformForLine } from '../data/platformCodes.js'
 import { LINE_STATIONS } from '../data/lineConfig.js'
 
 /**
@@ -157,18 +157,37 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
 
   // handle direct route
   if (transfer.direct) {
-    const terminus = getTerminus(transfer.line!, from, to)
+    // Get all shared lines between origin and destination
+    const sharedLines = fromStation.lines.filter((l: Line) => toStation.lines.includes(l))
 
-    // batch fetch: origin predictions, destination predictions, and GTFS-RT
-    const [originPreds, destPreds, gtfsEntities] = await Promise.all([
-      fetchStationPredictions(from, apiKey),
+    // Collect termini from ALL shared lines (not just the first)
+    const allTermini: string[] = []
+    for (const line of sharedLines) {
+      const lineTermini = getTerminus(line, from, to)
+      allTermini.push(...lineTermini)
+    }
+    // Dedupe termini
+    const terminus = [...new Set(allTermini)]
+
+    // Get all unique platform codes needed for origin (multi-platform stations like Metro Center)
+    const originPlatforms = [...new Set(sharedLines.map(line => getPlatformForLine(from, line)))]
+
+    // batch fetch: origin predictions from ALL relevant platforms, destination predictions, and GTFS-RT
+    const [originPredArrays, destPreds, gtfsEntities] = await Promise.all([
+      Promise.all(originPlatforms.map(platform => fetchStationPredictions(platform, apiKey))),
       fetchStationPredictions(to, apiKey),
       fetchGTFSTripUpdates(apiKey)
     ])
+    // Flatten and dedupe origin predictions from all platforms
+    const originPreds = originPredArrays.flat()
 
     const apiFiltered = filterApiResponse(originPreds, terminus)
     const staticTrips = getStaticTrips()
-    const gtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminus, staticTrips)
+    // Parse GTFS-RT trains from all relevant platforms (e.g., B01 AND F01 for Gallery Place)
+    const gtfsTrainArrays = originPlatforms.map(platform =>
+      parseUpdatesToTrains(gtfsEntities, platform, terminus, staticTrips)
+    )
+    const gtfsTrains = gtfsTrainArrays.flat()
 
     const mergedTrains = mergeTrainData({
       apiTrains: apiFiltered,
@@ -186,25 +205,26 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
 
     let sortedTrains = sortTrains(trainsWithArrival)
 
-    // optionally include trains that already left
-    if (includeDeparted && transfer.line) {
-      const directTravelTime = calculateRouteTravelTime(
-        from,
-        to,
-        transfer.line
-      )
-      const departedTrains = findDepartedTrains(
-        from,
-        to,
-        transfer.line,
-        directTravelTime,
-        gtfsEntities,
-        staticTrips,
-        terminus
-      )
+    // optionally include trains that already left (check all shared lines)
+    if (includeDeparted && sharedLines.length > 0) {
+      const allDepartedTrains: Train[] = []
+      for (const line of sharedLines) {
+        const directTravelTime = calculateRouteTravelTime(from, to, line)
+        const lineTermini = getTerminus(line, from, to)
+        const departedTrains = findDepartedTrains(
+          from,
+          to,
+          line,
+          directTravelTime,
+          gtfsEntities,
+          staticTrips,
+          lineTermini
+        )
+        allDepartedTrains.push(...departedTrains)
+      }
       // dedupe departed trains against what's already in sortedTrains
       const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
-      const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
+      const uniqueDeparted = allDepartedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
       // departed trains sit at the end—they already left the party
       sortedTrains = [...sortedTrains, ...uniqueDeparted]
     }
@@ -269,19 +289,31 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       to
     )
 
-    // batch fetch all station predictions + GTFS-RT (4 calls instead of 6)
-    const [originPreds, transferPreds, destPreds, gtfsEntities] = await Promise.all([
-      fetchStationPredictions(from, apiKey),
+    // Compute leg1 allowed lines BEFORE fetch so we know which platforms to query
+    const leg1AllowedLines = getInterlinesForLeg1(fromStation, currentTransfer.fromPlatform)
+      || (currentTransfer.fromLine ? [currentTransfer.fromLine] : undefined)
+
+    // Get all origin platforms for the allowed lines (handles multi-platform stations like Gallery Place)
+    const leg1OriginPlatforms = leg1AllowedLines
+      ? [...new Set(leg1AllowedLines.map(line => getPlatformForLine(from, line)))]
+      : [from]
+
+    // batch fetch all station predictions + GTFS-RT
+    const [originPredArrays, transferPreds, destPreds, gtfsEntities] = await Promise.all([
+      Promise.all(leg1OriginPlatforms.map(platform => fetchStationPredictions(platform, apiKey))),
       fetchStationPredictions(currentTransfer.toPlatform, apiKey),
       fetchStationPredictions(to, apiKey),
       fetchGTFSTripUpdates(apiKey)
     ])
+    const originPreds = originPredArrays.flat()
 
     const staticTrips = getStaticTrips()
-    const leg1AllowedLines = getInterlinesForLeg1(fromStation, currentTransfer.fromPlatform)
-      || (currentTransfer.fromLine ? [currentTransfer.fromLine] : undefined)
     const leg1ApiFiltered = filterApiResponse(originPreds, terminusFirst, leg1AllowedLines)
-    const leg1GtfsTrains = parseUpdatesToTrains(gtfsEntities, from, terminusFirst, staticTrips, leg1AllowedLines)
+    // Parse GTFS-RT from all origin platforms
+    const leg1GtfsTrainArrays = leg1OriginPlatforms.map(platform =>
+      parseUpdatesToTrains(gtfsEntities, platform, terminusFirst, staticTrips, leg1AllowedLines)
+    )
+    const leg1GtfsTrains = leg1GtfsTrainArrays.flat()
     const leg1MergedTrains = mergeTrainData({
       apiTrains: leg1ApiFiltered,
       gtfsTrains: leg1GtfsTrains
