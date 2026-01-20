@@ -2,7 +2,7 @@ import { ChevronDown, ArrowUpFromLine, PersonStanding, DoorOpen, Accessibility }
 import type { CarPosition, ExitOption } from '@transferhero/shared'
 
 interface CarDiagramProps {
-  numCars: number
+  numCars?: number
   carPosition: CarPosition
   type: 'board' | 'exit'
 }

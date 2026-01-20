@@ -184,9 +184,9 @@ export function LegPanel({
               </div>
             )}
 
-            {carPosition && selectedNumCars && (
+            {carPosition && (
               <CarDiagram
-                numCars={selectedNumCars}
+                numCars={selectedNumCars || 8}
                 carPosition={carPosition}
                 type={carDiagramType}
               />
