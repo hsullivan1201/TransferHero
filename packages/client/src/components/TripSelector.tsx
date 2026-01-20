@@ -23,7 +23,7 @@ export function TripSelector({
 }: TripSelectorProps) {
   const [fromStation, setFromStation] = useState<Station | null>(null)
   const [toStation, setToStation] = useState<Station | null>(null)
-  const [walkTime, setWalkTime] = useState(3)
+  const [walkTime, setWalkTime] = useState(2)
 
   const canGo = fromStation && toStation && fromStation.code !== toStation.code
 
@@ -68,14 +68,14 @@ export function TripSelector({
         {/* Walk time */}
         <div className="shrink-0">
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
-            Walk
+            Transfer walk
           </label>
           <select
             value={walkTime}
             onChange={(e) => setWalkTime(Number(e.target.value))}
             className="w-full lg:w-24 px-3 py-2 bg-[var(--input-bg)] border border-[var(--border-color)] rounded text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {[1, 2, 3, 4, 5, 6, 7, 8].map(min => (
+            {[1, 2, 3, 4, 5].map(min => (
               <option key={min} value={min}>{min} min</option>
             ))}
           </select>

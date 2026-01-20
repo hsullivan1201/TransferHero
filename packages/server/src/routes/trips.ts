@@ -75,7 +75,7 @@ const booleanFromString = z.preprocess(
 const tripQuerySchema = z.object({
   from: z.string().min(2).max(4),
   to: z.string().min(2).max(4),
-  walkTime: z.coerce.number().min(1).max(15).default(3),
+  walkTime: z.coerce.number().min(1).max(5).default(2),
   transferStation: z.string().optional(), // pick a specific transfer if you fancy
   accessible: booleanFromString, // true = favor elevators
   includeDeparted: booleanFromString // true = also show trains that already bailed
@@ -84,7 +84,7 @@ const tripQuerySchema = z.object({
 const leg2QuerySchema = z.object({
   // allow negative numbers (e.g. -120) for already-departed trains
   departureMin: z.coerce.number().min(-120).max(120),
-  walkTime: z.coerce.number().min(1).max(15).default(3),
+  walkTime: z.coerce.number().min(1).max(5).default(2),
   transferStation: z.string().optional(),
   // realtime arrival at transfer station (if WMATA/GTFS-RT feels helpful)
   transferArrivalMin: z.coerce.number().optional(),
