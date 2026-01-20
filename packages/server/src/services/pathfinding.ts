@@ -8,7 +8,7 @@ import { calculateRouteTravelTime, getTerminus } from './travelTime.js'
 /**
  * Default transfer walk time in minutes
  */
-const DEFAULT_TRANSFER_WALK_TIME = 3
+const DEFAULT_TRANSFER_WALK_TIME = 2
 
 /**
  * Find all possible transfer stations between origin and destination
