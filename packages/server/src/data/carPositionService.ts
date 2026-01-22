@@ -320,25 +320,38 @@ function findBestEgress(egresses: Egress[], accessible: boolean = false, preferT
 }
 
 /**
- * Build a label for an exit from exitLabel and description
+ * Build a label for an exit from type and description
+ * Format: "{Type} to {street}" (e.g., "Stairs to M St", "Escalator to Florida Ave")
  */
 function buildExitLabel(egress: Egress): string {
-  if (egress.exitLabel && egress.description) {
-    return `Exit ${egress.exitLabel}: ${egress.description}`
+  let desc = egress.description || ''
+
+  // Remove redundant suffixes that duplicate the exit type
+  desc = desc
+    .replace(/,?\s*Elevator to Platform( Only)?/gi, '')
+    .replace(/,?\s*Elevator to Platform & Street/gi, '')
+    .replace(/,?\s*Escalator/gi, '')
+    .replace(/,?\s*Stairs/gi, '')
+    .trim()
+
+  // Remove trailing commas after cleanup
+  desc = desc.replace(/,\s*$/, '').trim()
+
+  // Format exit type as readable label
+  const typeLabel = egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
+
+  if (desc) {
+    return `${typeLabel} to ${desc}`
   }
-  if (egress.exitLabel) {
-    return `Exit ${egress.exitLabel}`
-  }
-  if (egress.description) {
-    return egress.description
-  }
-  // Fallback: use type
-  return egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
+
+  // Fallback: just the type
+  return typeLabel
 }
 
 /**
  * Get all valid exits for a destination (used for direct trips and leg2)
  * Returns an array of labeled exit options with preferred status from source data
+ * Deduplicates by car - if multiple exits at same car, keeps the best one
  */
 function getAllValidExits(
   egresses: Egress[],
@@ -346,20 +359,48 @@ function getAllValidExits(
   accessible: boolean
 ): ExitOption[] {
   const filtered = filterEgressesByAccessibility(egresses, accessible)
-  
-  return filtered.map(egress => {
+
+  // Priority: escalator > stairs > exit > elevator (for speed)
+  // For accessible mode, elevator would already be prioritized by filterEgressesByAccessibility
+  const typePriority: Record<Egress['type'], number> = {
+    escalator: 1,
+    stairs: 2,
+    exit: 3,
+    elevator: 4,
+  }
+
+  // Group by car and pick the best exit per car
+  const exitsByCar = new Map<number, { egress: Egress; car: number }>()
+
+  for (const egress of filtered) {
     const rawCar = xToCar(egress.x)
     const adjustedCar = adjustCarForTrack(rawCar, track)
-    return {
-      car: adjustedCar,
-      position: getPositionDescription(adjustedCar),
-      type: egress.type,
-      label: buildExitLabel(egress),
-      description: egress.description,
-      xPosition: egress.x,
-      preferred: egress.preferred,
+
+    const existing = exitsByCar.get(adjustedCar)
+    if (!existing) {
+      exitsByCar.set(adjustedCar, { egress, car: adjustedCar })
+    } else {
+      // Keep the better exit: preferred wins, otherwise compare by type priority
+      const existingPriority = typePriority[existing.egress.type]
+      const newPriority = typePriority[egress.type]
+
+      if (egress.preferred && !existing.egress.preferred) {
+        exitsByCar.set(adjustedCar, { egress, car: adjustedCar })
+      } else if (!existing.egress.preferred && newPriority < existingPriority) {
+        exitsByCar.set(adjustedCar, { egress, car: adjustedCar })
+      }
     }
-  })
+  }
+
+  return Array.from(exitsByCar.values()).map(({ egress, car }) => ({
+    car,
+    position: getPositionDescription(car),
+    type: egress.type,
+    label: buildExitLabel(egress),
+    description: egress.description,
+    xPosition: egress.x,
+    preferred: egress.preferred,
+  }))
 }
 
 /**

@@ -1,5 +1,5 @@
-import { ChevronDown, ArrowUpFromLine, PersonStanding, DoorOpen, Accessibility } from 'lucide-react'
-import type { CarPosition, ExitOption } from '@transferhero/shared'
+import { ChevronDown } from 'lucide-react'
+import type { CarPosition } from '@transferhero/shared'
 
 interface CarDiagramProps {
   numCars?: number
@@ -7,32 +7,11 @@ interface CarDiagramProps {
   type: 'board' | 'exit'
 }
 
-function ExitTypeIcon({ type, className }: { type: ExitOption['type']; className?: string }) {
-  const cls = className || "w-3 h-3"
-  switch (type) {
-    case 'escalator':
-      return <ArrowUpFromLine className={cls} />
-    case 'elevator':
-      return <Accessibility className={cls} />
-    case 'stairs':
-      return <PersonStanding className={cls} />
-    case 'exit':
-      return <DoorOpen className={cls} />
-    default:
-      return <DoorOpen className={cls} />
-  }
-}
-
 export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
   const highlightCar = type === 'board' ? carPosition.boardCar : carPosition.exitCar
   const title = type === 'board' ? 'Board car for best exit' : 'Exit options'
   
   const exits = carPosition.exits ?? []
-  const exitsByCar: Record<number, ExitOption[]> = {}
-  exits.forEach(exit => {
-    if (!exitsByCar[exit.car]) exitsByCar[exit.car] = []
-    exitsByCar[exit.car].push(exit)
-  })
   
   const highlightedCars = exits.length > 0 
     ? [...new Set(exits.map(e => e.car))]
@@ -54,7 +33,6 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
-            const isPrimary = carNum === highlightCar
             const isPreferred = carNum === preferredCar
 
             return (
@@ -62,15 +40,13 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
                 {isHighlighted && (
                   <ChevronDown
                     className={`w-5 h-5 ${
-                      type === 'board' 
-                        ? 'text-green-600' 
+                      type === 'board'
+                        ? 'text-green-600'
                         : isPreferred
                           ? 'text-blue-600'
-                          : isPrimary 
-                            ? 'text-yellow-600' 
-                            : 'text-yellow-400'
+                          : 'text-yellow-600'
                     }`}
-                    strokeWidth={isPreferred || isPrimary ? 3 : 2}
+                    strokeWidth={isPreferred ? 3 : 2}
                   />
                 )}
               </div>
@@ -82,18 +58,15 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
-            const isPrimary = carNum === highlightCar
             const isPreferred = carNum === preferredCar
-            
+
             let highlightClass = ''
             if (type === 'board') {
               highlightClass = 'bg-green-100 border-green-500 text-green-700 font-bold'
             } else if (isPreferred) {
               highlightClass = 'bg-blue-100 border-blue-500 text-blue-700 font-bold'
-            } else if (isPrimary) {
-              highlightClass = 'bg-yellow-100 border-yellow-500 text-yellow-700 font-bold'
             } else if (isHighlighted) {
-              highlightClass = 'bg-yellow-50 border-yellow-400 text-yellow-600 font-semibold'
+              highlightClass = 'bg-yellow-100 border-yellow-500 text-yellow-700 font-bold'
             }
 
             return (
@@ -111,32 +84,6 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           })}
         </div>
 
-        {showExitLabels && (
-          <div className="flex gap-1 mt-1">
-            {Array.from({ length: 8 }, (_, i) => {
-              const carNum = i + 1
-              const carExits = exitsByCar[carNum]
-              
-              if (!carExits || carExits.length === 0) {
-                return <div key={i} className="w-9" />
-              }
-
-              return (
-                <div key={i} className="w-9 flex flex-col items-center">
-                  {carExits.map((exit, idx) => (
-                    <div 
-                      key={idx} 
-                      className="flex items-center gap-0.5 text-[10px] text-[var(--text-secondary)] leading-tight"
-                      title={exit.label}
-                    >
-                      <ExitTypeIcon type={exit.type} className="w-2.5 h-2.5 shrink-0" />
-                    </div>
-                  ))}
-                </div>
-              )
-            })}
-          </div>
-        )}
       </div>
 
       {!showExitLabels && (
@@ -150,10 +97,24 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {exits.map((exit, idx) => (
             <span key={idx} className={`inline-flex items-center gap-1 ${exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
               <span className={`font-semibold ${exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>
-              <ExitTypeIcon type={exit.type} className={`w-3 h-3 ${exit.preferred ? 'text-blue-600' : ''}`} />
-              <span className="truncate max-w-[100px]">{exit.label}</span>
+              <span className="truncate max-w-[140px]">{exit.label}</span>
             </span>
           ))}
+        </div>
+      )}
+
+      {showExitLabels && (
+        <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-[var(--text-secondary)]">
+          {preferredCar && (
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-sm bg-blue-500"></span>
+              Best exit
+            </span>
+          )}
+          <span className="flex items-center gap-1">
+            <span className="w-2.5 h-2.5 rounded-sm bg-yellow-500"></span>
+            {preferredCar ? 'Other options' : 'Exit options'}
+          </span>
         </div>
       )}
     </div>
