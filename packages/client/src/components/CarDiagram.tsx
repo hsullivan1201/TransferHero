@@ -12,13 +12,14 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
   const title = type === 'board' ? 'Board car for best exit' : 'Exit options'
   
   const exits = carPosition.exits ?? []
-  
-  const highlightedCars = exits.length > 0 
+
+  const highlightedCars = exits.length > 0
     ? [...new Set(exits.map(e => e.car))]
     : [highlightCar]
-  
-  // pick the car with the favored exit (teacher's pet car)
-  const preferredCar = exits.find(e => e.preferred)?.car
+
+  // All cars with preferred exits (can be multiple)
+  const preferredCars = new Set(exits.filter(e => e.preferred).map(e => e.car))
+  const hasPreferred = preferredCars.size > 0
   
   const showExitLabels = type === 'exit' && exits.length > 0
 
@@ -33,7 +34,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
-            const isPreferred = carNum === preferredCar
+            const isPreferred = preferredCars.has(carNum)
 
             return (
               <div key={i} className="w-9 flex items-end justify-center">
@@ -58,7 +59,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
-            const isPreferred = carNum === preferredCar
+            const isPreferred = preferredCars.has(carNum)
 
             let highlightClass = ''
             if (type === 'board') {
@@ -94,7 +95,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
 
       {showExitLabels && (
         <div className="text-[11px] text-[var(--text-secondary)] text-center mt-2 space-x-3">
-          {exits.map((exit, idx) => (
+          {[...exits].sort((a, b) => a.car - b.car).map((exit, idx) => (
             <span key={idx} className={`inline-flex items-center gap-1 ${exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
               <span className={`font-semibold ${exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>
               <span className="truncate max-w-[140px]">{exit.label}</span>
@@ -105,7 +106,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
 
       {showExitLabels && (
         <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-[var(--text-secondary)]">
-          {preferredCar && (
+          {hasPreferred && (
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-blue-500"></span>
               Best exit
@@ -113,7 +114,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           )}
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-sm bg-yellow-500"></span>
-            {preferredCar ? 'Other options' : 'Exit options'}
+            {hasPreferred ? 'Other options' : 'Exit options'}
           </span>
         </div>
       )}
