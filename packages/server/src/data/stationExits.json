@@ -4665,20 +4665,24 @@
                 "type": "elevator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 1
+                "exitLabel": 1,
+                "description": "13th & U St"
               },
               {
                 "x": 18,
                 "type": "escalator",
                 "y": 2,
-                "preferred": false
+                "preferred": false,
+                "exitLabel": 1,
+                "description": "13th & U St"
               },
               {
                 "x": 60,
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 2
+                "exitLabel": 2,
+                "description": "10th & U St"
               }
             ]
           }
