@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { Clock3, Train, User } from 'lucide-react'
+import { Clock3, Train, User, Footprints } from 'lucide-react'
 
 interface JourneyInfoProps {
   leg1Time: number
@@ -8,6 +8,8 @@ interface JourneyInfoProps {
   waitMinutes?: number | null
   totalMinutes: number
   arrivalClock?: string
+  firstMileWalkMinutes?: number
+  lastMileWalkMinutes?: number
 }
 
 export function JourneyInfo({
@@ -17,6 +19,8 @@ export function JourneyInfo({
   waitMinutes,
   totalMinutes,
   arrivalClock,
+  firstMileWalkMinutes,
+  lastMileWalkMinutes,
 }: JourneyInfoProps) {
   const wait = waitMinutes ?? 0
 
@@ -39,10 +43,16 @@ export function JourneyInfo({
       </div>
 
       <div className="grid grid-cols-2 gap-3">
+        {firstMileWalkMinutes && (
+          <JourneyStat label="walk to stn" value={`${firstMileWalkMinutes} min`} icon={<Footprints className="w-4 h-4" />} />
+        )}
         <JourneyStat label="wait" value={`${wait} min`} icon={<Clock3 className="w-4 h-4" />} />
         <JourneyStat label="leg 1 ride" value={`${leg1Time} min`} icon={<Train className="w-4 h-4" />} />
         <JourneyStat label="transfer walk" value={`${transferTime} min`} icon={<User className="w-4 h-4" />} />
         <JourneyStat label="leg 2 ride" value={`${leg2Time} min`} icon={<Train className="w-4 h-4" />} />
+        {lastMileWalkMinutes && (
+          <JourneyStat label="exit walk" value={`${lastMileWalkMinutes} min`} icon={<Footprints className="w-4 h-4" />} />
+        )}
       </div>
     </div>
   )

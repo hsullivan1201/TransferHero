@@ -105,6 +105,8 @@ function AppContent() {
                   ) ?? -1
                 : -1
             }
+            onOriginPlaceContext={tripState.setOriginPlaceContext}
+            onDestPlaceContext={tripState.setDestPlaceContext}
           />
         )}
 
@@ -141,6 +143,8 @@ function AppContent() {
               isDirect={tripData.trip.isDirect}
               showDeparted={tripState.showDeparted}
               onToggleShowDeparted={tripState.toggleShowDeparted}
+              originPlaceContext={tripState.originPlaceContext}
+              destPlaceContext={tripState.destPlaceContext}
           />
           ) : !tripLoading && !tripError && (
             <EmptyState />

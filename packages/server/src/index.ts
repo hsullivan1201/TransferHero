@@ -12,6 +12,7 @@ dotenv.config()
 import stationsRouter from './routes/stations.js'
 import tripsRouter from './routes/trips.js'
 import healthRouter from './routes/health.js'
+import destinationsRouter from './routes/destinations.js'
 
 // middleware roll call
 import { errorHandler } from './middleware/errorHandler.js'
@@ -35,7 +36,7 @@ app.use(helmet({
       defaultSrc: ["'self'"],
       scriptSrc: ["'self'", "'unsafe-inline'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:"],
+      imgSrc: ["'self'", "data:", "https:", "https://*.tile.openstreetmap.org"],
       connectSrc: ["'self'", "https://api.wmata.com"],
     }
   } : false
@@ -55,6 +56,7 @@ app.use(express.json())
 app.use('/api/stations', stationsRouter)
 app.use('/api/trips', tripsRouter)
 app.use('/api/health', healthRouter)
+app.use('/api/destinations', destinationsRouter)
 
 // serve static React app in production
 if (isProduction) {

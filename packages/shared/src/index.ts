@@ -161,5 +161,44 @@ export interface Termini {
   toward_b: string[]
 }
 
+// Destination routing types
+
+export interface PlaceResult {
+  id: string
+  name: string
+  context: string
+  lat: number
+  lon: number
+}
+
+/** Resolved place → station + exit mapping. Used for both origin and destination. */
+export interface PlaceContext {
+  place: PlaceResult
+  station: Station
+  exit: StationExit
+  walkTimeMinutes: number
+  walkDistanceMeters: number
+  /** walk TO station (origin) or FROM station (destination) */
+  direction: 'to_station' | 'from_station'
+  alternatives?: Array<{
+    station: Station
+    exit: StationExit
+    walkTimeMinutes: number
+  }>
+}
+
+export interface ResolveResponse {
+  station: Station
+  exit: StationExit
+  walkTimeMinutes: number
+  walkDistanceMeters: number
+  alternatives: Array<{
+    station: Station
+    exit: StationExit
+    walkTimeMinutes: number
+    walkDistanceMeters: number
+  }>
+}
+
 // Re-export utilities
 export * from './utils/index.js'

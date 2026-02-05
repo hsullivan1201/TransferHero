@@ -1,7 +1,7 @@
 import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { useState, useCallback, useMemo } from 'react'
 import { fetchStations, fetchTrip, fetchLeg2 } from '../api/trips'
-import type { Station, Train, TransferAlternative } from '@transferhero/shared'
+import type { Station, Train, TransferAlternative, PlaceContext } from '@transferhero/shared'
 import { getTrainMinutes } from '../utils/time'
 
 // please don't touch these hooks—they've earned their keep.
@@ -70,6 +70,8 @@ interface TripState {
   departureTimestamp: number | null
   accessible: boolean
   showDeparted: boolean
+  originPlaceContext: PlaceContext | null
+  destPlaceContext: PlaceContext | null
 }
 
 export function useTripState() {
@@ -83,6 +85,8 @@ export function useTripState() {
     departureTimestamp: null,
     accessible: false,
     showDeparted: false,
+    originPlaceContext: null,
+    destPlaceContext: null,
   })
 
   const setFrom = useCallback((station: Station | null) => {
@@ -168,6 +172,8 @@ export function useTripState() {
       departureTimestamp: null,
       accessible: prev.accessible, // keep whatever accessibility mode the rider picked
       showDeparted: prev.showDeparted, // keep the departed toggle as-is
+      originPlaceContext: prev.originPlaceContext, // keep place contexts through trip start
+      destPlaceContext: prev.destPlaceContext,
     }))
   }, [])
 
@@ -182,7 +188,17 @@ export function useTripState() {
       departureTimestamp: null,
       accessible: prev.accessible, // keep accessibility preference
       showDeparted: false, // but drop the departed toggle on a full reset
+      originPlaceContext: null,
+      destPlaceContext: null,
     }))
+  }, [])
+
+  const setOriginPlaceContext = useCallback((ctx: PlaceContext | null) => {
+    setState(prev => ({ ...prev, originPlaceContext: ctx }))
+  }, [])
+
+  const setDestPlaceContext = useCallback((ctx: PlaceContext | null) => {
+    setState(prev => ({ ...prev, destPlaceContext: ctx }))
   }, [])
 
   const tripId = useMemo(() => {
@@ -203,5 +219,7 @@ export function useTripState() {
     toggleShowDeparted,
     startTrip,
     reset,
+    setOriginPlaceContext,
+    setDestPlaceContext,
   }
 }

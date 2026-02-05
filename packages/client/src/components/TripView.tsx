@@ -1,8 +1,9 @@
 import { useCallback } from 'react'
 import { RefreshCw } from 'lucide-react'
-import type { Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
+import type { Train, CatchableTrain, TransferResult, CarPosition, PlaceContext } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
+import { WalkingCard } from './WalkingCard'
 import { deriveWaitMinutes, computeTotalMinutes, resolveArrivalClock } from '../utils/time'
 
 interface TripViewProps {
@@ -27,6 +28,8 @@ interface TripViewProps {
   isDirect?: boolean
   showDeparted?: boolean
   onToggleShowDeparted?: () => void
+  originPlaceContext?: PlaceContext | null
+  destPlaceContext?: PlaceContext | null
 }
 
 export function TripView({
@@ -50,7 +53,9 @@ export function TripView({
   isRefreshing,
   isDirect = false,
   showDeparted = false,
-  onToggleShowDeparted
+  onToggleShowDeparted,
+  originPlaceContext,
+  destPlaceContext,
 }: TripViewProps) {
 
   // displayTrain brain dump: pick a live copy of the selected train
@@ -183,11 +188,20 @@ export function TripView({
     : undefined
 
   const waitMinutes = deriveWaitMinutes(liveTrain, departureTimestamp)
-  const totalMinutes = computeTotalMinutes([waitMinutes, leg1Time, walkTime, leg2Time])
+  const firstMileWalk = originPlaceContext?.walkTimeMinutes ?? 0
+  const lastMileWalk = destPlaceContext?.walkTimeMinutes ?? 0
+  const totalMinutes = computeTotalMinutes([firstMileWalk, waitMinutes, leg1Time, walkTime, leg2Time, lastMileWalk])
   const arrivalClock = resolveArrivalClock(totalMinutes, arrivalTime)
 
   return (
     <div className="animate-fade-in">
+      {/* Walking card for origin (place → station) */}
+      {originPlaceContext && (
+        <div className="mb-4">
+          <WalkingCard context={originPlaceContext} />
+        </div>
+      )}
+
       {/* refresh button, aka the "did it change yet?" switch */}
       {onRefresh && (
         <div className="mb-4 flex justify-end">
@@ -233,6 +247,8 @@ export function TripView({
               waitMinutes={waitMinutes}
               totalMinutes={totalMinutes}
               arrivalClock={arrivalClock ?? undefined}
+              firstMileWalkMinutes={firstMileWalk || undefined}
+              lastMileWalkMinutes={lastMileWalk || undefined}
             />
           </div>
         )}
@@ -261,7 +277,16 @@ export function TripView({
             waitMinutes={waitMinutes}
             totalMinutes={totalMinutes}
             arrivalClock={arrivalClock ?? undefined}
+            firstMileWalkMinutes={firstMileWalk || undefined}
+            lastMileWalkMinutes={lastMileWalk || undefined}
           />
+        </div>
+      )}
+
+      {/* Walking card for destination (station → place) */}
+      {destPlaceContext && (
+        <div className="mt-4">
+          <WalkingCard context={destPlaceContext} />
         </div>
       )}
     </div>
