@@ -20,6 +20,7 @@ interface LegPanelProps {
   isDirect?: boolean
   showDeparted?: boolean
   onToggleShowDeparted?: () => void
+  destinationExitName?: string
 }
 
 function isDepartedTrain(train: Train | CatchableTrain): boolean {
@@ -41,7 +42,8 @@ export function LegPanel({
   customStatus,
   isDirect,
   showDeparted,
-  onToggleShowDeparted
+  onToggleShowDeparted,
+  destinationExitName
 }: LegPanelProps) {
   const variant = leg === 1 ? 'selectable' : 'display'
   // direct trips: leg 1 is basically the destination, so show exit info anyway
@@ -189,6 +191,7 @@ export function LegPanel({
                 numCars={selectedNumCars || 8}
                 carPosition={carPosition}
                 type={carDiagramType}
+                destinationExitName={destinationExitName}
               />
             )}
           </>

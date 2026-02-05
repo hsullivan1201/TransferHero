@@ -1,16 +1,56 @@
-import { ChevronDown } from 'lucide-react'
-import type { CarPosition } from '@transferhero/shared'
+import { ChevronDown, MapPin } from 'lucide-react'
+import type { CarPosition, ExitOption } from '@transferhero/shared'
 
 interface CarDiagramProps {
   numCars?: number
   carPosition: CarPosition
   type: 'board' | 'exit'
+  destinationExitName?: string
 }
 
-export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
+const STOP_WORDS = new Set([
+  'to', 'the', 'at', 'of', 'and', 'in', 'from', 'for',
+  'corner', 'entrance', 'elevator', 'escalator', 'stairs', 'platform',
+  'side', 'only', 'street', 'avenue', 'all', 'trains', 'exit', 'path',
+])
+
+/** Extract meaningful keywords from a string, stripping punctuation and stop words */
+function extractKeywords(text: string): Set<string> {
+  return new Set(
+    text
+      .toLowerCase()
+      .replace(/[.,;:()'"!?&]/g, ' ')
+      .split(/\s+/)
+      .filter(w => w.length > 0 && !STOP_WORDS.has(w))
+  )
+}
+
+/** Check if two exit descriptions refer to the same exit via keyword overlap */
+function matchExitByKeywords(exitLabel: string, gtfsName: string): boolean {
+  const labelWords = extractKeywords(exitLabel)
+  const gtfsWords = extractKeywords(gtfsName)
+  let matches = 0
+  for (const word of labelWords) {
+    if (gtfsWords.has(word)) matches++
+  }
+  return matches >= 2
+}
+
+/** Find which exits match the destination exit name */
+function findDestinationExits(exits: ExitOption[], destExitName: string): Set<number> {
+  const matched = new Set<number>()
+  for (const exit of exits) {
+    if (matchExitByKeywords(exit.label, destExitName)) {
+      matched.add(exit.car)
+    }
+  }
+  return matched
+}
+
+export function CarDiagram({ numCars, carPosition, type, destinationExitName }: CarDiagramProps) {
   const highlightCar = type === 'board' ? carPosition.boardCar : carPosition.exitCar
   const title = type === 'board' ? 'Board car for best exit' : 'Exit options'
-  
+
   const exits = carPosition.exits ?? []
 
   const highlightedCars = exits.length > 0
@@ -20,7 +60,13 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
   // All cars with preferred exits (can be multiple)
   const preferredCars = new Set(exits.filter(e => e.preferred).map(e => e.car))
   const hasPreferred = preferredCars.size > 0
-  
+
+  // Destination exit matching
+  const destCars = destinationExitName && exits.length > 0
+    ? findDestinationExits(exits, destinationExitName)
+    : new Set<number>()
+  const hasDestMatch = destCars.size > 0
+
   const showExitLabels = type === 'exit' && exits.length > 0
 
   return (
@@ -34,6 +80,7 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
+            const isDest = destCars.has(carNum)
             const isPreferred = preferredCars.has(carNum)
 
             return (
@@ -43,11 +90,13 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
                     className={`w-5 h-5 ${
                       type === 'board'
                         ? 'text-green-600'
-                        : isPreferred
-                          ? 'text-blue-600'
-                          : 'text-yellow-600'
+                        : isDest
+                          ? 'text-purple-600'
+                          : isPreferred
+                            ? 'text-blue-600'
+                            : 'text-yellow-600'
                     }`}
-                    strokeWidth={isPreferred ? 3 : 2}
+                    strokeWidth={isDest || isPreferred ? 3 : 2}
                   />
                 )}
               </div>
@@ -59,11 +108,14 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           {Array.from({ length: 8 }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
+            const isDest = destCars.has(carNum)
             const isPreferred = preferredCars.has(carNum)
 
             let highlightClass = ''
             if (type === 'board') {
               highlightClass = 'bg-green-100 border-green-500 text-green-700 font-bold'
+            } else if (isDest) {
+              highlightClass = 'bg-purple-100 border-purple-500 text-purple-700 font-bold'
             } else if (isPreferred) {
               highlightClass = 'bg-blue-100 border-blue-500 text-blue-700 font-bold'
             } else if (isHighlighted) {
@@ -95,18 +147,27 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
 
       {showExitLabels && (
         <div className="text-[11px] text-[var(--text-secondary)] text-center mt-2 space-x-3">
-          {[...exits].sort((a, b) => a.car - b.car).map((exit, idx) => (
-            <span key={idx} className={`inline-flex items-center gap-1 ${exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
-              <span className={`font-semibold ${exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>
-              <span className="truncate max-w-[140px]">{exit.label}</span>
-            </span>
-          ))}
+          {[...exits].sort((a, b) => a.car - b.car).map((exit, idx) => {
+            const isDest = destCars.has(exit.car) && destinationExitName && matchExitByKeywords(exit.label, destinationExitName)
+            return (
+              <span key={idx} className={`inline-flex items-center gap-1 ${isDest ? 'text-purple-600 font-semibold' : exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
+                <span className={`font-semibold ${isDest ? 'text-purple-700' : exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>
+                <span className="truncate max-w-[140px]">{exit.label}</span>
+              </span>
+            )
+          })}
         </div>
       )}
 
       {showExitLabels && (
         <div className="flex items-center justify-center gap-4 mt-2 text-[10px] text-[var(--text-secondary)]">
-          {hasPreferred && (
+          {hasDestMatch && (
+            <span className="flex items-center gap-1">
+              <span className="w-2.5 h-2.5 rounded-sm bg-purple-500"></span>
+              Nearest to destination
+            </span>
+          )}
+          {hasPreferred && !hasDestMatch && (
             <span className="flex items-center gap-1">
               <span className="w-2.5 h-2.5 rounded-sm bg-blue-500"></span>
               Best exit
@@ -114,8 +175,16 @@ export function CarDiagram({ numCars, carPosition, type }: CarDiagramProps) {
           )}
           <span className="flex items-center gap-1">
             <span className="w-2.5 h-2.5 rounded-sm bg-yellow-500"></span>
-            {hasPreferred ? 'Other options' : 'Exit options'}
+            {hasPreferred || hasDestMatch ? 'Other options' : 'Exit options'}
           </span>
+        </div>
+      )}
+
+      {/* Fallback: destination exit name with no matching exit label */}
+      {destinationExitName && !hasDestMatch && type === 'exit' && (
+        <div className="flex items-center justify-center gap-1.5 mt-2 text-[11px] text-purple-600">
+          <MapPin className="w-3.5 h-3.5" />
+          <span>Use <span className="font-semibold">{destinationExitName}</span> exit</span>
         </div>
       )}
     </div>

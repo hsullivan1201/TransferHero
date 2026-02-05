@@ -234,6 +234,7 @@ export function TripView({
             isDirect={isDirect}
             showDeparted={showDeparted}
             onToggleShowDeparted={onToggleShowDeparted}
+            destinationExitName={isDirect ? destPlaceContext?.exit.name : undefined}
           />
         </div>
         
@@ -263,6 +264,7 @@ export function TripView({
               carPosition={leg2CarPosition}
               selectedNumCars={selectedNumCars}
               isLoading={isLoadingLeg2}
+              destinationExitName={destPlaceContext?.exit.name}
             />
           </div>
         )}
