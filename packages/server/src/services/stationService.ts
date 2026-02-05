@@ -12,8 +12,15 @@ export const loadStationExits = async (force = false) => {
   if (exitCache && !force) return exitCache;
 
   // ensure you have the correct path to your gtfs folder
-  const parser = new ExitParser(path.resolve(__dirname, '../../../../metro-gtfs/stops.txt'));
-  exitCache = await parser.parseStationExits();
+  const stopsPath = path.resolve(__dirname, '../../../../metro-gtfs/stops.txt');
+  try {
+    const parser = new ExitParser(stopsPath);
+    exitCache = await parser.parseStationExits();
+  } catch (err) {
+    console.error(`[StationService] Failed to load exits from ${stopsPath}:`, err)
+    // return empty map so callers get a clean "no data" instead of a crash
+    if (!exitCache) exitCache = new Map()
+  }
   return exitCache;
 };
 

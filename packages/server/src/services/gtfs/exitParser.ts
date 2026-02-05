@@ -24,13 +24,19 @@ export class ExitParser {
     const exits = new Map<string, StationExit[]>();
 
     return new Promise((resolve, reject) => {
-      fs.createReadStream(this.stopsFilePath)
+      const readStream = fs.createReadStream(this.stopsFilePath);
+
+      // .pipe() does NOT forward errors from the source stream,
+      // so we must handle ENOENT / read errors on the ReadStream directly
+      readStream.on('error', (error) => reject(error));
+
+      readStream
         .pipe(csv())
         .on('data', (row: GtfsStop) => {
           // location_type 2 = entrance/exit
           if (row.location_type === '2' && row.stop_id.startsWith('ENT_')) {
             const stationCode = this.normalizeStationCode(row.parent_station);
-            
+
             // gtfs spec: 1 = accessible, 2 = not accessible, 0 = unknown
             // wmata seems to use 1 and 2 reliably
             const isAccessible = row.wheelchair_boarding === '1';
