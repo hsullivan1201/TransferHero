@@ -9,6 +9,7 @@ import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import { setGtfsLastUpdated } from '../routes/health.js'
 import { clearAllCache } from '../middleware/cache.js'
+import { loadStationExits } from '../services/stationService.js'
 import { ROUTE_TO_LINE } from '@transferhero/shared'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -107,6 +108,33 @@ async function parseTripsFromZip(zipPath: string): Promise<Map<string, TripInfo>
 }
 
 /**
+ * extract stops.txt from the GTFS zip so exitParser can use it
+ */
+async function extractStopsFromZip(zipPath: string): Promise<void> {
+  const gtfsDir = resolve(__dirname, '../../../../metro-gtfs')
+  if (!existsSync(gtfsDir)) {
+    mkdirSync(gtfsDir, { recursive: true })
+  }
+  const stopsPath = resolve(gtfsDir, 'stops.txt')
+
+  return new Promise((res, rej) => {
+    createReadStream(zipPath)
+      .pipe(Parse())
+      .on('entry', (entry) => {
+        if (entry.path === 'stops.txt') {
+          entry.pipe(createWriteStream(stopsPath))
+            .on('finish', () => console.log(`[GTFS Refresh] Extracted stops.txt to ${stopsPath}`))
+            .on('error', rej)
+        } else {
+          entry.autodrain()
+        }
+      })
+      .on('close', () => res())
+      .on('error', rej)
+  })
+}
+
+/**
  * write static trips to a js file
  */
 async function writeStaticTripsFile(trips: Map<string, TripInfo>): Promise<void> {
@@ -165,6 +193,10 @@ async function refreshGtfs(): Promise<void> {
 
     // write static trips file
     await writeStaticTripsFile(trips)
+
+    // extract stops.txt for the exit resolver
+    await extractStopsFromZip(zipPath)
+    await loadStationExits(true)
 
     // clear caches
     clearAllCache()
