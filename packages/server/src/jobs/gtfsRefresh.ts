@@ -138,7 +138,7 @@ async function extractStopsFromZip(zipPath: string): Promise<void> {
  * write static trips to a js file
  */
 async function writeStaticTripsFile(trips: Map<string, TripInfo>): Promise<void> {
-  const outputPath = resolve(__dirname, '../../../../../static-trips.jsonon')
+  const outputPath = resolve(__dirname, '../../../../../static-trips.json')
 
   const output: Record<string, TripInfo> = {}
   for (const [tripId, info] of trips) {
@@ -146,7 +146,7 @@ async function writeStaticTripsFile(trips: Map<string, TripInfo>): Promise<void>
   }
 
   await writeFile(outputPath, JSON.stringify(output), 'utf-8')
-  console.log(`[GTFS Refresh] Wrote ${trips.size} trips to static-trips.jsonon`)
+  console.log(`[GTFS Refresh] Wrote ${trips.size} trips to static-trips.json`)
 }
 
 /**
