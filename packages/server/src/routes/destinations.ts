@@ -4,6 +4,7 @@ import { asyncHandler, ValidationError, NotFoundError } from '../middleware/erro
 import { searchPlaces, isGeocodingEnabled } from '../services/geocodingService.js'
 import { resolveDestination } from '../services/exitResolver.js'
 import { loadStationExits } from '../services/stationService.js'
+import { getWalkingDirections } from '../services/walkingDirectionsService.js'
 
 const router = Router()
 
@@ -46,6 +47,27 @@ router.get('/resolve', asyncHandler(async (req, res) => {
   if (!result) {
     throw new NotFoundError('No stations within walking distance')
   }
+
+  // Enrich with real Google walking directions (parallel, fallback to Haversine)
+  const allExits = [
+    result.exit,
+    ...result.alternatives.map(a => a.exit),
+  ]
+  const directionsResults = await Promise.all(
+    allExits.map(exit => getWalkingDirections(lat, lon, exit.lat, exit.lon))
+  )
+
+  if (directionsResults[0]) {
+    result.walkTimeMinutes = directionsResults[0].walkTimeMinutes
+    result.walkDistanceMeters = directionsResults[0].walkDistanceMeters
+  }
+  result.alternatives.forEach((alt, i) => {
+    const dirs = directionsResults[i + 1]
+    if (dirs) {
+      alt.walkTimeMinutes = dirs.walkTimeMinutes
+      alt.walkDistanceMeters = dirs.walkDistanceMeters
+    }
+  })
 
   res.json(result)
 }))

@@ -184,6 +184,7 @@ export interface PlaceContext {
     station: Station
     exit: StationExit
     walkTimeMinutes: number
+    walkDistanceMeters: number
   }>
 }
 

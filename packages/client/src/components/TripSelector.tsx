@@ -1,10 +1,45 @@
 import { useState, useCallback, useEffect } from 'react'
 import { ArrowRight } from 'lucide-react'
-import type { Station, TransferResult, TransferAlternative, PlaceContext } from '@transferhero/shared'
+import type { Station, TransferResult, TransferAlternative, PlaceContext, PlaceResult, ResolveResponse } from '@transferhero/shared'
 import { SmartSelector, type SmartSelection } from './SmartSelector'
 import { DestinationBanner } from './DestinationBanner'
 import { TransferDisplay } from './TransferDisplay'
 import { useDestinationResolve } from '../hooks/useDestination'
+
+type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
+
+function buildPlaceContext(
+  place: PlaceResult,
+  resolved: ResolveResponse,
+  override: WalkingAlt | null,
+  direction: 'to_station' | 'from_station'
+): PlaceContext {
+  if (override) {
+    // Swap: selected alt becomes main, original main joins the alternatives list
+    const alts = [
+      { station: resolved.station, exit: resolved.exit, walkTimeMinutes: resolved.walkTimeMinutes, walkDistanceMeters: resolved.walkDistanceMeters },
+      ...resolved.alternatives.filter(a => a.station.code !== override.station.code),
+    ]
+    return {
+      place,
+      station: override.station,
+      exit: override.exit,
+      walkTimeMinutes: override.walkTimeMinutes,
+      walkDistanceMeters: override.walkDistanceMeters,
+      direction,
+      alternatives: alts,
+    }
+  }
+  return {
+    place,
+    station: resolved.station,
+    exit: resolved.exit,
+    walkTimeMinutes: resolved.walkTimeMinutes,
+    walkDistanceMeters: resolved.walkDistanceMeters,
+    direction,
+    alternatives: resolved.alternatives,
+  }
+}
 
 interface TripSelectorProps {
   stations: Station[]
@@ -31,6 +66,10 @@ export function TripSelector({
   const [toSelection, setToSelection] = useState<SmartSelection | null>(null)
   const [walkTime, setWalkTime] = useState(2)
 
+  // station override when user picks an alternative walking station
+  const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
+  const [destOverride, setDestOverride] = useState<WalkingAlt | null>(null)
+
   // resolve place selections to stations
   const fromPlace = fromSelection && fromSelection.type !== 'station' ? fromSelection.place : null
   const toPlace = toSelection && toSelection.type !== 'station' ? toSelection.place : null
@@ -38,49 +77,37 @@ export function TripSelector({
   const { data: fromResolved } = useDestinationResolve(fromPlace?.lat ?? null, fromPlace?.lon ?? null)
   const { data: toResolved } = useDestinationResolve(toPlace?.lat ?? null, toPlace?.lon ?? null)
 
-  // derive the actual stations from selections
+  // reset overrides when the place selection changes
+  useEffect(() => { setOriginOverride(null) }, [fromPlace?.id])
+  useEffect(() => { setDestOverride(null) }, [toPlace?.id])
+
+  // derive the actual stations from selections, respecting overrides
   const fromStation: Station | null =
     fromSelection?.type === 'station'
       ? fromSelection.station
-      : fromResolved?.station ?? null
+      : originOverride?.station ?? fromResolved?.station ?? null
 
   const toStation: Station | null =
     toSelection?.type === 'station'
       ? toSelection.station
-      : toResolved?.station ?? null
+      : destOverride?.station ?? toResolved?.station ?? null
 
   // build and propagate place contexts
   useEffect(() => {
     if (fromPlace && fromResolved) {
-      onOriginPlaceContext?.({
-        place: fromPlace,
-        station: fromResolved.station,
-        exit: fromResolved.exit,
-        walkTimeMinutes: fromResolved.walkTimeMinutes,
-        walkDistanceMeters: fromResolved.walkDistanceMeters,
-        direction: 'to_station',
-        alternatives: fromResolved.alternatives,
-      })
+      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station'))
     } else {
       onOriginPlaceContext?.(null)
     }
-  }, [fromPlace?.id, fromResolved?.station?.code])
+  }, [fromPlace?.id, fromResolved?.station?.code, originOverride?.station.code])
 
   useEffect(() => {
     if (toPlace && toResolved) {
-      onDestPlaceContext?.({
-        place: toPlace,
-        station: toResolved.station,
-        exit: toResolved.exit,
-        walkTimeMinutes: toResolved.walkTimeMinutes,
-        walkDistanceMeters: toResolved.walkDistanceMeters,
-        direction: 'from_station',
-        alternatives: toResolved.alternatives,
-      })
+      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, destOverride, 'from_station'))
     } else {
       onDestPlaceContext?.(null)
     }
-  }, [toPlace?.id, toResolved?.station?.code])
+  }, [toPlace?.id, toResolved?.station?.code, destOverride?.station.code])
 
   const canGo = fromStation && toStation && fromStation.code !== toStation.code
 
@@ -90,31 +117,23 @@ export function TripSelector({
     }
   }, [fromStation, toStation, walkTime, onGo])
 
+  const handleOriginAlt = useCallback((alt: WalkingAlt) => {
+    setOriginOverride(alt)
+  }, [])
+
+  const handleDestAlt = useCallback((alt: WalkingAlt) => {
+    setDestOverride(alt)
+  }, [])
+
   // build place contexts for banner display
   const originPlaceContext: PlaceContext | null =
     fromPlace && fromResolved
-      ? {
-          place: fromPlace,
-          station: fromResolved.station,
-          exit: fromResolved.exit,
-          walkTimeMinutes: fromResolved.walkTimeMinutes,
-          walkDistanceMeters: fromResolved.walkDistanceMeters,
-          direction: 'to_station',
-          alternatives: fromResolved.alternatives,
-        }
+      ? buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station')
       : null
 
   const destPlaceContext: PlaceContext | null =
     toPlace && toResolved
-      ? {
-          place: toPlace,
-          station: toResolved.station,
-          exit: toResolved.exit,
-          walkTimeMinutes: toResolved.walkTimeMinutes,
-          walkDistanceMeters: toResolved.walkDistanceMeters,
-          direction: 'from_station',
-          alternatives: toResolved.alternatives,
-        }
+      ? buildPlaceContext(toPlace, toResolved, destOverride, 'from_station')
       : null
 
   return (
@@ -139,6 +158,7 @@ export function TripSelector({
               <DestinationBanner
                 context={originPlaceContext}
                 isLocation={fromSelection?.type === 'location'}
+                onSelectAlternative={handleOriginAlt}
               />
             </div>
           )}
@@ -158,7 +178,10 @@ export function TripSelector({
           />
           {destPlaceContext && (
             <div className="mt-1.5">
-              <DestinationBanner context={destPlaceContext} />
+              <DestinationBanner
+                context={destPlaceContext}
+                onSelectAlternative={handleDestAlt}
+              />
             </div>
           )}
         </div>

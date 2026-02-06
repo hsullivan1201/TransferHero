@@ -522,7 +522,8 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   }
 
   if (!transfer || transfer.direct) {
-    throw new ValidationError('This trip does not require a transfer')
+    console.log('This trip does not require a transfer');
+    return;
   }
 
   // figure out when the rider reaches the transfer station

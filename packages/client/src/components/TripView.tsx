@@ -6,6 +6,8 @@ import { JourneyInfo } from './JourneyInfo'
 import { WalkingCard } from './WalkingCard'
 import { deriveWaitMinutes, computeTotalMinutes, resolveArrivalClock } from '../utils/time'
 
+type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
+
 interface TripViewProps {
   transfer: TransferResult | null
   leg1Trains: Train[]
@@ -30,6 +32,8 @@ interface TripViewProps {
   onToggleShowDeparted?: () => void
   originPlaceContext?: PlaceContext | null
   destPlaceContext?: PlaceContext | null
+  onSelectOriginWalkingAlt?: (alt: WalkingAlt) => void
+  onSelectDestWalkingAlt?: (alt: WalkingAlt) => void
 }
 
 export function TripView({
@@ -56,6 +60,8 @@ export function TripView({
   onToggleShowDeparted,
   originPlaceContext,
   destPlaceContext,
+  onSelectOriginWalkingAlt,
+  onSelectDestWalkingAlt,
 }: TripViewProps) {
 
   // displayTrain brain dump: pick a live copy of the selected train
@@ -198,7 +204,7 @@ export function TripView({
       {/* Walking card for origin (place → station) */}
       {originPlaceContext && (
         <div className="mb-4">
-          <WalkingCard context={originPlaceContext} />
+          <WalkingCard context={originPlaceContext} onSelectAlternative={onSelectOriginWalkingAlt} />
         </div>
       )}
 
@@ -288,7 +294,7 @@ export function TripView({
       {/* Walking card for destination (station → place) */}
       {destPlaceContext && (
         <div className="mt-4">
-          <WalkingCard context={destPlaceContext} />
+          <WalkingCard context={destPlaceContext} onSelectAlternative={onSelectDestWalkingAlt} />
         </div>
       )}
     </div>

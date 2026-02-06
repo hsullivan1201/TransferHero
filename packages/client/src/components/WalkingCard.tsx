@@ -1,5 +1,5 @@
-import { Suspense, lazy } from 'react'
-import { ExternalLink, Footprints } from 'lucide-react'
+import { Suspense, lazy, useState } from 'react'
+import { ExternalLink, Footprints, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import type { PlaceContext } from '@transferhero/shared'
 import { buildMapsUrl, formatDistance } from '../utils/geo'
 
@@ -9,9 +9,11 @@ const WalkingMap = lazy(() =>
 
 interface WalkingCardProps {
   context: PlaceContext
+  onSelectAlternative?: (alt: NonNullable<PlaceContext['alternatives']>[number]) => void
 }
 
-export function WalkingCard({ context }: WalkingCardProps) {
+export function WalkingCard({ context, onSelectAlternative }: WalkingCardProps) {
+  const [isExpanded, setIsExpanded] = useState(false)
   const isOrigin = context.direction === 'to_station'
   const title = isOrigin ? 'Walk to Station' : 'Walk to Destination'
 
@@ -22,6 +24,9 @@ export function WalkingCard({ context }: WalkingCardProps) {
   const toLon = isOrigin ? context.exit.lon : context.place.lon
 
   const mapsUrl = buildMapsUrl(fromLat, fromLon, toLat, toLon)
+
+  const alternatives = context.alternatives ?? []
+  const hasAlternatives = alternatives.length > 0 && !!onSelectAlternative
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-sm">
@@ -77,6 +82,48 @@ export function WalkingCard({ context }: WalkingCardProps) {
             Open in Maps
           </a>
         </div>
+
+        {/* Alternative stations */}
+        {hasAlternatives && (
+          <div className="mt-3 pt-3 border-t border-[var(--border-color)]">
+            <button
+              onClick={() => setIsExpanded(!isExpanded)}
+              className="flex items-center gap-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors cursor-pointer"
+            >
+              {alternatives.length} other nearby {alternatives.length === 1 ? 'station' : 'stations'}
+              {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+
+            {isExpanded && (
+              <div className="mt-2 space-y-1.5">
+                {/* Current station */}
+                <div className="flex items-center justify-between p-2 rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 text-sm">
+                  <span>
+                    <strong>{context.station.name}</strong>
+                    <span className="ml-2 text-xs">
+                      {context.exit.name} · {context.walkTimeMinutes} min · {formatDistance(context.walkDistanceMeters)}
+                    </span>
+                  </span>
+                  <Check className="w-4 h-4 shrink-0" />
+                </div>
+
+                {/* Alternatives */}
+                {alternatives.map((alt) => (
+                  <button
+                    key={alt.station.code}
+                    onClick={() => onSelectAlternative!(alt)}
+                    className="w-full text-left p-2 rounded text-sm hover:bg-[var(--suggestion-hover)] transition-colors cursor-pointer"
+                  >
+                    <strong>{alt.station.name}</strong>
+                    <span className="ml-2 text-xs text-[var(--text-secondary)]">
+                      {alt.exit.name} · {alt.walkTimeMinutes} min · {formatDistance(alt.walkDistanceMeters)}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   )

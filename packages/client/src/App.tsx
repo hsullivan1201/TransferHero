@@ -1,7 +1,8 @@
+import { useEffect } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { Header, Footer, EmptyState, TripSelector, TripView } from './components'
 import { useStations, useTrip, useLeg2, useTripState } from './hooks/useTrip'
-import type { Station } from '@transferhero/shared'
+import type { Station, PlaceContext } from '@transferhero/shared'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -59,6 +60,47 @@ function AppContent() {
   const handleGo = (from: Station, to: Station, walkTime: number) => {
     tripState.startTrip(from, to, walkTime)
   }
+
+  // Handle walking station alt selection from WalkingCard (after trip is loaded)
+  type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
+
+  const handleWalkingAlt = (
+    currentCtx: PlaceContext | null,
+    alt: WalkingAlt,
+    setCtx: (ctx: PlaceContext | null) => void,
+    setStation: (s: Station | null) => void
+  ) => {
+    if (!currentCtx) return
+    // Swap: alt becomes main, old main goes into alternatives
+    const newAlts = [
+      { station: currentCtx.station, exit: currentCtx.exit, walkTimeMinutes: currentCtx.walkTimeMinutes, walkDistanceMeters: currentCtx.walkDistanceMeters },
+      ...(currentCtx.alternatives ?? []).filter(a => a.station.code !== alt.station.code),
+    ]
+    setCtx({
+      ...currentCtx,
+      station: alt.station,
+      exit: alt.exit,
+      walkTimeMinutes: alt.walkTimeMinutes,
+      walkDistanceMeters: alt.walkDistanceMeters,
+      alternatives: newAlts,
+    })
+    setStation(alt.station)
+  }
+
+  // Sync trip stations when walking alt changes in the banner (after trip is active)
+  useEffect(() => {
+    if (tripState.from && tripState.originPlaceContext &&
+        tripState.originPlaceContext.station.code !== tripState.from.code) {
+      tripState.setFrom(tripState.originPlaceContext.station)
+    }
+  }, [tripState.originPlaceContext?.station.code])
+
+  useEffect(() => {
+    if (tripState.to && tripState.destPlaceContext &&
+        tripState.destPlaceContext.station.code !== tripState.to.code) {
+      tripState.setTo(tripState.destPlaceContext.station)
+    }
+  }, [tripState.destPlaceContext?.station.code])
 
   const hasTrip = tripState.from && tripState.to && tripData
 
@@ -145,6 +187,12 @@ function AppContent() {
               onToggleShowDeparted={tripState.toggleShowDeparted}
               originPlaceContext={tripState.originPlaceContext}
               destPlaceContext={tripState.destPlaceContext}
+              onSelectOriginWalkingAlt={(alt) =>
+                handleWalkingAlt(tripState.originPlaceContext, alt, tripState.setOriginPlaceContext, tripState.setFrom)
+              }
+              onSelectDestWalkingAlt={(alt) =>
+                handleWalkingAlt(tripState.destPlaceContext, alt, tripState.setDestPlaceContext, tripState.setTo)
+              }
           />
           ) : !tripLoading && !tripError && (
             <EmptyState />
