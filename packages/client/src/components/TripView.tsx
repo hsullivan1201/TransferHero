@@ -284,6 +284,13 @@ export function TripView({
         )}
       </div>
 
+      {/* Walking card for destination (station → place) */}
+      {destPlaceContext && (
+        <div className="mt-4">
+          <WalkingCard context={destPlaceContext} onSelectAlternative={onSelectDestWalkingAlt} />
+        </div>
+      )}
+
       {!isDirect && (
         <div className="lg:hidden mt-4">
           <JourneyInfo
@@ -296,13 +303,6 @@ export function TripView({
             firstMileWalkMinutes={firstMileWalk || undefined}
             lastMileWalkMinutes={lastMileWalk || undefined}
           />
-        </div>
-      )}
-
-      {/* Walking card for destination (station → place) */}
-      {destPlaceContext && (
-        <div className="mt-4">
-          <WalkingCard context={destPlaceContext} onSelectAlternative={onSelectDestWalkingAlt} />
         </div>
       )}
     </div>
