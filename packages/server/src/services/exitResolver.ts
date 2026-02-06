@@ -1,11 +1,16 @@
 import type { Station, StationExit, ResolveResponse } from '@transferhero/shared'
-import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
+import { ALL_STATIONS } from '../data/stations.js'
 import { getAllExits } from './stationService.js'
 
 const EARTH_RADIUS_M = 6371000
 const MAX_DISTANCE_M = 1500 // 1.5 km
 const GRID_FACTOR = 1.4 // DC street grid adjustment
 const WALK_SPEED_MPS = 1.33 // ~3 mph
+
+// O(1) station lookup — built once at module load
+const STATION_BY_CODE = new Map<string, Station>(
+  ALL_STATIONS.map(s => [s.code, s])
+)
 
 function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const dLat = (lat2 - lat1) * Math.PI / 180
@@ -35,13 +40,6 @@ export function resolveDestination(lat: number, lon: number): ResolveResponse | 
   const exitCache = getAllExits()
   if (exitCache.size === 0) return null
 
-  // build a lookup of station code -> Station for the parent station
-  // exits are keyed by codes like "A01" or compound codes like "A01_C01"
-  const stationLookup = new Map<string, Station>()
-  for (const s of ALL_STATIONS) {
-    stationLookup.set(s.code, s)
-  }
-
   // score every exit by distance to target
   const candidates: Array<{ stationCode: string; exit: StationExit; distance: number }> = []
 
@@ -70,7 +68,7 @@ export function resolveDestination(lat: number, lon: number): ResolveResponse | 
   // rank stations by their best exit distance
   const ranked: RankedStation[] = []
   for (const [code, best] of stationBest) {
-    const station = stationLookup.get(code)
+    const station = STATION_BY_CODE.get(code)
     if (!station) continue
     ranked.push({
       station,

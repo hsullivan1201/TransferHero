@@ -1,4 +1,4 @@
-import { useCallback } from 'react'
+import { useCallback, useMemo } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { Train, CatchableTrain, TransferResult, CarPosition, PlaceContext } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
@@ -64,136 +64,137 @@ export function TripView({
   onSelectDestWalkingAlt,
 }: TripViewProps) {
 
-  // displayTrain brain dump: pick a live copy of the selected train
-  // match only by exact tripId—line+destination roulette gave us ghost trains
-  const liveTrain = selectedLeg1Train
-    ? (selectedLeg1Train._tripId
-        ? leg1Trains.find(t => t._tripId === selectedLeg1Train._tripId)
-        : undefined
-      ) || selectedLeg1Train
-    : null
+  // memoize the heavy display-train computation — re-evaluates when
+  // train data, selection, or timing deps change (including 30s refetch)
+  const { displayTrain, customStatus, selectedNumCars } = useMemo(() => {
+    // pick a live copy of the selected train
+    // match only by exact tripId—line+destination roulette gave us ghost trains
+    const liveTrain = selectedLeg1Train
+      ? (selectedLeg1Train._tripId
+          ? leg1Trains.find(t => t._tripId === selectedLeg1Train._tripId)
+          : undefined
+        ) || selectedLeg1Train
+      : null
 
-  let displayTrain = liveTrain
-  let currentMin: number | undefined = undefined
-  let customStatus: string | undefined = undefined
+    let _displayTrain = liveTrain
+    let _customStatus: string | undefined = undefined
 
-  // decide if we're talking to the transfer stop or the final stop
-  const targetName = isDirect ? destinationName : transferName
+    // decide if we're talking to the transfer stop or the final stop
+    const targetName = isDirect ? destinationName : transferName
 
-  // tack on an arrival suffix if realtime feels generous
-  const arrivalTimeSuffix = liveTrain?._destArrivalTime
-    ? ` · Arr ${liveTrain._destArrivalTime}`
-    : ''
+    // tack on an arrival suffix if realtime feels generous
+    const arrivalTimeSuffix = liveTrain?._destArrivalTime
+      ? ` · Arr ${liveTrain._destArrivalTime}`
+      : ''
 
-  if (liveTrain && departureTimestamp) {
-    const now = Date.now()
-    // trust the saved departure time; live min sometimes fibs
-    const msUntilDeparture = departureTimestamp - now
-    const minUntilDeparture = Math.round(msUntilDeparture / 60000)
+    if (liveTrain && departureTimestamp) {
+      const now = Date.now()
+      // trust the saved departure time; live min sometimes fibs
+      const msUntilDeparture = departureTimestamp - now
+      const minUntilDeparture = Math.round(msUntilDeparture / 60000)
 
-    // if the user picked an already-gone train from "already on a train?"
-    if (liveTrain._departed && liveTrain._transferArrivalTimestamp) {
-      // departed train: countdown to the transfer like any other
-      const minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - now) / 60000)
-      currentMin = minutesRemaining
-      
-      displayTrain = {
-        ...liveTrain,
-        Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
-        _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
-      }
-      
-      customStatus = minutesRemaining <= 0
-        ? `Arrived at ${transferName || targetName}`
-        : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
-    } else if (minUntilDeparture > 0) {
-      // not left yet: countdown from the timestamp we recorded
-      currentMin = minUntilDeparture
-      // hand off the timestamp so seconds view can be crisp
-      displayTrain = {
-        ...liveTrain,
-        Min: minUntilDeparture,
-        _destArrivalTimestamp: departureTimestamp // use the timestamp for the origin clock
-      }
-      customStatus = `Departs ${originName} in ${minUntilDeparture} min`
-    } else if (minUntilDeparture >= -1) {
-      // living in the arr/brd limbo
-      currentMin = 0
+      // if the user picked an already-gone train from "already on a train?"
+      if (liveTrain._departed && liveTrain._transferArrivalTimestamp) {
+        // departed train: countdown to the transfer like any other
+        const minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - now) / 60000)
 
-      // sanity check: back-calc departure from transfer arrival
-      let hasActuallyDeparted = false
-      if (liveTrain._transferArrivalTimestamp && leg1Time) {
-        const expectedDepartureTime = liveTrain._transferArrivalTimestamp - (leg1Time * 60 * 1000)
-        hasActuallyDeparted = Date.now() >= expectedDepartureTime
-      }
-
-      if (hasActuallyDeparted) {
-        // seems like it left based on the math—countdown to transfer
-        let minutesRemaining: number
-        if (liveTrain._transferArrivalTimestamp) {
-          minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - Date.now()) / 60000)
-        } else {
-          minutesRemaining = Math.max(0, leg1Time + minUntilDeparture)
-        }
-
-        displayTrain = {
+        _displayTrain = {
           ...liveTrain,
           Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
           _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
         }
-        customStatus = minutesRemaining <= 0
+
+        _customStatus = minutesRemaining <= 0
           ? `Arrived at ${transferName || targetName}`
           : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
-      } else {
-        // still loitering at the origin
-        const isArriving = liveTrain.Min === 'ARR'
-        displayTrain = { ...liveTrain, Min: isArriving ? 'ARR' : 'BRD' }
-        customStatus = isArriving ? `Arriving at ${originName}` : `Boarding at ${originName}`
-      }
-    } else {
-      // already departed: lean on destination realtime if we have it
-      // use timestamps when possible; they're less dramatic than mins
-      let minutesRemaining: number
-      if (liveTrain._destArrivalTimestamp) {
-        // best case: backend handed us an exact arrival
-        minutesRemaining = Math.floor((liveTrain._destArrivalTimestamp - Date.now()) / 60000)
-      } else {
-        // otherwise, use whatever fallback math we have
-        minutesRemaining = liveTrain._destArrivalMin ?? Math.max(0, leg1Time + minUntilDeparture)
-      }
-      currentMin = -Math.abs(minUntilDeparture)
-      // keep the timestamp so TrainCard can flex seconds view
-      displayTrain = {
-        ...liveTrain,
-        Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
-        _destArrivalTimestamp: liveTrain._destArrivalTimestamp // pass it through for precise display
-      }
-      customStatus = minutesRemaining <= 0 ? `Arrived at ${targetName}` : `En Route to ${targetName}${arrivalTimeSuffix}`
-    }
-  } else if (liveTrain) {
-    // selected train but no timestamp yet? lean on live min
-    const liveMin = typeof liveTrain.Min === 'number'
-      ? liveTrain.Min
-      : liveTrain.Min === 'ARR' || liveTrain.Min === 'BRD'
-        ? 0
-        : parseInt(liveTrain.Min, 10) || 0
+      } else if (minUntilDeparture > 0) {
+        // not left yet: countdown from the timestamp we recorded
+        // hand off the timestamp so seconds view can be crisp
+        _displayTrain = {
+          ...liveTrain,
+          Min: minUntilDeparture,
+          _destArrivalTimestamp: departureTimestamp // use the timestamp for the origin clock
+        }
+        _customStatus = `Departs ${originName} in ${minUntilDeparture} min`
+      } else if (minUntilDeparture >= -1) {
+        // living in the arr/brd limbo
 
-    if (liveMin > 0) {
-      customStatus = `Departs ${originName} in ${liveMin} min`
-    } else if (liveTrain.Min === 'ARR') {
-      customStatus = `Arriving at ${originName}`
-    } else {
-      customStatus = `Boarding at ${originName}`
-    }
-  }
+        // sanity check: back-calc departure from transfer arrival
+        let hasActuallyDeparted = false
+        if (liveTrain._transferArrivalTimestamp && leg1Time) {
+          const expectedDepartureTime = liveTrain._transferArrivalTimestamp - (leg1Time * 60 * 1000)
+          hasActuallyDeparted = Date.now() >= expectedDepartureTime
+        }
 
-  const selectedNumCars = selectedLeg1Train ? parseInt(selectedLeg1Train.Car || '8', 10) : undefined
+        if (hasActuallyDeparted) {
+          // seems like it left based on the math—countdown to transfer
+          let minutesRemaining: number
+          if (liveTrain._transferArrivalTimestamp) {
+            minutesRemaining = Math.floor((liveTrain._transferArrivalTimestamp - Date.now()) / 60000)
+          } else {
+            minutesRemaining = Math.max(0, leg1Time + minUntilDeparture)
+          }
+
+          _displayTrain = {
+            ...liveTrain,
+            Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
+            _destArrivalTimestamp: liveTrain._transferArrivalTimestamp
+          }
+          _customStatus = minutesRemaining <= 0
+            ? `Arrived at ${transferName || targetName}`
+            : `En Route to ${transferName || targetName} · Arr ${liveTrain._transferArrivalTime || ''}`
+        } else {
+          // still loitering at the origin
+          const isArriving = liveTrain.Min === 'ARR'
+          _displayTrain = { ...liveTrain, Min: isArriving ? 'ARR' : 'BRD' }
+          _customStatus = isArriving ? `Arriving at ${originName}` : `Boarding at ${originName}`
+        }
+      } else {
+        // already departed: lean on destination realtime if we have it
+        // use timestamps when possible; they're less dramatic than mins
+        let minutesRemaining: number
+        if (liveTrain._destArrivalTimestamp) {
+          // best case: backend handed us an exact arrival
+          minutesRemaining = Math.floor((liveTrain._destArrivalTimestamp - Date.now()) / 60000)
+        } else {
+          // otherwise, use whatever fallback math we have
+          minutesRemaining = liveTrain._destArrivalMin ?? Math.max(0, leg1Time + minUntilDeparture)
+        }
+        // keep the timestamp so TrainCard can flex seconds view
+        _displayTrain = {
+          ...liveTrain,
+          Min: minutesRemaining <= 0 ? 'ARR' : minutesRemaining,
+          _destArrivalTimestamp: liveTrain._destArrivalTimestamp // pass it through for precise display
+        }
+        _customStatus = minutesRemaining <= 0 ? `Arrived at ${targetName}` : `En Route to ${targetName}${arrivalTimeSuffix}`
+      }
+    } else if (liveTrain) {
+      // selected train but no timestamp yet? lean on live min
+      const liveMin = typeof liveTrain.Min === 'number'
+        ? liveTrain.Min
+        : liveTrain.Min === 'ARR' || liveTrain.Min === 'BRD'
+          ? 0
+          : parseInt(liveTrain.Min, 10) || 0
+
+      if (liveMin > 0) {
+        _customStatus = `Departs ${originName} in ${liveMin} min`
+      } else if (liveTrain.Min === 'ARR') {
+        _customStatus = `Arriving at ${originName}`
+      } else {
+        _customStatus = `Boarding at ${originName}`
+      }
+    }
+
+    const _selectedNumCars = selectedLeg1Train ? parseInt(selectedLeg1Train.Car || '8', 10) : undefined
+
+    return { displayTrain: _displayTrain, customStatus: _customStatus, selectedNumCars: _selectedNumCars }
+  }, [selectedLeg1Train, leg1Trains, departureTimestamp, isDirect, originName, destinationName, transferName, leg1Time])
 
   const arrivalTime = selectedLeg1Train && leg2Trains.length > 0 && leg2Trains[0]._canCatch
     ? leg2Trains[0]._arrivalClock
     : undefined
 
-  const waitMinutes = deriveWaitMinutes(liveTrain, departureTimestamp)
+  const waitMinutes = deriveWaitMinutes(displayTrain, departureTimestamp)
   const firstMileWalk = originPlaceContext?.walkTimeMinutes ?? 0
   const lastMileWalk = destPlaceContext?.walkTimeMinutes ?? 0
   const totalMinutes = computeTotalMinutes([firstMileWalk, waitMinutes, leg1Time, walkTime, leg2Time, lastMileWalk])

@@ -30,11 +30,15 @@ function makeCacheKey(
   return `${roundCoord(originLat)},${roundCoord(originLon)}|${roundCoord(destLat)},${roundCoord(destLon)}`
 }
 
-function evictStaleEntries() {
+// Periodic stale-entry cleanup instead of per-write iteration
+setInterval(() => {
   const now = Date.now()
   for (const [key, entry] of cache) {
     if (now - entry.ts > CACHE_TTL_MS) cache.delete(key)
   }
+}, 60_000)
+
+function evictIfOverCapacity() {
   if (cache.size > CACHE_MAX_SIZE) {
     const oldest = cache.keys().next().value
     if (oldest) cache.delete(oldest)
@@ -87,7 +91,7 @@ export async function getWalkingDirections(
       walkDistanceMeters: leg.distance.value,
     }
 
-    evictStaleEntries()
+    evictIfOverCapacity()
     cache.set(key, { result, ts: Date.now() })
 
     return result

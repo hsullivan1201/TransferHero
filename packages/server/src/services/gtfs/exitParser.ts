@@ -49,8 +49,12 @@ export class ExitParser {
               isAccessible
             };
 
-            const existing = exits.get(stationCode) || [];
-            exits.set(stationCode, [...existing, exit]);
+            const existing = exits.get(stationCode);
+            if (existing) {
+              existing.push(exit);
+            } else {
+              exits.set(stationCode, [exit]);
+            }
           }
         })
         .on('end', () => {

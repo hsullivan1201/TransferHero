@@ -81,9 +81,37 @@ export function TripSelector({
   const { data: fromResolved } = useDestinationResolve(fromPlace?.lat ?? null, fromPlace?.lon ?? null)
   const { data: toResolved } = useDestinationResolve(toPlace?.lat ?? null, toPlace?.lon ?? null)
 
-  // reset overrides when the place selection changes
-  useEffect(() => { setOriginOverride(null) }, [fromPlace?.id])
-  useEffect(() => { setDestOverride(null) }, [toPlace?.id])
+  // Place/resolve change: reset override and build context in one pass (no cascade)
+  useEffect(() => {
+    setOriginOverride(null)
+    if (fromPlace && fromResolved) {
+      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, null, 'to_station'))
+    } else {
+      onOriginPlaceContext?.(null)
+    }
+  }, [fromPlace?.id, fromResolved?.station?.code])
+
+  useEffect(() => {
+    setDestOverride(null)
+    if (toPlace && toResolved) {
+      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, null, 'from_station'))
+    } else {
+      onDestPlaceContext?.(null)
+    }
+  }, [toPlace?.id, toResolved?.station?.code])
+
+  // Override-only change: rebuild context with the selected alternative
+  useEffect(() => {
+    if (originOverride && fromPlace && fromResolved) {
+      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station'))
+    }
+  }, [originOverride?.station.code])
+
+  useEffect(() => {
+    if (destOverride && toPlace && toResolved) {
+      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, destOverride, 'from_station'))
+    }
+  }, [destOverride?.station.code])
 
   // derive the actual stations from selections, respecting overrides
   const fromStation: Station | null =
@@ -95,23 +123,6 @@ export function TripSelector({
     toSelection?.type === 'station'
       ? toSelection.station
       : destOverride?.station ?? toResolved?.station ?? null
-
-  // build and propagate place contexts
-  useEffect(() => {
-    if (fromPlace && fromResolved) {
-      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station'))
-    } else {
-      onOriginPlaceContext?.(null)
-    }
-  }, [fromPlace?.id, fromResolved?.station?.code, originOverride?.station.code])
-
-  useEffect(() => {
-    if (toPlace && toResolved) {
-      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, destOverride, 'from_station'))
-    } else {
-      onDestPlaceContext?.(null)
-    }
-  }, [toPlace?.id, toResolved?.station?.code, destOverride?.station.code])
 
   const canGo = fromStation && toStation && fromStation.code !== toStation.code
 

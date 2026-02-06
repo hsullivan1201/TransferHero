@@ -1,5 +1,5 @@
 // react/packages/client/src/components/TrainCard.tsx
-import { useState, useEffect } from 'react'
+import { useState, useEffect, memo } from 'react'
 import { Satellite, Rss, Check } from 'lucide-react'
 import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getLineClass } from '../utils/lineColors'
@@ -19,7 +19,7 @@ function isCatchableTrain(train: Train | CatchableTrain): train is CatchableTrai
   return '_waitTime' in train
 }
 
-export function TrainCard({
+export const TrainCard = memo(function TrainCard({
   train,
   index,
   variant,
@@ -35,10 +35,10 @@ export function TrainCard({
   const millisRemaining = hasTimestamp && train._destArrivalTimestamp ? train._destArrivalTimestamp - now : 0
   const shouldShowSeconds = hasTimestamp && millisRemaining < 2 * 60 * 1000 // under 2 minutes
 
-  // spin up a tiny metronome only when showing seconds
+  // spin up a tiny metronome only when showing seconds on the selected card
   useEffect(() => {
-    if (!shouldShowSeconds) {
-      return // skip the timer if we're in minute-land
+    if (!shouldShowSeconds || !isSelected) {
+      return // skip the timer if we're in minute-land or not the active card
     }
 
     // ping every second so the clock feels alive
@@ -47,7 +47,7 @@ export function TrainCard({
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [shouldShowSeconds])
+  }, [shouldShowSeconds, isSelected])
 
   const trainMin = getTrainMinutes(train.Min)
   
@@ -200,4 +200,11 @@ export function TrainCard({
       )}
     </div>
   )
-}
+}, (prev, next) => {
+  return prev.train._tripId === next.train._tripId
+    && prev.train.Min === next.train.Min
+    && prev.isSelected === next.isSelected
+    && prev.customStatus === next.customStatus
+    && prev.index === next.index
+    && prev.variant === next.variant
+})

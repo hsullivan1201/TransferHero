@@ -34,7 +34,7 @@ export function TrainList({
     <div>
       {displayedTrains.map((train, index) => (
         <TrainCard
-          key={`${train.Line}-${train.DestinationName}-${train.Min}-${index}`}
+          key={train._tripId || `${train.Line}-${train.DestinationName}-${index}`}
           train={train}
           index={index}
           variant={variant}

@@ -138,22 +138,15 @@ async function extractStopsFromZip(zipPath: string): Promise<void> {
  * write static trips to a js file
  */
 async function writeStaticTripsFile(trips: Map<string, TripInfo>): Promise<void> {
-  // drop it in the project root (same spot as before)
-  const outputPath = resolve(__dirname, '../../../../../static-trips.js')
+  const outputPath = resolve(__dirname, '../../../../../static-trips.jsonon')
 
   const output: Record<string, TripInfo> = {}
   for (const [tripId, info] of trips) {
     output[tripId] = info
   }
 
-  const content = `// static trip lookup derived from WMATA GTFS
-// auto-generated: ${new Date().toISOString()}
-
-const STATIC_TRIPS = ${JSON.stringify(output)};
-`
-
-  await writeFile(outputPath, content, 'utf-8')
-  console.log(`[GTFS Refresh] Wrote ${trips.size} trips to static-trips.js`)
+  await writeFile(outputPath, JSON.stringify(output), 'utf-8')
+  console.log(`[GTFS Refresh] Wrote ${trips.size} trips to static-trips.jsonon`)
 }
 
 /**
@@ -250,9 +243,9 @@ export function initGtfsRefreshJob(): void {
  */
 async function checkAndRefreshIfStale(): Promise<void> {
   try {
-    const staticTripsPath = resolve(__dirname, '../../../../../static-trips.js')
+    const staticTripsPath = resolve(__dirname, '../../../../../static-trips.json')
     if (!existsSync(staticTripsPath)) {
-      console.log('[GTFS Refresh] no static-trips.js found, running initial refresh...')
+      console.log('[GTFS Refresh] no static-trips.json found, running initial refresh...')
       await refreshGtfs()
       return
     }
@@ -262,10 +255,10 @@ async function checkAndRefreshIfStale(): Promise<void> {
     const ageHours = (Date.now() - stats.mtime.getTime()) / (1000 * 60 * 60)
 
     if (ageHours > 24) {
-      console.log(`[GTFS Refresh] static-trips.js is ${ageHours.toFixed(1)}h old, refreshing...`)
+      console.log(`[GTFS Refresh] static-trips.json is ${ageHours.toFixed(1)}h old, refreshing...`)
       await refreshGtfs()
     } else {
-      console.log(`[GTFS Refresh] static-trips.js is ${ageHours.toFixed(1)}h old, still fresh`)
+      console.log(`[GTFS Refresh] static-trips.json is ${ageHours.toFixed(1)}h old, still fresh`)
     }
   } catch (error) {
     console.error('[GTFS Refresh] Error checking staleness:', error)

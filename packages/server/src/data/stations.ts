@@ -109,9 +109,14 @@ export const ALL_STATIONS: Station[] = [
   { code: 'F11', name: 'Branch Ave', lines: ['GR'] },
 ]
 
+// O(1) lookup by station code — built once at module load
+const STATION_BY_CODE = new Map<string, Station>(
+  ALL_STATIONS.map(s => [s.code, s])
+)
+
 /**
  * Find a station by its code
  */
 export function findStationByCode(code: string): Station | undefined {
-  return ALL_STATIONS.find(s => s.code === code)
+  return STATION_BY_CODE.get(code)
 }

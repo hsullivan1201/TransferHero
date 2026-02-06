@@ -28,35 +28,41 @@ export function loadScheduleConfig(): ScheduleConfig {
   }
 
   try {
-    // Navigate from server/src/data to project root's schedule-data.js
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    const scheduleDataPath = resolve(__dirname, '../../../../../schedule-data.js')
+    // try .json first (new format), fall back to .js (legacy)
+    const jsonPath = resolve(__dirname, '../../../../../schedule-data.json')
+    const jsPath = resolve(__dirname, '../../../../../schedule-data.js')
 
-    const fileContent = readFileSync(scheduleDataPath, 'utf-8')
-
-    // Extract JSON from: const SCHEDULE_CONFIG = {...}
-    const jsonMatch = fileContent.match(/const\s+SCHEDULE_CONFIG\s*=\s*(\{[\s\S]*?\n\};)/)
-    if (!jsonMatch) {
-      console.warn('[ScheduleData] Could not parse schedule-data.js format')
-      return { patterns: {} }
+    let fileContent: string
+    let usingLegacy = false
+    try {
+      fileContent = readFileSync(jsonPath, 'utf-8')
+    } catch {
+      fileContent = readFileSync(jsPath, 'utf-8')
+      usingLegacy = true
     }
 
-    // Remove trailing semicolon, strip inline comments, and parse
-    let jsonStr = jsonMatch[1].replace(/;$/, '')
-    // Remove inline comments like "// minutes between trains"
-    jsonStr = jsonStr.replace(/\/\/[^\n]*/g, '')
-    // Remove trailing commas before closing braces (not valid in JSON)
-    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1')
-    // Quote unquoted object keys (e.g., patterns: -> "patterns":)
-    jsonStr = jsonStr.replace(/(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*):/g, '$1"$2"$3:')
-    // Convert single quotes to double quotes for string values
-    jsonStr = jsonStr.replace(/'/g, '"')
+    if (usingLegacy) {
+      // legacy .js format: extract and transform to JSON
+      const jsonMatch = fileContent.match(/const\s+SCHEDULE_CONFIG\s*=\s*(\{[\s\S]*?\n\};)/)
+      if (!jsonMatch) {
+        console.warn('[ScheduleData] Could not parse schedule-data.js format')
+        return { patterns: {} }
+      }
+      let jsonStr = jsonMatch[1].replace(/;$/, '')
+      jsonStr = jsonStr.replace(/\/\/[^\n]*/g, '')
+      jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1')
+      jsonStr = jsonStr.replace(/(\s*)([a-zA-Z_][a-zA-Z0-9_]*)(\s*):/g, '$1"$2"$3:')
+      jsonStr = jsonStr.replace(/'/g, '"')
+      cachedScheduleConfig = JSON.parse(jsonStr) as ScheduleConfig
+    } else {
+      cachedScheduleConfig = JSON.parse(fileContent) as ScheduleConfig
+    }
 
-    cachedScheduleConfig = JSON.parse(jsonStr) as ScheduleConfig
     console.log(`[ScheduleData] Loaded ${Object.keys(cachedScheduleConfig.patterns).length} schedule patterns`)
     return cachedScheduleConfig
   } catch (error) {
-    console.error('[ScheduleData] Failed to load schedule-data.js:', error)
+    console.error('[ScheduleData] Failed to load schedule data:', error)
     if (error instanceof Error) {
       console.error('[ScheduleData] Error details:', error.message)
     }

@@ -21,24 +21,36 @@ export function loadStaticTrips(): StaticTripsMap {
   }
 
   try {
-    // hop from server/src/data up to the root static-trips.js
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    const staticTripsPath = resolve(__dirname, '../../../../../static-trips.js')
+    // try .json first (new format), fall back to .js (legacy)
+    const jsonPath = resolve(__dirname, '../../../../../static-trips.json')
+    const jsPath = resolve(__dirname, '../../../../../static-trips.js')
 
-    const fileContent = readFileSync(staticTripsPath, 'utf-8')
-
-    // peel out the json from `const STATIC_TRIPS = {...}`
-    const jsonMatch = fileContent.match(/const\s+STATIC_TRIPS\s*=\s*(\{[\s\S]*\})/)
-    if (!jsonMatch) {
-      console.warn('[StaticTrips] Could not parse static-trips.js format')
-      return {}
+    let fileContent: string
+    let usingLegacy = false
+    try {
+      fileContent = readFileSync(jsonPath, 'utf-8')
+    } catch {
+      fileContent = readFileSync(jsPath, 'utf-8')
+      usingLegacy = true
     }
 
-    cachedStaticTrips = JSON.parse(jsonMatch[1]) as StaticTripsMap
+    if (usingLegacy) {
+      // legacy .js format: extract JSON from `const STATIC_TRIPS = {...}`
+      const jsonMatch = fileContent.match(/const\s+STATIC_TRIPS\s*=\s*(\{[\s\S]*\})/)
+      if (!jsonMatch) {
+        console.warn('[StaticTrips] Could not parse static-trips.js format')
+        return {}
+      }
+      cachedStaticTrips = JSON.parse(jsonMatch[1]) as StaticTripsMap
+    } else {
+      cachedStaticTrips = JSON.parse(fileContent) as StaticTripsMap
+    }
+
     console.log(`[StaticTrips] Loaded ${Object.keys(cachedStaticTrips).length} trip mappings`)
     return cachedStaticTrips
   } catch (error) {
-    console.error('[StaticTrips] Failed to load static-trips.js:', error)
+    console.error('[StaticTrips] Failed to load static trips:', error)
     return {}
   }
 }

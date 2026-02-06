@@ -7,17 +7,20 @@ function getApiKey(): string {
 const DC_CENTER = { lat: 38.9072, lng: -77.0369 }
 const BIAS_RADIUS_M = 30000 // 30km
 
-// simple LRU cache
+// simple cache with periodic cleanup (avoids O(n) scan on every write)
 const cache = new Map<string, { results: PlaceResult[]; ts: number }>()
 const CACHE_TTL_MS = 120_000 // 2 minutes
 const CACHE_MAX_SIZE = 500
 
-function evictStaleEntries() {
+// Periodic stale-entry cleanup instead of per-write iteration
+setInterval(() => {
   const now = Date.now()
   for (const [key, entry] of cache) {
     if (now - entry.ts > CACHE_TTL_MS) cache.delete(key)
   }
-  // if still over capacity, drop oldest
+}, 60_000)
+
+function evictIfOverCapacity() {
   if (cache.size > CACHE_MAX_SIZE) {
     const oldest = cache.keys().next().value
     if (oldest) cache.delete(oldest)
@@ -76,7 +79,7 @@ export async function searchPlaces(query: string, sessionToken?: string): Promis
       lon: p.location?.longitude || 0,
     }))
 
-    evictStaleEntries()
+    evictIfOverCapacity()
     cache.set(cacheKey, { results: places, ts: Date.now() })
 
     return places

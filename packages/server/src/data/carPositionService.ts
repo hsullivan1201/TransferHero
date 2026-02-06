@@ -82,15 +82,39 @@ interface StationData {
 
 let cachedData: StationData | null = null
 
+// Secondary indexes — built once at load time
+let wmataCodeIndex: Map<string, Station> | null = null
+let lowerNameIndex: Map<string, Station> | null = null
+// Pre-lowercased track destinations per platform
+let trackDestsLower: WeakMap<Platform, { track1: string[]; track2: string[] }> | null = null
+
 function loadStationData(): StationData {
   if (cachedData) return cachedData
-  
+
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
     const jsonPath = join(__dirname, 'stationExits.json')
     const content = readFileSync(jsonPath, 'utf-8')
     cachedData = JSON.parse(content) as StationData
     console.log(`[CarPosition] Loaded ${Object.keys(cachedData.stations).length} stations`)
+
+    // Build secondary indexes for O(1) lookups in getStation()
+    wmataCodeIndex = new Map()
+    lowerNameIndex = new Map()
+    trackDestsLower = new WeakMap()
+    for (const [name, station] of Object.entries(cachedData.stations)) {
+      if (station.wmataCode) wmataCodeIndex.set(station.wmataCode, station)
+      lowerNameIndex.set(name.toLowerCase(), station)
+      if (station.nameAlt) lowerNameIndex.set(station.nameAlt.toLowerCase(), station)
+      // Pre-lowercase track destinations for getTrackDirection()
+      for (const platform of station.platforms) {
+        trackDestsLower.set(platform, {
+          track1: platform.track1Destinations.map(d => d.toLowerCase()),
+          track2: platform.track2Destinations.map(d => d.toLowerCase()),
+        })
+      }
+    }
+
     return cachedData
   } catch (error) {
     console.error('[CarPosition] Failed to load stationExits.json:', error)
@@ -124,7 +148,7 @@ const MULTI_LEVEL_CODE_MAP: Record<string, string> = {
  */
 export function getStation(nameOrCode: string): Station | null {
   const data = getData()
-  
+
   // Try direct name lookup first
   if (data.stations[nameOrCode]) {
     return data.stations[nameOrCode]
@@ -138,20 +162,13 @@ export function getStation(nameOrCode: string): Station | null {
     }
   }
 
-  // Try to find by WMATA code
-  for (const station of Object.values(data.stations)) {
-    if (station.wmataCode === nameOrCode) {
-      return station
-    }
-  }
+  // Try WMATA code via index (O(1) instead of linear scan)
+  const byWmata = wmataCodeIndex?.get(nameOrCode)
+  if (byWmata) return byWmata
 
-  // Try case-insensitive name match
-  const lowerName = nameOrCode.toLowerCase()
-  for (const [name, station] of Object.entries(data.stations)) {
-    if (name.toLowerCase() === lowerName || station.nameAlt?.toLowerCase() === lowerName) {
-      return station
-    }
-  }
+  // Try case-insensitive name via index (O(1) instead of linear scan)
+  const byLower = lowerNameIndex?.get(nameOrCode.toLowerCase())
+  if (byLower) return byLower
 
   return null
 }
@@ -173,22 +190,26 @@ export function findPlatformForLine(station: Station, line: string): Platform | 
  */
 export function getTrackDirection(platform: Platform, destination: string): TrackDirection {
   const destLower = destination.toLowerCase()
-  
-  // Check track1 destinations
-  for (const d of platform.track1Destinations) {
-    if (destLower.includes(d.toLowerCase()) || d.toLowerCase().includes(destLower)) {
+  const cached = trackDestsLower?.get(platform)
+
+  // Use pre-lowercased arrays when available (avoids repeated toLowerCase per element)
+  const t1 = cached?.track1 ?? platform.track1Destinations
+  const t2 = cached?.track2 ?? platform.track2Destinations
+
+  for (const d of t1) {
+    const dLower = cached ? d : d.toLowerCase()
+    if (destLower.includes(dLower) || dLower.includes(destLower)) {
       return 'track1'
     }
   }
-  
-  // Check track2 destinations
-  for (const d of platform.track2Destinations) {
-    if (destLower.includes(d.toLowerCase()) || d.toLowerCase().includes(destLower)) {
+
+  for (const d of t2) {
+    const dLower = cached ? d : d.toLowerCase()
+    if (destLower.includes(dLower) || dLower.includes(destLower)) {
       return 'track2'
     }
   }
-  
-  // Default to track1 if we can't determine
+
   return 'track1'
 }
 
