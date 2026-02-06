@@ -50,6 +50,8 @@ interface TripSelectorProps {
   selectedAlternativeIndex?: number
   onOriginPlaceContext?: (ctx: PlaceContext | null) => void
   onDestPlaceContext?: (ctx: PlaceContext | null) => void
+  activeOriginPlaceContext?: PlaceContext | null
+  activeDestPlaceContext?: PlaceContext | null
 }
 
 export function TripSelector({
@@ -61,6 +63,8 @@ export function TripSelector({
   selectedAlternativeIndex = -1,
   onOriginPlaceContext,
   onDestPlaceContext,
+  activeOriginPlaceContext,
+  activeDestPlaceContext,
 }: TripSelectorProps) {
   const [fromSelection, setFromSelection] = useState<SmartSelection | null>(null)
   const [toSelection, setToSelection] = useState<SmartSelection | null>(null)
@@ -126,15 +130,19 @@ export function TripSelector({
   }, [])
 
   // build place contexts for banner display
-  const originPlaceContext: PlaceContext | null =
+  // prefer active contexts from tripState (kept in sync by WalkingCard alt selections)
+  const localOriginPlaceContext: PlaceContext | null =
     fromPlace && fromResolved
       ? buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station')
       : null
 
-  const destPlaceContext: PlaceContext | null =
+  const localDestPlaceContext: PlaceContext | null =
     toPlace && toResolved
       ? buildPlaceContext(toPlace, toResolved, destOverride, 'from_station')
       : null
+
+  const originPlaceContext = activeOriginPlaceContext ?? localOriginPlaceContext
+  const destPlaceContext = activeDestPlaceContext ?? localDestPlaceContext
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg p-4 shadow-sm">

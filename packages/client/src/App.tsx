@@ -149,6 +149,8 @@ function AppContent() {
             }
             onOriginPlaceContext={tripState.setOriginPlaceContext}
             onDestPlaceContext={tripState.setDestPlaceContext}
+            activeOriginPlaceContext={tripState.originPlaceContext}
+            activeDestPlaceContext={tripState.destPlaceContext}
           />
         )}
 
