@@ -6,6 +6,7 @@ interface CarDiagramProps {
   carPosition: CarPosition
   type: 'board' | 'exit'
   destinationExitName?: string
+  destinationExitLabel?: number
 }
 
 const STOP_WORDS = new Set([
@@ -25,29 +26,55 @@ function extractKeywords(text: string): Set<string> {
   )
 }
 
-/** Check if two exit descriptions refer to the same exit via keyword overlap */
-function matchExitByKeywords(exitLabel: string, gtfsName: string): boolean {
-  const labelWords = extractKeywords(exitLabel)
-  const gtfsWords = extractKeywords(gtfsName)
-  let matches = 0
-  for (const word of labelWords) {
-    if (gtfsWords.has(word)) matches++
+/**
+ * Find the single best destination exit match.
+ *
+ * Primary: match by exitLabel (from manual mapping — exact, no fuzz).
+ * Fallback: keyword matching — picks the single best match by keyword count.
+ *           Ties return empty set (shows fallback text instead of wrong highlight).
+ */
+function findDestinationExits(
+  exits: ExitOption[],
+  destExitName: string | undefined,
+  destExitLabel: number | undefined
+): Set<number> {
+  // Primary: exact exitLabel match
+  if (destExitLabel != null) {
+    const matched = exits.filter(e => e.exitLabel === destExitLabel).map(e => e.car)
+    if (matched.length > 0) return new Set(matched)
   }
-  return matches >= 2
-}
 
-/** Find which exits match the destination exit name */
-function findDestinationExits(exits: ExitOption[], destExitName: string): Set<number> {
-  const matched = new Set<number>()
+  // Fallback: keyword matching — single best match only
+  if (!destExitName) return new Set()
+
+  const gtfsWords = extractKeywords(destExitName)
+  let bestCar: number | null = null
+  let bestScore = 0
+  let tied = false
+
   for (const exit of exits) {
-    if (matchExitByKeywords(exit.label, destExitName)) {
-      matched.add(exit.car)
+    const labelWords = extractKeywords(exit.label)
+    let score = 0
+    for (const word of labelWords) {
+      if (gtfsWords.has(word)) score += word.length
+    }
+    if (score > bestScore) {
+      bestScore = score
+      bestCar = exit.car
+      tied = false
+    } else if (score === bestScore && score > 0 && exit.car !== bestCar) {
+      tied = true
     }
   }
-  return matched
+
+  // Require minimum score of 4 and no ties — if tied, show fallback text
+  if (bestCar !== null && bestScore >= 4 && !tied) {
+    return new Set([bestCar])
+  }
+  return new Set()
 }
 
-export function CarDiagram({ numCars, carPosition, type, destinationExitName }: CarDiagramProps) {
+export function CarDiagram({ numCars, carPosition, type, destinationExitName, destinationExitLabel }: CarDiagramProps) {
   const highlightCar = type === 'board' ? carPosition.boardCar : carPosition.exitCar
   const title = type === 'board' ? 'Board car for best exit' : 'Exit options'
 
@@ -62,8 +89,8 @@ export function CarDiagram({ numCars, carPosition, type, destinationExitName }: 
   const hasPreferred = preferredCars.size > 0
 
   // Destination exit matching
-  const destCars = destinationExitName && exits.length > 0
-    ? findDestinationExits(exits, destinationExitName)
+  const destCars = (destinationExitName || destinationExitLabel != null) && exits.length > 0
+    ? findDestinationExits(exits, destinationExitName, destinationExitLabel)
     : new Set<number>()
   const hasDestMatch = destCars.size > 0
 
@@ -148,7 +175,7 @@ export function CarDiagram({ numCars, carPosition, type, destinationExitName }: 
       {showExitLabels && (
         <div className="text-[11px] text-[var(--text-secondary)] text-center mt-2 space-x-3">
           {[...exits].sort((a, b) => a.car - b.car).map((exit, idx) => {
-            const isDest = destCars.has(exit.car) && destinationExitName && matchExitByKeywords(exit.label, destinationExitName)
+            const isDest = destCars.has(exit.car)
             return (
               <span key={idx} className={`inline-flex items-center gap-1 ${isDest ? 'text-purple-600 font-semibold' : exit.preferred ? 'text-blue-600 font-semibold' : ''}`}>
                 <span className={`font-semibold ${isDest ? 'text-purple-700' : exit.preferred ? 'text-blue-700' : 'text-[var(--text-primary)]'}`}>{exit.car}:</span>

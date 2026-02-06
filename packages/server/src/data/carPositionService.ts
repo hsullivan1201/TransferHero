@@ -427,6 +427,7 @@ function getAllValidExits(
     description: egress.description,
     xPosition: egress.x,
     preferred: egress.preferred,
+    exitLabel: egress.exitLabel,
   }))
 }
 

@@ -129,6 +129,8 @@ export interface ExitOption {
   xPosition?: number
   /** Whether this is the preferred/recommended exit */
   preferred?: boolean
+  /** Exit group identifier — egresses with the same exitLabel lead to the same physical exit area */
+  exitLabel?: number
 }
 
 /**

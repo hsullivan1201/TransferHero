@@ -5,6 +5,7 @@ import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
 import { WalkingCard } from './WalkingCard'
 import { deriveWaitMinutes, computeTotalMinutes, resolveArrivalClock } from '../utils/time'
+import { resolveExitLabel } from '../data/exitMapping'
 
 type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
 
@@ -200,6 +201,10 @@ export function TripView({
   const totalMinutes = computeTotalMinutes([firstMileWalk, waitMinutes, leg1Time, walkTime, leg2Time, lastMileWalk])
   const arrivalClock = resolveArrivalClock(totalMinutes, arrivalTime)
 
+  const destExitLabel = destPlaceContext?.exit.name && destPlaceContext?.station.code
+    ? resolveExitLabel(destPlaceContext.station.code, destPlaceContext.exit.name)
+    : undefined
+
   return (
     <div className="animate-fade-in">
       {/* Walking card for origin (place → station) */}
@@ -242,6 +247,7 @@ export function TripView({
             showDeparted={showDeparted}
             onToggleShowDeparted={onToggleShowDeparted}
             destinationExitName={isDirect ? destPlaceContext?.exit.name : undefined}
+            destinationExitLabel={isDirect ? destExitLabel : undefined}
           />
         </div>
         
@@ -272,6 +278,7 @@ export function TripView({
               selectedNumCars={selectedNumCars}
               isLoading={isLoadingLeg2}
               destinationExitName={destPlaceContext?.exit.name}
+              destinationExitLabel={destExitLabel}
             />
           </div>
         )}
