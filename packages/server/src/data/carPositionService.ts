@@ -321,7 +321,7 @@ function findBestEgress(egresses: Egress[], accessible: boolean = false, preferT
 
 /**
  * Build a label for an exit from type and description
- * Format: "{Type} to {street}" (e.g., "Stairs to M St", "Escalator to Florida Ave")
+ * Format: "{Abbrev} {street}" (e.g., "Stairs M St", "Esc. Florida Ave")
  */
 function buildExitLabel(egress: Egress): string {
   let desc = egress.description || ''
@@ -330,22 +330,28 @@ function buildExitLabel(egress: Egress): string {
   desc = desc
     .replace(/,?\s*Elevator to Platform( Only)?/gi, '')
     .replace(/,?\s*Elevator to Platform & Street/gi, '')
-    .replace(/,?\s*Escalator/gi, '')
+    .replace(/,?\s*Escalators?/gi, '')
     .replace(/,?\s*Stairs/gi, '')
     .trim()
 
   // Remove trailing commas after cleanup
   desc = desc.replace(/,\s*$/, '').trim()
 
-  // Format exit type as readable label
-  const typeLabel = egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
+  // Short type abbreviations for compact labels
+  const typeAbbrev: Record<string, string> = {
+    escalator: 'Esc.',
+    elevator: 'Elev.',
+    stairs: 'Stairs',
+    exit: 'Exit',
+  }
+  const typeLabel = typeAbbrev[egress.type] || egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
 
   if (desc) {
-    return `${typeLabel} to ${desc}`
+    return `${typeLabel} ${desc}`
   }
 
-  // Fallback: just the type
-  return typeLabel
+  // Fallback: full type name when no description
+  return egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
 }
 
 /**

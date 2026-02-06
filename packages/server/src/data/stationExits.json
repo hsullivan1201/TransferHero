@@ -1138,7 +1138,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Dupont Circle"
+                "description": "Connecticut Ave"
               }
             ],
             "track2": [
@@ -1162,7 +1162,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Dupont Circle"
+                "description": "Connecticut Ave"
               }
             ],
             "shared": []
@@ -1826,7 +1826,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 3,
-                "description": "Exit C"
+                "description": "7th & H St"
               },
               {
                 "x": 17,
@@ -1854,7 +1854,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 1,
-                "description": "RD Trains to Shady Grove, Exits A, B"
+                "description": "Red Line, 7th & F St"
               },
               {
                 "x": 41,
@@ -1862,7 +1862,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 2,
-                "description": "RD Trains to Glenmont, Exits A, B"
+                "description": "Red Line, 7th & F St"
               },
               {
                 "x": 57,
@@ -1876,7 +1876,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 5,
-                "description": "Elevator to Platform & Exit D"
+                "description": "7th & F St"
               },
               {
                 "x": 67,
@@ -1913,7 +1913,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Exit B"
+                "description": "9th & G St"
               },
               {
                 "x": 65,
@@ -1922,7 +1922,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "All GR/YL Trains, Exits A, C, D, Elevator to Platform Only"
+                "description": "Green/Yellow Line, 7th & H St"
               },
               {
                 "x": 69,
@@ -1939,7 +1939,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Exit B"
+                "description": "9th & G St"
               },
               {
                 "x": 65,
@@ -1948,7 +1948,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 3,
-                "description": "All GR/YL Trains, Exits A, C, D, Elevator to Platform & Exit D"
+                "description": "Green/Yellow Line, 7th & H St"
               },
               {
                 "x": 69,
@@ -2570,7 +2570,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 3,
-                "description": "Buses"
+                "description": "Bus Bay"
               }
             ]
           }
@@ -3049,7 +3049,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "RD Trains to Shady Grove, 11th & G, 13th & G"
+                "description": "Red Line, 13th & G"
               },
               {
                 "x": 33,
@@ -3057,7 +3057,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "RD Trains to Glenmont, 11th & G, 13th & G"
+                "description": "Red Line, 11th & G"
               },
               {
                 "x": 42,
@@ -3107,7 +3107,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 3,
-                "description": "BL/OR/SV Trains, 12th & G, Elevator to Platform & Street"
+                "description": "BL/OR/SV, 12th & G"
               },
               {
                 "x": 38,
@@ -3141,7 +3141,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 4,
-                "description": "BL/OR/SV Trains, 12th & F, Elevator to Platform Only"
+                "description": "BL/OR/SV, 12th & F"
               },
               {
                 "x": 38,
@@ -3405,7 +3405,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 1,
-                "description": "Ballpark & Soccer Stadium"
+                "description": "Ballpark"
               },
               {
                 "x": 13,
@@ -3425,7 +3425,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "USDOT"
+                "description": "New Jersey Ave"
               },
               {
                 "x": 57,
@@ -3677,7 +3677,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Path to Station Exit, Escalators to Platform Only"
+                "description": "Pentagon Transit Center"
               },
               {
                 "x": 24,
@@ -4048,7 +4048,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Path to Station Exit, Escalators & Elevator to Platform Only"
+                "description": "N Moore St"
               },
               {
                 "x": 36,
@@ -4201,7 +4201,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "South Side Colesville Rd"
+                "description": "S Colesville Rd"
               },
               {
                 "x": 44,
@@ -4215,7 +4215,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "North Side Colesville Rd"
+                "description": "N Colesville Rd"
               }
             ]
           }
@@ -4433,7 +4433,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Stadium, Armory"
+                "description": "Armory"
               }
             ]
           }
@@ -4714,7 +4714,7 @@
                 "y": 3,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Mass Ave, Shops, Postal Museum"
+                "description": "Mass Ave"
               },
               {
                 "x": 18,
@@ -4734,7 +4734,7 @@
                 "y": 3,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "1st St, Amtrak, Commuter Trains"
+                "description": "1st St, Amtrak"
               },
               {
                 "x": 71,
@@ -5012,7 +5012,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Terminal 2, C/D/E Gates"
+                "description": "C/D/E Gates"
               },
               {
                 "x": 39,
@@ -5026,7 +5026,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Terminals 1 & 2, A/B/C Gates"
+                "description": "A/B/C Gates"
               }
             ],
             "track2": [
@@ -5036,7 +5036,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Terminal 2, C/D/E Gates"
+                "description": "C/D/E Gates"
               },
               {
                 "x": 39,
@@ -5050,7 +5050,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Terminals 1 & 2, A/B/C Gates"
+                "description": "A/B/C Gates"
               }
             ],
             "shared": []
@@ -5222,7 +5222,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Path to Escalator"
+                "description": "Georgia Ave"
               },
               {
                 "x": 71,
@@ -5239,7 +5239,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Path to Escalator & Elevator"
+                "description": "Georgia Ave"
               }
             ],
             "shared": []
