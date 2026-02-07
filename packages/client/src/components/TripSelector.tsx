@@ -78,8 +78,8 @@ export function TripSelector({
   const fromPlace = fromSelection && fromSelection.type !== 'station' ? fromSelection.place : null
   const toPlace = toSelection && toSelection.type !== 'station' ? toSelection.place : null
 
-  const { data: fromResolved } = useDestinationResolve(fromPlace?.lat ?? null, fromPlace?.lon ?? null)
-  const { data: toResolved } = useDestinationResolve(toPlace?.lat ?? null, toPlace?.lon ?? null)
+  const { data: fromResolved, error: fromResolveError } = useDestinationResolve(fromPlace?.lat ?? null, fromPlace?.lon ?? null)
+  const { data: toResolved, error: toResolveError } = useDestinationResolve(toPlace?.lat ?? null, toPlace?.lon ?? null)
 
   // Place/resolve change: reset override and build context in one pass (no cascade)
   useEffect(() => {
@@ -172,6 +172,9 @@ export function TripSelector({
             placeholder="Origin..."
             showCurrentLocation
           />
+          {fromResolveError && (
+            <p className="mt-1.5 text-sm text-red-500">No stations within walking distance</p>
+          )}
           {originPlaceContext && (
             <div className="mt-1.5">
               <DestinationBanner
@@ -195,6 +198,9 @@ export function TripSelector({
             stations={stations}
             placeholder="Destination..."
           />
+          {toResolveError && (
+            <p className="mt-1.5 text-sm text-red-500">No stations within walking distance</p>
+          )}
           {destPlaceContext && (
             <div className="mt-1.5">
               <DestinationBanner
