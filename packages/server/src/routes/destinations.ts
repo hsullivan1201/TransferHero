@@ -45,6 +45,7 @@ router.get('/resolve', asyncHandler(async (req, res) => {
 
   const result = resolveDestination(lat, lon)
   if (!result) {
+    console.warn(`[destinations] No stations within walking distance of (${lat}, ${lon})`)
     throw new NotFoundError('No stations within walking distance')
   }
 

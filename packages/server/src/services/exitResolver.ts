@@ -3,7 +3,7 @@ import { ALL_STATIONS } from '../data/stations.js'
 import { getAllExits } from './stationService.js'
 
 const EARTH_RADIUS_M = 6371000
-const MAX_DISTANCE_M = 1500 // 1.5 km
+const MAX_DISTANCE_M = 2500 // 2.5 km
 const GRID_FACTOR = 1.4 // DC street grid adjustment
 const WALK_SPEED_MPS = 1.33 // ~3 mph
 
