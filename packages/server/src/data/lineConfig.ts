@@ -18,8 +18,8 @@ export const LINE_STATIONS: Record<Line, string[]> = {
  */
 export const TERMINI: Record<Line, Termini> = {
   'RD': {
-    toward_a: ['Shady Grove', 'Silver Spring', 'Grosvenor-Strathmore'],
-    toward_b: ['Glenmont', 'NoMa-Gallaudet U', 'Fort Totten']
+    toward_a: ['Shady Grove', 'Silver Spring', 'Grosvenor-Strathmore', 'Farragut North'],
+    toward_b: ['Glenmont', 'NoMa-Gallaudet U', 'Fort Totten', 'Farragut North']
   },
   'OR': {
     toward_a: ['Vienna'],
