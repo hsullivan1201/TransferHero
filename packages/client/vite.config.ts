@@ -3,6 +3,9 @@ import react from '@vitejs/plugin-react'
 
 export default defineConfig({
   plugins: [react()],
+  build: {
+    modulePreload: { polyfill: false } // skip inline polyfill so CSP can block unsafe-inline scripts
+  },
   server: {
     port: 3000,
     strictPort: true, // keeps it from silently swapping ports if 3000 is zombie'd

@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getWmataCacheStats, resetWmataCacheStats } from '../services/wmata.js'
+import { getWmataCacheStats } from '../services/wmata.js'
 
 const router = Router()
 
@@ -48,15 +48,6 @@ router.get('/', (_req, res) => {
       }
     }
   })
-})
-
-/**
- * POST /api/health/reset-cache-stats
- * reset cache stats (handy for debugging)
- */
-router.post('/reset-cache-stats', (_req, res) => {
-  resetWmataCacheStats()
-  res.json({ status: 'ok', message: 'Cache stats reset' })
 })
 
 export default router

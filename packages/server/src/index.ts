@@ -29,28 +29,33 @@ const app = express()
 const PORT = process.env.PORT || 3001
 const isProduction = process.env.NODE_ENV === 'production'
 
-// basic helmet with CSP adjustments for serving React app
+// helmet with strict CSP — no unsafe-inline for scripts (Vite bundles everything into files)
 app.use(helmet({
   contentSecurityPolicy: isProduction ? {
     directives: {
       defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'"],
+      scriptSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'"],
-      imgSrc: ["'self'", "data:", "https:", "https://*.tile.openstreetmap.org"],
+      imgSrc: ["'self'", "data:", "https://*.tile.openstreetmap.org"],
       connectSrc: ["'self'", "https://api.wmata.com"],
     }
   } : false
 }))
 
-// cors setup (chill by default, stricter in production)
+// cors setup — must be explicitly configured in production
+const corsOrigin = process.env.CORS_ORIGIN
+if (isProduction && !corsOrigin) {
+  console.error('FATAL: CORS_ORIGIN must be set in production')
+  process.exit(1)
+}
 app.use(cors({
-  origin: process.env.CORS_ORIGIN || '*',
+  origin: corsOrigin || 'http://localhost:3000',
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
 }))
 
-// parse json bodies
-app.use(express.json())
+// parse json bodies (10kb limit prevents memory-bomb DoS)
+app.use(express.json({ limit: '10kb' }))
 
 // api routes
 app.use('/api/stations', stationsRouter)
