@@ -220,7 +220,7 @@ async function refreshGtfs(): Promise<void> {
 /**
  * initialize the GTFS refresh cron job
  */
-export function initGtfsRefreshJob(): void {
+export function initGtfsRefreshJob(): Promise<void> {
   // run daily at 3 AM (WMATA usually updates overnight)
   const schedule = process.env.GTFS_REFRESH_CRON || '0 3 * * *'
 
@@ -235,7 +235,8 @@ export function initGtfsRefreshJob(): void {
 
   // also run on startup if the data smells stale (>24h)
   // catches times when the server slept through cron
-  checkAndRefreshIfStale()
+  // returns promise so callers can wait for data to be ready
+  return checkAndRefreshIfStale()
 }
 
 /**
@@ -244,8 +245,9 @@ export function initGtfsRefreshJob(): void {
 async function checkAndRefreshIfStale(): Promise<void> {
   try {
     const staticTripsPath = resolve(__dirname, '../../../../../static-trips.json')
-    if (!existsSync(staticTripsPath)) {
-      console.log('[GTFS Refresh] no static-trips.json found, running initial refresh...')
+    const stopsPath = resolve(__dirname, '../../../../metro-gtfs/stops.txt')
+    if (!existsSync(staticTripsPath) || !existsSync(stopsPath)) {
+      console.log('[GTFS Refresh] missing data files, running initial refresh...')
       await refreshGtfs()
       return
     }

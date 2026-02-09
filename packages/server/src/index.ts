@@ -93,18 +93,18 @@ app.listen(PORT, () => {
 
   // kick off the gtfs refresh cron if we're not testing
   if (process.env.NODE_ENV !== 'test') {
+    // GTFS refresh must complete first — on a fresh deploy, it downloads stops.txt
+    // which stationService and the bus proximity map both need
     initGtfsRefreshJob()
-
-    // load bus GTFS data (non-blocking — bus features degrade gracefully if this fails)
-    // station exits must be loaded first so the proximity map can link Metro ↔ bus stops
-    loadStationExits().then(() =>
-      loadBusGtfs().then(() => {
+      .then(() => loadStationExits())
+      .then(() => loadBusGtfs())
+      .then(() => {
         buildSpatialIndex()
         buildStationProximity()
       })
-    ).catch(err => {
-      console.warn('[Startup] Bus data load failed — bus features disabled:', err)
-    })
+      .catch(err => {
+        console.warn('[Startup] Data load failed — bus features disabled:', err)
+      })
   }
 })
 
