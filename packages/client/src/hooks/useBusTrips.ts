@@ -23,8 +23,7 @@ export function useBusTrips(
     enabled: enabled && originLat !== null && originLon !== null &&
       destLat !== null && destLon !== null &&
       originStation !== null && destStation !== null,
-    staleTime: 60_000, // 60s — bus routes change less than train predictions
-    refetchInterval: 30_000, // refresh predictions every 30s when active
+    staleTime: 60_000, // 60s — bus routes are static, no need for frequent refetches
     gcTime: 5 * 60_000,
   })
 }

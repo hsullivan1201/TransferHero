@@ -66,17 +66,6 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
               <span className="text-xs text-[var(--text-secondary)] ml-1">→ {busLeg.headsign}</span>
             )}
             <span className="text-xs text-[var(--text-secondary)] ml-2">~{busLeg.estimatedRideMinutes} min</span>
-
-            {/* Inline predictions preview */}
-            {busLeg.predictions.length > 0 && (
-              <span className="ml-2">
-                {busLeg.predictions.slice(0, 2).map((p, i) => (
-                  <span key={i} className="text-xs font-medium px-1 py-0.5 rounded bg-[#0f9b8e]/10 text-[#0f9b8e] ml-1">
-                    {p.minutes}m
-                  </span>
-                ))}
-              </span>
-            )}
           </div>
         </div>
 

@@ -2,6 +2,7 @@ import fetch from 'node-fetch'
 import type { BusPrediction } from '@transferhero/shared'
 
 const PREDICTION_TTL = 15_000 // 15 seconds, matches rail prediction TTL
+const FAILURE_TTL = 60_000   // 60 seconds — avoid hammering WMATA for known-bad stops
 
 interface CacheEntry {
   data: BusPrediction[]
@@ -40,6 +41,7 @@ export async function fetchBusPredictions(
 
     if (!response.ok) {
       console.warn(`[BusPredictions] API error for stop ${stopCode}: ${response.status}`)
+      if (!cached) cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
       return cached?.data ?? []
     }
 
@@ -55,6 +57,7 @@ export async function fetchBusPredictions(
     return predictions
   } catch (err) {
     console.warn(`[BusPredictions] Fetch failed for stop ${stopCode}:`, err)
+    if (!cached) cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
     return cached?.data ?? []
   }
 }

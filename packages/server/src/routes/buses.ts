@@ -59,35 +59,25 @@ router.get('/trips', asyncHandler(async (req, res) => {
     routeCache.set(cacheKey, { data: trips, ts: now })
   }
 
-  // Enrich top results with real-time predictions (1 API call per unique bus stop)
-  // Use stopCode (7-digit public code) for WMATA prediction API, NOT stopId
+  res.json({ trips, busDataAvailable: true })
+}))
+
+const predictionsSchema = z.object({
+  stopCode: z.string().min(1).max(10),
+  routeId: z.string().min(1).max(10),
+})
+
+/**
+ * GET /api/buses/predictions
+ * Fetch real-time predictions for a specific boarding stop + route.
+ * Called only when user selects a trip — 1 WMATA API call.
+ */
+router.get('/predictions', asyncHandler(async (req, res) => {
+  const { stopCode, routeId } = predictionsSchema.parse(req.query)
   const apiKey = getApiKey()
-  const uniqueStopCodes = new Set<string>()
-  for (const trip of trips) {
-    uniqueStopCodes.add(trip.busLeg.boardStop.stopCode)
-  }
-
-  // Fetch predictions in parallel for all unique boarding stops
-  const predictionMap = new Map<string, Awaited<ReturnType<typeof fetchBusPredictions>>>()
-  const predictionPromises = [...uniqueStopCodes].map(async (stopCode) => {
-    const predictions = await fetchBusPredictions(stopCode, apiKey)
-    predictionMap.set(stopCode, predictions)
-  })
-  await Promise.all(predictionPromises)
-
-  // Attach filtered predictions to each trip's bus leg
-  const enrichedTrips = trips.map(trip => ({
-    ...trip,
-    busLeg: {
-      ...trip.busLeg,
-      predictions: filterPredictionsForRoute(
-        predictionMap.get(trip.busLeg.boardStop.stopCode) || [],
-        trip.busLeg.routeId
-      ),
-    },
-  }))
-
-  res.json({ trips: enrichedTrips, busDataAvailable: true })
+  const all = await fetchBusPredictions(stopCode, apiKey)
+  const predictions = filterPredictionsForRoute(all, routeId)
+  res.json({ predictions })
 }))
 
 const walkSchema = z.object({

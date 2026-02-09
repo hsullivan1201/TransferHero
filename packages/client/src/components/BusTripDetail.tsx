@@ -1,10 +1,11 @@
 import { useMemo, useCallback, useState } from 'react'
-import { Bus, Footprints, RefreshCw, ExternalLink, Rss } from 'lucide-react'
-import type { HybridTrip, Train, PlaceContext, BusStop } from '@transferhero/shared'
+import { Bus, Footprints, RefreshCw, ExternalLink, Rss, Loader2 } from 'lucide-react'
+import type { HybridTrip, Train, PlaceContext, BusStop, BusPrediction } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { WalkingCard } from './WalkingCard'
 import { formatDistance } from '../utils/geo'
 import { useTrip, useLeg2 } from '../hooks/useTrip'
+import { useBusPredictions } from '../hooks/useBusPredictions'
 import { getTrainMinutes, minutesToClockTime } from '../utils/time'
 
 interface BusTripDetailProps {
@@ -31,6 +32,13 @@ export function BusTripDetail({
 
   const fromName = stationNames.get(trip.metroFrom) || trip.metroFrom
   const toName = stationNames.get(trip.metroTo) || trip.metroTo
+
+  // Fetch real-time bus predictions (lazy — only when this detail view is open)
+  const {
+    data: busPredictions,
+    isLoading: predictionsLoading,
+    refetch: refetchPredictions,
+  } = useBusPredictions(busLeg.boardStop.stopCode, busLeg.routeId, true)
 
   // Fetch real Metro trip data for the metro portion
   const {
@@ -193,7 +201,7 @@ export function BusTripDetail({
             label="Walk to Bus Stop"
             sublabel={`${originPlaceContext?.place.name || 'Your location'} → ${busLeg.boardStop.name}`}
           />
-          <BusLegPanel busLeg={busLeg} isFirst={true} />
+          <BusLegPanel busLeg={busLeg} isFirst={true} predictions={busPredictions ?? []} predictionsLoading={predictionsLoading} />
           <BusWalkCard
             stop={busLeg.alightStop}
             walkMinutes={busLeg.alightWalkMinutes}
@@ -207,8 +215,8 @@ export function BusTripDetail({
       {/* Refresh button */}
       <div className="flex items-center gap-2 mb-1">
         <button
-          onClick={() => { refetchMetro(); if (!isDirect) refetchLeg2() }}
-          disabled={metroLoading || leg2Loading}
+          onClick={() => { refetchMetro(); refetchPredictions(); if (!isDirect) refetchLeg2() }}
+          disabled={metroLoading || leg2Loading || predictionsLoading}
           className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm cursor-pointer"
         >
           <RefreshCw className={`w-3.5 h-3.5 ${metroLoading || leg2Loading ? 'animate-spin' : ''}`} />
@@ -256,7 +264,7 @@ export function BusTripDetail({
             label="Walk to Bus Stop"
             sublabel={`${toName} exit → ${busLeg.boardStop.name}`}
           />
-          <BusLegPanel busLeg={busLeg} isFirst={false} arrivalAtBusStopMin={arrivalAtBusStopMin} />
+          <BusLegPanel busLeg={busLeg} isFirst={false} arrivalAtBusStopMin={arrivalAtBusStopMin} predictions={busPredictions ?? []} predictionsLoading={predictionsLoading} />
           <BusWalkCard
             stop={busLeg.alightStop}
             walkMinutes={busLeg.alightWalkMinutes}
@@ -318,25 +326,27 @@ function BusWalkCard({ stop, walkMinutes, walkMeters, label, sublabel }: {
 }
 
 /** The bus portion of a hybrid trip — shows route, stops, predictions */
-function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin }: {
+function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predictionsLoading }: {
   busLeg: HybridTrip['busLeg']
   isFirst: boolean
   arrivalAtBusStopMin?: number | null
+  predictions: BusPrediction[]
+  predictionsLoading: boolean
 }) {
   // Filter & annotate predictions when we know the user's arrival time
   const filteredPredictions = useMemo(() => {
-    const annotate = (p: typeof busLeg.predictions[number], waitTime: number | null) => ({
+    const annotate = (p: BusPrediction, waitTime: number | null) => ({
       ...p,
       waitTime,
       clockTime: minutesToClockTime(p.minutes),
     })
     if (arrivalAtBusStopMin == null) {
-      return busLeg.predictions.map(p => annotate(p, null))
+      return predictions.map(p => annotate(p, null))
     }
-    return busLeg.predictions
+    return predictions
       .filter(p => p.minutes >= arrivalAtBusStopMin - 1) // 1-min grace period
       .map(p => annotate(p, Math.max(0, Math.round(p.minutes - arrivalAtBusStopMin))))
-  }, [busLeg.predictions, arrivalAtBusStopMin])
+  }, [predictions, arrivalAtBusStopMin])
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
@@ -382,7 +392,12 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin }: {
         </div>
 
         {/* Real-time predictions */}
-        {busLeg.predictions.length > 0 ? (
+        {predictionsLoading ? (
+          <div className="flex items-center justify-center py-4 gap-2 text-sm text-[var(--text-secondary)]">
+            <Loader2 className="w-4 h-4 animate-spin" />
+            Loading predictions...
+          </div>
+        ) : predictions.length > 0 ? (
           <div>
             <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
               Next Buses
