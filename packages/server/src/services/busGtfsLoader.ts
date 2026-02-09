@@ -111,14 +111,21 @@ async function downloadAndParse(): Promise<void> {
   const buffer = Buffer.from(arrayBuffer)
 
   // Extract needed files from ZIP
+  // Small files are buffered; stop_times.txt is streamed later to avoid OOM
+  // (stop_times.txt decompresses to ~100MB+ and parsing it into JS objects spikes even higher)
   const files = new Map<string, Buffer>()
-  const needed = new Set(['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt'])
+  const smallFiles = new Set(['stops.txt', 'routes.txt', 'trips.txt', 'calendar.txt', 'calendar_dates.txt'])
 
   const directory = await unzipper.Open.buffer(buffer)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let stopTimesFile: any = null
+
   for (const file of directory.files) {
     const name = file.path.split('/').pop() || file.path
-    if (needed.has(name)) {
+    if (smallFiles.has(name)) {
       files.set(name, await file.buffer())
+    } else if (name === 'stop_times.txt') {
+      stopTimesFile = file
     }
   }
 
@@ -214,36 +221,40 @@ async function downloadAndParse(): Promise<void> {
   }
 
   // Parse stop_times.txt → build route stop sequences + stop→routes index + retain full stop times
+  // Streamed directly from zip entry to avoid buffering the huge file in memory
   const newRouteStopSequences = new Map<string, string[]>()
   const newStopRoutes = new Map<string, Set<string>>()
   const newTripStopTimes = new Map<string, StopTimeEntry[]>()
 
-  if (files.has('stop_times.txt')) {
-    // Collect stop times grouped by trip
-    const tripStopTimes = new Map<string, StopTimeEntry[]>()
-
-    const rows = await parseCsv<StopTimeRow>(files.get('stop_times.txt')!)
-    for (const row of rows) {
-      const seq = parseInt(row.stop_sequence)
-      if (isNaN(seq)) continue
-      const depSec = parseTimeToSeconds(row.departure_time)
-      const entry: StopTimeEntry = { stopId: row.stop_id, seq, depSec }
-      const existing = tripStopTimes.get(row.trip_id)
-      if (existing) {
-        existing.push(entry)
-      } else {
-        tripStopTimes.set(row.trip_id, [entry])
-      }
-    }
+  if (stopTimesFile) {
+    // Stream from zip entry through csv-parser directly into the map
+    await new Promise<void>((resolve, reject) => {
+      stopTimesFile.stream()
+        .pipe(csv())
+        .on('data', (row: StopTimeRow) => {
+          const seq = parseInt(row.stop_sequence)
+          if (isNaN(seq)) return
+          const depSec = parseTimeToSeconds(row.departure_time)
+          const entry: StopTimeEntry = { stopId: row.stop_id, seq, depSec }
+          const existing = newTripStopTimes.get(row.trip_id)
+          if (existing) {
+            existing.push(entry)
+          } else {
+            newTripStopTimes.set(row.trip_id, [entry])
+          }
+        })
+        .on('end', () => resolve())
+        .on('error', reject)
+    })
 
     // Sort each trip's stop times by sequence
-    for (const stops of tripStopTimes.values()) {
+    for (const stops of newTripStopTimes.values()) {
       stops.sort((a, b) => a.seq - b.seq)
     }
 
     // Build sequences per route+direction (use first trip of each route+direction as representative)
     const seenRouteDir = new Set<string>()
-    for (const [tripId, stopTimes] of tripStopTimes) {
+    for (const [tripId, stopTimes] of newTripStopTimes) {
       const trip = newTrips.get(tripId)
       if (!trip) continue
 
@@ -263,11 +274,6 @@ async function downloadAndParse(): Promise<void> {
         }
         routes.add(trip.routeId)
       }
-    }
-
-    // Retain the full tripStopTimes for schedule index
-    for (const [tripId, stopTimes] of tripStopTimes) {
-      newTripStopTimes.set(tripId, stopTimes)
     }
   }
 
