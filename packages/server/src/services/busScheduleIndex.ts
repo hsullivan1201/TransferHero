@@ -162,7 +162,8 @@ export function getNextScheduledDepartures(
   routeId: string,
   directionId: number,
   limit: number = 3,
-  afterMinFromNow: number = 0
+  afterMinFromNow: number = 0,
+  extraRouteIds?: Set<string>,
 ): BusScheduledDeparture[] {
   const idx = ensureScheduleIndex()
   const deps = idx.stopDepartures.get(stopId)
@@ -177,7 +178,8 @@ export function getNextScheduledDepartures(
 
   for (let i = startIdx; i < deps.length && results.length < limit; i++) {
     const d = deps[i]
-    if (d.routeId === routeId && d.directionId === directionId) {
+    const routeMatch = d.routeId === routeId || (extraRouteIds != null && extraRouteIds.has(d.routeId))
+    if (routeMatch && d.directionId === directionId) {
       results.push({
         departureTime: formatTime(d.depSec),
         minutesFromNow: Math.max(0, Math.round((d.depSec - nowSec) / 60)),

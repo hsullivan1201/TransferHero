@@ -59,7 +59,9 @@ export const TrainCard = memo(function TrainCard({
     ? millisecondsToClockTime(millisRemaining)
     : isDeparted && train._transferArrivalTime
       ? train._transferArrivalTime // Show transfer arrival time for departed trains
-      : minutesToClockTime(trainMin)
+      : isCatchableTrain(train)
+        ? minutesToClockTime(trainMin) // CatchableTrains: show departure time (arrival is in status text)
+        : train._destArrivalTime || minutesToClockTime(trainMin)
 
   // handles 5, '5', and whatever creative string shows up
   let minDisplay = ''
@@ -87,7 +89,8 @@ export const TrainCard = memo(function TrainCard({
   const showCatchability = isCatchableTrain(train)
   const isMissed = showCatchability && !train._canCatch
 
-  // craft the little status blurb
+  // craft the little status blurb — always show car count + arrival time
+  const carText = `${train.Car || '8'}-car`
   let statusText: string
   if (customStatus) {
     statusText = customStatus
@@ -95,23 +98,18 @@ export const TrainCard = memo(function TrainCard({
     // if it left, talk next stop plus transfer eta
     const nextStopPart = train._nextStop ? `Next: ${train._nextStop}` : ''
     const arrivalPart = train._transferArrivalTime ? `Arr ${train._transferArrivalTime}` : ''
-    if (nextStopPart && arrivalPart) {
-      statusText = `${nextStopPart} · ${arrivalPart}`
-    } else if (nextStopPart) {
-      statusText = nextStopPart
-    } else if (arrivalPart) {
-      statusText = arrivalPart
-    } else {
-      statusText = 'En route'
-    }
+    const parts = [carText, nextStopPart, arrivalPart].filter(Boolean)
+    statusText = parts.join(' · ') || `${carText} · En route`
   } else if (showCatchability) {
     if (train._canCatch) {
-      statusText = `${train._waitTime} min wait · Arr ${train._arrivalClock}`
+      statusText = `${carText} · ${train._waitTime} min wait · Arr ${train._arrivalClock}`
     } else {
-      statusText = `Miss by ${Math.abs(train._waitTime)} min`
+      statusText = `${carText} · Miss by ${Math.abs(train._waitTime)} min`
     }
   } else {
-    statusText = `${train.Car || '8'}-car train`
+    statusText = train._destArrivalTime
+      ? `${carText} · Arr ${train._destArrivalTime}`
+      : carText
   }
 
   // tiny badge for where this data came from

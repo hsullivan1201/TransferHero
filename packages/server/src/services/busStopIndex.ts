@@ -76,7 +76,7 @@ export function queryNearbyStops(lat: number, lon: number, radiusMeters: number)
 
 // Station ↔ Bus Stop proximity maps
 let stationBusStops = new Map<string, BusStop[]>()
-let busStopStations = new Map<string, { stationCode: string; walkMeters: number; exitName: string }[]>()
+let busStopStations = new Map<string, { stationCode: string; walkMeters: number; exitName: string; exitLat: number; exitLon: number }[]>()
 
 /**
  * Pre-compute which bus stops are near which Metro stations.
@@ -88,7 +88,7 @@ let busStopStations = new Map<string, { stationCode: string; walkMeters: number;
 export function buildStationProximity(): void {
   const newStationBusStops = new Map<string, BusStop[]>()
   // Temporary: track best (shortest walk) exit per stop+station
-  const bestEntry = new Map<string, { stationCode: string; walkMeters: number; exitName: string }>()
+  const bestEntry = new Map<string, { stationCode: string; walkMeters: number; exitName: string; exitLat: number; exitLon: number }>()
 
   const exitCache = getAllExits()
 
@@ -115,14 +115,14 @@ export function buildStationProximity(): void {
         const pairKey = `${stop.stopId}_${primaryCode}`
         const prev = bestEntry.get(pairKey)
         if (!prev || walkMeters < prev.walkMeters) {
-          bestEntry.set(pairKey, { stationCode: primaryCode, walkMeters, exitName: exit.name })
+          bestEntry.set(pairKey, { stationCode: primaryCode, walkMeters, exitName: exit.name, exitLat: exit.lat, exitLon: exit.lon })
         }
       }
     }
   }
 
   // Build the stop→stations reverse map from the best-exit entries
-  const newBusStopStations = new Map<string, { stationCode: string; walkMeters: number; exitName: string }[]>()
+  const newBusStopStations = new Map<string, { stationCode: string; walkMeters: number; exitName: string; exitLat: number; exitLon: number }[]>()
   for (const [pairKey, entry] of bestEntry) {
     const stopId = pairKey.split('_')[0]
     const list = newBusStopStations.get(stopId)
@@ -142,4 +142,4 @@ export function buildStationProximity(): void {
 
 // Accessors
 export function getStationBusStops(): Map<string, BusStop[]> { return stationBusStops }
-export function getBusStopStations(): Map<string, { stationCode: string; walkMeters: number; exitName: string }[]> { return busStopStations }
+export function getBusStopStations(): Map<string, { stationCode: string; walkMeters: number; exitName: string; exitLat: number; exitLon: number }[]> { return busStopStations }

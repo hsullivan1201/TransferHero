@@ -238,8 +238,10 @@ export interface BusLeg {
   alightWalkMeters: number
   estimatedRideMinutes: number
   predictions: BusPrediction[]
-  /** Station exit name nearest to the bus transfer stop (for car diagram highlighting) */
+  /** Station exit/entrance nearest to the bus transfer stop */
   nearestExitName?: string
+  nearestExitLat?: number
+  nearestExitLon?: number
   /** Next scheduled departures from GTFS static data */
   scheduledDepartures?: BusScheduledDeparture[]
   /** GTFS-based ride time in minutes (more accurate than estimatedRideMinutes) */

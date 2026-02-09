@@ -131,13 +131,13 @@ function AppContent() {
 
   const hasTrip = tripState.from && tripState.to && tripData
 
-  const activeTransfer = tripData?.trip.isDirect
+  const activeTransfer = tripData?.trip?.isDirect
     ? null
     : tripState.selectedAlternative
-      ? { ...tripState.selectedAlternative, alternatives: tripData?.trip.transfer?.alternatives }
-      : tripData?.trip.transfer
+      ? { ...tripState.selectedAlternative, alternatives: tripData?.trip?.transfer?.alternatives }
+      : tripData?.trip?.transfer
 
-  const leg2Trains = leg2Data?.trains ?? tripData?.trip.leg2?.trains ?? []
+  const leg2Trains = leg2Data?.trains ?? tripData?.trip?.leg2?.trains ?? []
 
   return (
     <div className="min-h-screen flex flex-col">

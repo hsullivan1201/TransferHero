@@ -65,18 +65,21 @@ router.get('/trips', asyncHandler(async (req, res) => {
 const predictionsSchema = z.object({
   stopCode: z.string().min(1).max(10),
   routeId: z.string().min(1).max(10),
+  boardStopId: z.string().optional(),
+  alightStopId: z.string().optional(),
 })
 
 /**
  * GET /api/buses/predictions
  * Fetch real-time predictions for a specific boarding stop + route.
+ * Includes variant routes (e.g. D5X for D50) that also serve the alight stop.
  * Called only when user selects a trip — 1 WMATA API call.
  */
 router.get('/predictions', asyncHandler(async (req, res) => {
-  const { stopCode, routeId } = predictionsSchema.parse(req.query)
+  const { stopCode, routeId, boardStopId, alightStopId } = predictionsSchema.parse(req.query)
   const apiKey = getApiKey()
   const all = await fetchBusPredictions(stopCode, apiKey)
-  const predictions = filterPredictionsForRoute(all, routeId)
+  const predictions = filterPredictionsForRoute(all, routeId, boardStopId, alightStopId)
   res.json({ predictions })
 }))
 

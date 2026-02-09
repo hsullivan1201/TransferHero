@@ -36,9 +36,13 @@ export async function fetchBusTrips(
 
 export async function fetchBusPredictions(
   stopCode: string,
-  routeId: string
+  routeId: string,
+  boardStopId?: string,
+  alightStopId?: string,
 ): Promise<BusPrediction[]> {
   const params = new URLSearchParams({ stopCode, routeId })
+  if (boardStopId) params.set('boardStopId', boardStopId)
+  if (alightStopId) params.set('alightStopId', alightStopId)
   const res = await fetch(`${API_BASE}/buses/predictions?${params}`)
   if (!res.ok) return []
   const data = await res.json()
