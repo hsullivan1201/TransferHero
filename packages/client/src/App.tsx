@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useState, useMemo } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Header, Footer, EmptyState, TripSelector, TripView } from './components'
+import { Header, Footer, EmptyState, TripSelector, TripView, ModeToggle, BusTripList } from './components'
 import { useStations, useTrip, useLeg2, useTripState } from './hooks/useTrip'
+import { useBusTrips } from './hooks/useBusTrips'
 import type { Station, PlaceContext } from '@transferhero/shared'
 
 const queryClient = new QueryClient({
@@ -56,6 +57,32 @@ function AppContent() {
       : undefined,
     accessible: tripState.accessible,
   })
+
+  // Mode toggle state
+  const [tripMode, setTripMode] = useState<'metro' | 'metro-bus'>('metro')
+
+  // Bus trips hook — only fetches when Metro+Bus tab is active and we have coordinates
+  const {
+    data: busTripsData,
+    isLoading: busTripsLoading,
+  } = useBusTrips(
+    tripState.originPlaceContext?.place.lat ?? null,
+    tripState.originPlaceContext?.place.lon ?? null,
+    tripState.destPlaceContext?.place.lat ?? null,
+    tripState.destPlaceContext?.place.lon ?? null,
+    tripState.from?.code ?? null,
+    tripState.to?.code ?? null,
+    tripMode === 'metro-bus' && !!tripState.from && !!tripState.to
+  )
+
+  // Build station name lookup for bus trip cards
+  const stationNameMap = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const s of stations) {
+      map.set(s.code, s.name)
+    }
+    return map
+  }, [stations])
 
   const handleGo = (from: Station, to: Station, walkTime: number) => {
     tripState.startTrip(from, to, walkTime)
@@ -160,8 +187,28 @@ function AppContent() {
           </div>
         )}
 
+        {hasTrip && (
+          <div className="mt-4 flex justify-center">
+            <ModeToggle
+              mode={tripMode}
+              onModeChange={setTripMode}
+              busCount={busTripsData?.trips.length}
+            />
+          </div>
+        )}
+
         <div className="mt-6">
-          {hasTrip && tripData.trip ? (
+          {hasTrip && tripData.trip && tripMode === 'metro-bus' ? (
+            <BusTripList
+              trips={busTripsData?.trips ?? []}
+              isLoading={busTripsLoading}
+              stationNames={stationNameMap}
+              originPlaceContext={tripState.originPlaceContext}
+              destPlaceContext={tripState.destPlaceContext}
+              walkTime={tripState.walkTime}
+              accessible={tripState.accessible}
+            />
+          ) : hasTrip && tripData.trip ? (
             <TripView
               transfer={activeTransfer ?? null}
               leg1Trains={tripData.trip.leg1.trains}

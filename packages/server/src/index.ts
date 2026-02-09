@@ -13,12 +13,18 @@ import stationsRouter from './routes/stations.js'
 import tripsRouter from './routes/trips.js'
 import healthRouter from './routes/health.js'
 import destinationsRouter from './routes/destinations.js'
+import busesRouter from './routes/buses.js'
 
 // middleware roll call
 import { errorHandler } from './middleware/errorHandler.js'
 
 // background jobs
 import { initGtfsRefreshJob } from './jobs/gtfsRefresh.js'
+
+// bus data
+import { loadBusGtfs } from './services/busGtfsLoader.js'
+import { buildSpatialIndex, buildStationProximity } from './services/busStopIndex.js'
+import { loadStationExits } from './services/stationService.js'
 
 // ES module __dirname equivalent
 const __filename = fileURLToPath(import.meta.url)
@@ -62,6 +68,7 @@ app.use('/api/stations', stationsRouter)
 app.use('/api/trips', tripsRouter)
 app.use('/api/health', healthRouter)
 app.use('/api/destinations', destinationsRouter)
+app.use('/api/buses', busesRouter)
 
 // serve static React app in production
 if (isProduction) {
@@ -87,6 +94,17 @@ app.listen(PORT, () => {
   // kick off the gtfs refresh cron if we're not testing
   if (process.env.NODE_ENV !== 'test') {
     initGtfsRefreshJob()
+
+    // load bus GTFS data (non-blocking — bus features degrade gracefully if this fails)
+    // station exits must be loaded first so the proximity map can link Metro ↔ bus stops
+    loadStationExits().then(() =>
+      loadBusGtfs().then(() => {
+        buildSpatialIndex()
+        buildStationProximity()
+      })
+    ).catch(err => {
+      console.warn('[Startup] Bus data load failed — bus features disabled:', err)
+    })
   }
 })
 

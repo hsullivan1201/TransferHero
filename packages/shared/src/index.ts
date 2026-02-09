@@ -203,5 +203,49 @@ export interface ResolveResponse {
   }>
 }
 
+// Bus integration types
+
+export interface BusStop {
+  stopId: string
+  /** 7-digit public stop code used by WMATA bus prediction API */
+  stopCode: string
+  name: string
+  lat: number
+  lon: number
+}
+
+export interface BusPrediction {
+  routeId: string
+  directionText: string
+  minutes: number
+  vehicleId?: string
+}
+
+export interface BusLeg {
+  routeId: string
+  routeName: string
+  headsign: string
+  boardStop: BusStop
+  alightStop: BusStop
+  boardWalkMinutes: number
+  boardWalkMeters: number
+  alightWalkMinutes: number
+  alightWalkMeters: number
+  estimatedRideMinutes: number
+  predictions: BusPrediction[]
+  /** Station exit name nearest to the bus transfer stop (for car diagram highlighting) */
+  nearestExitName?: string
+}
+
+export interface HybridTrip {
+  /** 'metro-bus' = Metro then Bus, 'bus-metro' = Bus then Metro */
+  pattern: 'metro-bus' | 'bus-metro'
+  metroFrom: string
+  metroTo: string
+  metroTimeMinutes: number
+  busLeg: BusLeg
+  totalTimeMinutes: number
+}
+
 // Re-export utilities
 export * from './utils/index.js'

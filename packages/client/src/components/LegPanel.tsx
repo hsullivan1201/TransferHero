@@ -47,16 +47,17 @@ export function LegPanel({
   destinationExitName,
   destinationExitLabel,
 }: LegPanelProps) {
-  const variant = leg === 1 ? 'selectable' : 'display'
+  const isSelectable = !!onTrainSelect
+  const variant = isSelectable ? 'selectable' : 'display'
   // direct trips: leg 1 is basically the destination, so show exit info anyway
   const carDiagramType = (leg === 1 && !isDirect) ? 'board' : 'exit'
   const [collapsed, setCollapsed] = useState(false)
 
-  // auto-collapse leg 1 when something is picked; pop back open when cleared
+  // auto-collapse when something is picked; pop back open when cleared
   useEffect(() => {
-    if (leg !== 1) return
+    if (!isSelectable) return
     setCollapsed(!!selectedTrain)
-  }, [selectedTrain, leg])
+  }, [selectedTrain, isSelectable])
 
   // split trains into regular vs already-gone
   const { regularTrains, departedTrains } = useMemo(() => {
@@ -70,7 +71,7 @@ export function LegPanel({
         && train.Min === selectedTrain.Min
     }
     for (const train of trains) {
-      if (leg === 1 && isSelectedTrain(train)) continue
+      if (isSelectable && isSelectedTrain(train)) continue
       if (isDepartedTrain(train)) {
         departed.push(train)
       } else {
@@ -78,7 +79,7 @@ export function LegPanel({
       }
     }
     return { regularTrains: regular, departedTrains: departed }
-  }, [trains, selectedTrain, leg])
+  }, [trains, selectedTrain, isSelectable])
 
   return (
     <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
@@ -97,7 +98,7 @@ export function LegPanel({
         ) : (
           <>
             {/* pinned pick */}
-            {selectedTrain && leg === 1 && (
+            {selectedTrain && isSelectable && (
               <div className="mb-6 animate-fade-in">
                 <div className="flex items-center justify-between mb-2">
                   <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
@@ -132,7 +133,7 @@ export function LegPanel({
               </div>
             )}
 
-            {leg === 1 && selectedTrain && (
+            {isSelectable && selectedTrain && (
               <div className="flex items-center justify-between mb-3">
                 <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
                   Other Departures
