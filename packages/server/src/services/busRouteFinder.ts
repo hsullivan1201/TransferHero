@@ -10,7 +10,7 @@ import { ALL_STATIONS } from '../data/stations.js'
 const SEARCH_RADIUS_M = 400
 const WALK_SPEED_MPS = 1.33
 const GRID_FACTOR = 1.4
-const BUS_MIN_PER_STOP = 2 // rough DC average
+const BUS_MIN_PER_STOP = 1 // DC urban average (~10-12mph, stops every 1-2 blocks)
 const MAX_RESULTS = 5
 const MAX_SEARCH_STOPS = 5 // check up to 5 Metro-connected stops per route direction
 const AVG_METRO_WAIT = 5 // fallback wait for metro when no schedule data
@@ -322,12 +322,11 @@ function rankCandidates(
   outsideWalkMeters: number = 0
 ): HybridTrip[] {
   // Deduplicate by route + transfer station — keep the candidate with
-  // the best estimated total time. Candidates in the same bucket share
-  // the same metro ride, so only walk distances + bus ride differ.
+  // the least total walking. Within the same route, the bus ride between
+  // stops is essentially free (you're already on the bus), so only the
+  // walks to/from the bus matter. Real ride time comes from GTFS later.
   const candidateScore = (c: BusRouteCandidate) =>
-    estimateWalkMinutes(c.boardWalkMeters) +
-    c.stopCount * BUS_MIN_PER_STOP +
-    estimateWalkMinutes(c.alightWalkMeters)
+    c.boardWalkMeters + c.alightWalkMeters
 
   const best = new Map<string, BusRouteCandidate>()
   for (const c of candidates) {

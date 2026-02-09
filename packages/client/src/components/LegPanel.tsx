@@ -147,6 +147,12 @@ export function LegPanel({
               </div>
             )}
 
+            {!collapsed && isSelectable && !selectedTrain && regularTrains.length > 0 && (
+              <p className="text-xs text-[var(--text-secondary)] italic mb-2">
+                Tap a train to see your connections
+              </p>
+            )}
+
             {!collapsed && (
               <TrainList
                 trains={regularTrains}

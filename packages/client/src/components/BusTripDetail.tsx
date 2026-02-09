@@ -825,8 +825,15 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
             ) : (filteredPredictions.length > 0 || scheduledAfterRT.length > 0) ? (
               <div>
                 {!selectedDeparture && (
-                  <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
-                    Next Buses
+                  <div className="mb-2">
+                    <div className="text-xs font-bold text-[var(--text-secondary)] uppercase tracking-wider">
+                      Next Buses
+                    </div>
+                    {isSelectable && (
+                      <p className="text-xs text-[var(--text-secondary)] italic mt-1">
+                        Tap a bus to see connections
+                      </p>
+                    )}
                   </div>
                 )}
                 <div className="space-y-2">

@@ -71,6 +71,11 @@ export function queryNearbyStops(lat: number, lon: number, radiusMeters: number)
     }
   }
 
+  // Sort by distance so closest stops are processed first
+  results.sort((a, b) =>
+    haversineMeters(lat, lon, a.lat, a.lon) - haversineMeters(lat, lon, b.lat, b.lon)
+  )
+
   return results
 }
 
