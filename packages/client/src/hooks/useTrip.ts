@@ -42,21 +42,22 @@ interface UseLeg2Options {
   /** realtime arrival at the transfer stop from the picked train's _destArrivalMin */
   transferArrivalMin?: number
   accessible?: boolean
+  showDeparted?: boolean
 }
 
-export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation, enabled, transferArrivalMin, accessible = false }: UseLeg2Options) {
+export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation, enabled, transferArrivalMin, accessible = false, showDeparted = false }: UseLeg2Options) {
   return useQuery({
     // transferArrivalMin excluded from key — it's a realtime value that changes
     // as minutes tick over. departureTimestamp already captures timing, and the
     // 30s refetchInterval ensures fresh data. transferArrivalMin is still sent
     // to the server in the queryFn.
-    queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, accessible],
+    queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, accessible, showDeparted],
     queryFn: () => {
       const currentDepartureMin = departureTimestamp
         ? Math.round((departureTimestamp - Date.now()) / 60000)
         : 0
 
-      return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible)
+      return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible, showDeparted)
     },
     enabled,
     staleTime: 30 * 1000,

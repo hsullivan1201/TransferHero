@@ -15,12 +15,31 @@ export interface BusTrip {
   routeId: string
   directionId: number
   headsign: string
+  serviceId: string
+}
+
+export interface BusCalendarEntry {
+  days: boolean[] // [Mon, Tue, Wed, Thu, Fri, Sat, Sun]
+  startDate: number // YYYYMMDD
+  endDate: number   // YYYYMMDD
+}
+
+export interface BusCalendarException {
+  date: number    // YYYYMMDD
+  added: boolean  // true = added (exception_type 1), false = removed (exception_type 2)
+}
+
+export interface StopTimeEntry {
+  stopId: string
+  seq: number
+  depSec: number // seconds since midnight (handles >24:00:00)
 }
 
 interface StopTimeRow {
   trip_id: string
   stop_id: string
   stop_sequence: string
+  departure_time: string
 }
 
 // In-memory caches
@@ -29,6 +48,9 @@ let busRoutes = new Map<string, BusRoute>()
 let busTrips = new Map<string, BusTrip>()
 let routeStopSequences = new Map<string, string[]>()
 let stopRoutes = new Map<string, Set<string>>()
+let busCalendar = new Map<string, BusCalendarEntry>()
+let busCalendarDates = new Map<string, BusCalendarException[]>()
+let busTripStopTimes = new Map<string, StopTimeEntry[]>()
 
 let loaded = false
 let refreshInterval: ReturnType<typeof setInterval> | null = null
@@ -40,6 +62,19 @@ function getApiKey(): string {
   const key = process.env.WMATA_API_KEY
   if (!key) throw new Error('WMATA_API_KEY not set')
   return key
+}
+
+/**
+ * Parse HH:MM:SS (possibly >24:00:00) to seconds since midnight
+ */
+function parseTimeToSeconds(timeStr: string): number {
+  const parts = timeStr.trim().split(':')
+  if (parts.length !== 3) return -1
+  const h = parseInt(parts[0])
+  const m = parseInt(parts[1])
+  const s = parseInt(parts[2])
+  if (isNaN(h) || isNaN(m) || isNaN(s)) return -1
+  return h * 3600 + m * 60 + s
 }
 
 /**
@@ -77,7 +112,7 @@ async function downloadAndParse(): Promise<void> {
 
   // Extract needed files from ZIP
   const files = new Map<string, Buffer>()
-  const needed = new Set(['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt'])
+  const needed = new Set(['stops.txt', 'routes.txt', 'trips.txt', 'stop_times.txt', 'calendar.txt', 'calendar_dates.txt'])
 
   const directory = await unzipper.Open.buffer(buffer)
   for (const file of directory.files) {
@@ -124,34 +159,86 @@ async function downloadAndParse(): Promise<void> {
   // Parse trips.txt
   const newTrips = new Map<string, BusTrip>()
   if (files.has('trips.txt')) {
-    const rows = await parseCsv<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string }>(files.get('trips.txt')!)
+    const rows = await parseCsv<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string; service_id: string }>(files.get('trips.txt')!)
     for (const row of rows) {
       newTrips.set(row.trip_id, {
         routeId: row.route_id,
         directionId: parseInt(row.direction_id) || 0,
         headsign: row.trip_headsign || '',
+        serviceId: row.service_id || '',
       })
     }
   }
 
-  // Parse stop_times.txt → build route stop sequences + stop→routes index
+  // Parse calendar.txt
+  const newCalendar = new Map<string, BusCalendarEntry>()
+  if (files.has('calendar.txt')) {
+    const rows = await parseCsv<{
+      service_id: string; monday: string; tuesday: string; wednesday: string;
+      thursday: string; friday: string; saturday: string; sunday: string;
+      start_date: string; end_date: string
+    }>(files.get('calendar.txt')!)
+    for (const row of rows) {
+      newCalendar.set(row.service_id, {
+        days: [
+          row.monday === '1',
+          row.tuesday === '1',
+          row.wednesday === '1',
+          row.thursday === '1',
+          row.friday === '1',
+          row.saturday === '1',
+          row.sunday === '1',
+        ],
+        startDate: parseInt(row.start_date) || 0,
+        endDate: parseInt(row.end_date) || 0,
+      })
+    }
+  }
+
+  // Parse calendar_dates.txt
+  const newCalendarDates = new Map<string, BusCalendarException[]>()
+  if (files.has('calendar_dates.txt')) {
+    const rows = await parseCsv<{ service_id: string; date: string; exception_type: string }>(files.get('calendar_dates.txt')!)
+    for (const row of rows) {
+      const exception: BusCalendarException = {
+        date: parseInt(row.date) || 0,
+        added: row.exception_type === '1',
+      }
+      const existing = newCalendarDates.get(row.service_id)
+      if (existing) {
+        existing.push(exception)
+      } else {
+        newCalendarDates.set(row.service_id, [exception])
+      }
+    }
+  }
+
+  // Parse stop_times.txt → build route stop sequences + stop→routes index + retain full stop times
   const newRouteStopSequences = new Map<string, string[]>()
   const newStopRoutes = new Map<string, Set<string>>()
+  const newTripStopTimes = new Map<string, StopTimeEntry[]>()
 
   if (files.has('stop_times.txt')) {
     // Collect stop times grouped by trip
-    const tripStopTimes = new Map<string, { stopId: string; seq: number }[]>()
+    const tripStopTimes = new Map<string, StopTimeEntry[]>()
 
     const rows = await parseCsv<StopTimeRow>(files.get('stop_times.txt')!)
     for (const row of rows) {
       const seq = parseInt(row.stop_sequence)
       if (isNaN(seq)) continue
+      const depSec = parseTimeToSeconds(row.departure_time)
+      const entry: StopTimeEntry = { stopId: row.stop_id, seq, depSec }
       const existing = tripStopTimes.get(row.trip_id)
       if (existing) {
-        existing.push({ stopId: row.stop_id, seq })
+        existing.push(entry)
       } else {
-        tripStopTimes.set(row.trip_id, [{ stopId: row.stop_id, seq }])
+        tripStopTimes.set(row.trip_id, [entry])
       }
+    }
+
+    // Sort each trip's stop times by sequence
+    for (const stops of tripStopTimes.values()) {
+      stops.sort((a, b) => a.seq - b.seq)
     }
 
     // Build sequences per route+direction (use first trip of each route+direction as representative)
@@ -164,7 +251,6 @@ async function downloadAndParse(): Promise<void> {
       if (seenRouteDir.has(key)) continue
       seenRouteDir.add(key)
 
-      stopTimes.sort((a, b) => a.seq - b.seq)
       const orderedStops = stopTimes.map(st => st.stopId)
       newRouteStopSequences.set(key, orderedStops)
 
@@ -178,6 +264,11 @@ async function downloadAndParse(): Promise<void> {
         routes.add(trip.routeId)
       }
     }
+
+    // Retain the full tripStopTimes for schedule index
+    for (const [tripId, stopTimes] of tripStopTimes) {
+      newTripStopTimes.set(tripId, stopTimes)
+    }
   }
 
   // Atomic swap
@@ -186,9 +277,12 @@ async function downloadAndParse(): Promise<void> {
   busTrips = newTrips
   routeStopSequences = newRouteStopSequences
   stopRoutes = newStopRoutes
+  busCalendar = newCalendar
+  busCalendarDates = newCalendarDates
+  busTripStopTimes = newTripStopTimes
   loaded = true
 
-  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences`)
+  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${newTripStopTimes.size} trip stop times`)
 }
 
 /**
@@ -219,3 +313,6 @@ export function getBusRoutes(): Map<string, BusRoute> { return busRoutes }
 export function getBusTrips(): Map<string, BusTrip> { return busTrips }
 export function getRouteStopSequences(): Map<string, string[]> { return routeStopSequences }
 export function getStopRoutes(): Map<string, Set<string>> { return stopRoutes }
+export function getBusCalendar(): Map<string, BusCalendarEntry> { return busCalendar }
+export function getBusCalendarDates(): Map<string, BusCalendarException[]> { return busCalendarDates }
+export function getBusTripStopTimes(): Map<string, StopTimeEntry[]> { return busTripStopTimes }

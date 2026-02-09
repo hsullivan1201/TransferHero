@@ -1,6 +1,9 @@
 import type { BusStop, HybridTrip } from '@transferhero/shared'
 import { getBusRoutes, getRouteStopSequences, getStopRoutes, getBusStops, getBusTrips } from './busGtfsLoader.js'
 import { queryNearbyStops, getBusStopStations, haversineMeters } from './busStopIndex.js'
+import { getNextScheduledDepartures, getScheduledRideMinutes, getNextDeparture } from './busScheduleIndex.js'
+import { findTransfer } from './pathfinding.js'
+import { calculateRouteTravelTime } from './travelTime.js'
 import { getAllExits } from './stationService.js'
 import { ALL_STATIONS } from '../data/stations.js'
 
@@ -10,7 +13,9 @@ const GRID_FACTOR = 1.4
 const BUS_MIN_PER_STOP = 2 // rough DC average
 const MAX_RESULTS = 5
 const MAX_SEARCH_STOPS = 5 // check up to 5 Metro-connected stops per route direction
-const METRO_MIN_PER_KM = 2.5 // avg ~24 km/h including stops, dwell, transfers
+const AVG_METRO_WAIT = 5 // fallback wait for metro when no schedule data
+const AVG_BUS_WAIT = 8 // fallback bus wait when no schedule data
+const DEFAULT_TRANSFER_WALK = 2 // minutes to walk between platforms
 
 // O(1) station lookup
 const STATION_BY_CODE = new Map(ALL_STATIONS.map(s => [s.code, s]))
@@ -34,12 +39,45 @@ function getStationCentroid(stationCode: string): { lat: number; lon: number } |
   return stationCentroids.get(stationCode) || null
 }
 
-function estimateMetroMinutes(fromStation: string, toStation: string): number {
-  const from = getStationCentroid(fromStation)
-  const to = getStationCentroid(toStation)
-  if (!from || !to) return 15 // safe fallback
-  const distKm = haversineMeters(from.lat, from.lon, to.lat, to.lon) / 1000
-  return Math.max(3, Math.round(distKm * METRO_MIN_PER_KM))
+/**
+ * Compute metro ride time + transfer overhead using real pathfinding data.
+ * Returns { rideMinutes, transferWalkMinutes, isTransfer }.
+ * rideMinutes = total rail time (leg1 + leg2 for transfers, or direct ride).
+ * transferWalkMinutes = walk between platforms (0 for direct trips).
+ */
+function getMetroTimes(fromStation: string, toStation: string): {
+  rideMinutes: number
+  transferWalkMinutes: number
+  isTransfer: boolean
+} {
+  const transfer = findTransfer(fromStation, toStation, DEFAULT_TRANSFER_WALK)
+  if (!transfer) {
+    // Shouldn't happen, but fall back to haversine estimate
+    const from = getStationCentroid(fromStation)
+    const to = getStationCentroid(toStation)
+    const fallback = (from && to)
+      ? Math.max(3, Math.round(haversineMeters(from.lat, from.lon, to.lat, to.lon) / 1000 * 2.5))
+      : 15
+    return { rideMinutes: fallback, transferWalkMinutes: 0, isTransfer: false }
+  }
+
+  if (transfer.direct && transfer.line) {
+    const ride = calculateRouteTravelTime(fromStation, toStation, transfer.line)
+    return { rideMinutes: ride, transferWalkMinutes: 0, isTransfer: false }
+  }
+
+  // Transfer trip — use pathfinding's precomputed leg times
+  const leg1 = transfer.leg1Time ?? (transfer.fromLine
+    ? calculateRouteTravelTime(fromStation, transfer.fromPlatform, transfer.fromLine)
+    : 10)
+  const leg2 = transfer.leg2Time ?? (transfer.toLine
+    ? calculateRouteTravelTime(transfer.toPlatform, toStation, transfer.toLine)
+    : 10)
+  return {
+    rideMinutes: leg1 + leg2,
+    transferWalkMinutes: DEFAULT_TRANSFER_WALK,
+    isTransfer: true,
+  }
 }
 
 function estimateWalkMinutes(meters: number): number {
@@ -62,6 +100,7 @@ function buildHeadsignLookup(): Map<string, string> {
 
 interface BusRouteCandidate {
   routeId: string
+  directionId: number
   routeName: string
   headsign: string
   boardStop: BusStop
@@ -135,6 +174,7 @@ export function findMetroBusTrips(
 
             candidates.push({
               routeId,
+              directionId,
               routeName: route.shortName,
               headsign: headsigns.get(seqKey) || '',
               boardStop,
@@ -240,6 +280,7 @@ export function findBusMetroTrips(
 
             candidates.push({
               routeId,
+              directionId,
               routeName: route.shortName,
               headsign: headsigns.get(seqKey) || '',
               boardStop: originStop,
@@ -301,9 +342,53 @@ function rankCandidates(
     const metroFrom = pattern === 'metro-bus' ? knownStationCode : c.transferStationCode
     const metroTo = pattern === 'metro-bus' ? c.transferStationCode : knownStationCode
 
-    const metroTimeMinutes = estimateMetroMinutes(metroFrom, metroTo)
+    const metro = getMetroTimes(metroFrom, metroTo)
+    const metroTimeMinutes = metro.rideMinutes + metro.transferWalkMinutes
     const outsideWalkMinutes = estimateWalkMinutes(outsideWalkMeters)
-    const totalTimeMinutes = boardWalkMinutes + busRideMinutes + alightWalkMinutes + metroTimeMinutes + outsideWalkMinutes
+
+    // Compute realistic end-to-end time using GTFS schedules.
+    // Sequence the journey step by step so wait times are based on
+    // when the user actually arrives at each stop.
+    //
+    // metro-bus: originWalk → metroWait → metroRide(+transfer) → busStopWalk → busWait → busRide → destWalk
+    // bus-metro: busStopWalk → busWait → busRide → metroWalk → metroWait → metroRide(+transfer) → destWalk
+
+    // Estimate when user arrives at the bus boarding stop (minutes from now)
+    let arrivalAtBusStopMin: number
+    if (pattern === 'metro-bus') {
+      arrivalAtBusStopMin = outsideWalkMinutes + AVG_METRO_WAIT + metroTimeMinutes + boardWalkMinutes
+    } else {
+      arrivalAtBusStopMin = boardWalkMinutes
+    }
+
+    // Find next bus after the user arrives at the stop
+    const nextBus = getNextDeparture(c.boardStop.stopId, c.routeId, c.directionId, arrivalAtBusStopMin)
+
+    let scheduledRideMinutes: number | undefined
+    let busWaitMinutes = AVG_BUS_WAIT // fallback if no schedule data
+    if (nextBus) {
+      busWaitMinutes = Math.max(0, nextBus.minutesFromNow - arrivalAtBusStopMin)
+      const rideMin = getScheduledRideMinutes(nextBus.tripId, c.boardStop.stopId, c.alightStop.stopId)
+      if (rideMin != null) scheduledRideMinutes = rideMin
+    }
+
+    const effectiveRideMinutes = scheduledRideMinutes ?? busRideMinutes
+
+    // Build scheduled departures list starting from now (not arrival time)
+    // so the client can show both trip-card badges and detail-view scheduled
+    // buses after RT predictions. We send 5 to ensure enough survive dedup.
+    const scheduledDepartures = getNextScheduledDepartures(
+      c.boardStop.stopId, c.routeId, c.directionId, 5
+    )
+
+    let totalTimeMinutes: number
+    if (pattern === 'metro-bus') {
+      totalTimeMinutes = outsideWalkMinutes + AVG_METRO_WAIT + metroTimeMinutes
+        + boardWalkMinutes + busWaitMinutes + effectiveRideMinutes + alightWalkMinutes
+    } else {
+      totalTimeMinutes = boardWalkMinutes + busWaitMinutes + effectiveRideMinutes
+        + alightWalkMinutes + AVG_METRO_WAIT + metroTimeMinutes + outsideWalkMinutes
+    }
 
     trips.push({
       pattern,
@@ -323,6 +408,8 @@ function rankCandidates(
         estimatedRideMinutes: busRideMinutes,
         predictions: [],
         nearestExitName: c.nearestExitName,
+        scheduledDepartures: scheduledDepartures.length > 0 ? scheduledDepartures : undefined,
+        scheduledRideMinutes,
       },
       totalTimeMinutes,
     })

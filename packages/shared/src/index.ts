@@ -221,6 +221,11 @@ export interface BusPrediction {
   vehicleId?: string
 }
 
+export interface BusScheduledDeparture {
+  departureTime: string   // "3:42 PM"
+  minutesFromNow: number  // 8
+}
+
 export interface BusLeg {
   routeId: string
   routeName: string
@@ -235,6 +240,10 @@ export interface BusLeg {
   predictions: BusPrediction[]
   /** Station exit name nearest to the bus transfer stop (for car diagram highlighting) */
   nearestExitName?: string
+  /** Next scheduled departures from GTFS static data */
+  scheduledDepartures?: BusScheduledDeparture[]
+  /** GTFS-based ride time in minutes (more accurate than estimatedRideMinutes) */
+  scheduledRideMinutes?: number
 }
 
 export interface HybridTrip {

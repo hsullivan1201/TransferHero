@@ -88,7 +88,8 @@ const leg2QuerySchema = z.object({
   transferStation: z.string().optional(),
   // realtime arrival at transfer station (if WMATA/GTFS-RT feels helpful)
   transferArrivalMin: z.coerce.number().optional(),
-  accessible: booleanFromString // true = elevator life
+  accessible: booleanFromString, // true = elevator life
+  includeDeparted: booleanFromString // true = also show trains that already left
 })
 
 // pull WMATA api key from env
@@ -490,7 +491,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
-  const { departureMin, walkTime, transferStation, transferArrivalMin, accessible } = result.data
+  const { departureMin, walkTime, transferStation, transferArrivalMin, accessible, includeDeparted } = result.data
   const tripId = req.params.tripId
   const apiKey = getApiKey()
 
@@ -616,13 +617,42 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   const catchableTrains = trainsWithCatchability.filter(t => t._canCatch)
 
   // sort: live trains first, then by arrival time
-  const sortedTrains = catchableTrains.sort((a, b) => {
+  let sortedTrains: CatchableTrain[] = catchableTrains.sort((a, b) => {
     const aIsLive = !a._scheduled
     const bIsLive = !b._scheduled
     if (aIsLive !== bIsLive) return aIsLive ? -1 : 1
     if (a._canCatch !== b._canCatch) return a._canCatch ? -1 : 1
     return getTrainMinutes(a.Min) - getTrainMinutes(b.Min)
   })
+
+  // optionally include departed trains for leg 2
+  if (includeDeparted && transfer.toLine) {
+    const leg2TravelTime = transfer.leg2Time || calculateRouteTravelTime(
+      transfer.toPlatform,
+      to,
+      transfer.toLine
+    )
+    const departedTrains = findDepartedTrains(
+      transfer.toPlatform,
+      to,
+      transfer.toLine,
+      leg2TravelTime,
+      gtfsEntities,
+      staticTrips,
+      terminusSecond
+    )
+    const existingTripIds = new Set(sortedTrains.map(t => t._tripId).filter(Boolean))
+    const uniqueDeparted = departedTrains.filter(t => !t._tripId || !existingTripIds.has(t._tripId))
+    // Convert departed trains to CatchableTrain format
+    const departedCatchable: CatchableTrain[] = uniqueDeparted.map(t => ({
+      ...t,
+      _waitTime: 0,
+      _canCatch: true,
+      _totalTime: t._destArrivalMin ?? 0,
+      _arrivalClock: t._destArrivalTime || '',
+    }))
+    sortedTrains = [...sortedTrains, ...departedCatchable]
+  }
 
   // grab car positions using real exit data
   const carPositions = getTransferCarPosition(

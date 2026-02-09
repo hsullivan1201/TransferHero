@@ -156,8 +156,8 @@ export function LegPanel({
               />
             )}
 
-            {/* departed trains (leg 1 only) */}
-            {leg === 1 && onToggleShowDeparted && !collapsed && (
+            {/* departed trains */}
+            {onToggleShowDeparted && !collapsed && (
               <div className="mt-4">
                 <button
                   onClick={onToggleShowDeparted}

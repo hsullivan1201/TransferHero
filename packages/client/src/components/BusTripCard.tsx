@@ -60,12 +60,22 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
         {/* Bus section */}
         <div className="flex items-center gap-3">
           <BusIcon />
-          <div className="text-sm text-[var(--text-primary)]">
-            <span className="font-medium">{busLeg.routeName}</span>
-            {busLeg.headsign && (
-              <span className="text-xs text-[var(--text-secondary)] ml-1">→ {busLeg.headsign}</span>
+          <div className="text-sm text-[var(--text-primary)] flex-1">
+            <div className="flex items-center gap-1 flex-wrap">
+              <span className="font-medium">{busLeg.routeName}</span>
+              {busLeg.headsign && (
+                <span className="text-xs text-[var(--text-secondary)]">→ {busLeg.headsign}</span>
+              )}
+              <span className="text-xs text-[var(--text-secondary)]">~{busLeg.scheduledRideMinutes ?? busLeg.estimatedRideMinutes} min</span>
+            </div>
+            {!isMetroBus && busLeg.scheduledDepartures && busLeg.scheduledDepartures.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-1">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#0f9b8e]/15 text-[#0f9b8e] text-xs font-medium">
+                  <Clock3 className="w-3 h-3" />
+                  Next bus: {busLeg.scheduledDepartures[0].departureTime} ({busLeg.scheduledDepartures[0].minutesFromNow} min)
+                </span>
+              </div>
             )}
-            <span className="text-xs text-[var(--text-secondary)] ml-2">~{busLeg.estimatedRideMinutes} min</span>
           </div>
         </div>
 

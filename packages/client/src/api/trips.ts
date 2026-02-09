@@ -69,12 +69,14 @@ export async function fetchLeg2(
   walkTime: number = 3,
   transferStation?: string,
   transferArrivalMin?: number,
-  accessible: boolean = false
+  accessible: boolean = false,
+  includeDeparted: boolean = false
 ): Promise<Leg2Response> {
   const params = new URLSearchParams({
     departureMin: departureMin.toString(),
     walkTime: walkTime.toString(),
-    accessible: accessible.toString()
+    accessible: accessible.toString(),
+    includeDeparted: includeDeparted.toString()
   })
   if (transferStation) {
     params.set('transferStation', transferStation)
