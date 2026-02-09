@@ -30,7 +30,7 @@ How Metrobus data flows through TransferHero: GTFS download → parse → spatia
 Grid-based spatial index for "bus stops near a point" queries:
 - 0.0045° grid cells (~500m)
 - Each bus stop hashed to a cell
-- Queries check target cell + 8 neighbors, filter by Haversine distance
+- Queries check target cell + 8 neighbors, filter by Haversine distance, **sorted by distance** (closest first)
 - <5ms for 400m radius queries
 
 ## Station-Stop Proximity Map
@@ -89,7 +89,7 @@ The same logic runs in `filterPredictionsForRoute` for RT predictions — any pr
 All candidate trips are ranked by estimated total time. The estimate uses pure math (Haversine + heuristics) — no API calls at this stage:
 
 - **Walk time**: Haversine distance × 1.4 (grid factor for non-straight-line walking) ÷ 1.33 m/s walking speed
-- **Bus ride**: `scheduledRideMinutes` from GTFS when available, otherwise stop count × 2 min/stop (rough DC average)
+- **Bus ride**: `scheduledRideMinutes` from GTFS when available, otherwise stop count × 1 min/stop (DC urban average)
 - **Metro ride**: Haversine distance between station centroids × 2.5 min/km (~24 km/h average including stops, dwell, transfers)
 - **Outside walk**: The walk that falls outside the hybrid trip itself — origin→first Metro station for metro-bus, or destination Metro station→final destination for bus-metro. Computed via Haversine to station centroids.
 
@@ -97,7 +97,7 @@ All candidate trips are ranked by estimated total time. The estimate uses pure m
 
 ### Deduplication
 
-When multiple stops on the same route connect to the same Metro station, we keep only the candidate with the shortest Metro exit walk. Walking further to catch a bus one stop later is never faster — the bus covers that distance quicker.
+When multiple stops on the same route connect to the same Metro station, we keep only the candidate with the least total walking distance (`boardWalkMeters + alightWalkMeters`). Within the same route, riding extra bus stops is essentially free — you're already on the bus. The actual ride time comes from GTFS schedule data later, so the dedup only needs to minimize walking.
 
 ## API Endpoints
 
