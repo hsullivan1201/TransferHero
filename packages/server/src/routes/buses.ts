@@ -59,7 +59,7 @@ router.get('/trips', asyncHandler(async (req, res) => {
     routeCache.set(cacheKey, { data: trips, ts: now })
   }
 
-  res.json({ trips, busDataAvailable: true })
+  res.json({ trips, busDataAvailable: true, _v: 2 })
 }))
 
 const predictionsSchema = z.object({
