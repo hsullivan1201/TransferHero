@@ -14,7 +14,7 @@ interface BusTripListProps {
   accessible: boolean
 }
 
-const INITIAL_VISIBLE = 5
+const INITIAL_VISIBLE = 3
 
 export function BusTripList({ trips, isLoading, stationNames, originPlaceContext, destPlaceContext, walkTime, accessible }: BusTripListProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)

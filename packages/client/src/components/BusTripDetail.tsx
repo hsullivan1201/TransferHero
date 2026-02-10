@@ -638,19 +638,17 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
   }, [predictions, arrivalAtBusStopMin, rideMin])
 
   // Scheduled departures not already covered by RT predictions.
-  // Dedup by proximity: a scheduled departure within 2 min of an RT prediction
-  // is likely the same bus, so skip it. Others are variant routes or buses
-  // that haven't started their trip yet (no RT tracking).
+  // Dedup against FILTERED predictions only — raw predictions that are before
+  // the user's arrival shouldn't suppress scheduled departures.
   const scheduledAfterRT = useMemo(() => {
     const scheduled = busLeg.scheduledDepartures
     if (!scheduled || scheduled.length === 0) return []
-    const rtMinutes = predictions.map(p => p.minutes)
+    const rtMinutes = filteredPredictions.map(p => p.minutes)
     return scheduled
       .filter(s => {
-        // Skip if a RT prediction is within 2 min (likely same bus)
+        // Skip if a catchable RT prediction is within 2 min (likely same bus)
         return !rtMinutes.some(rt => Math.abs(rt - s.minutesFromNow) <= 2)
       })
-      .slice(0, 3)
       .map(s => ({
         ...s,
         waitTime: arrivalAtBusStopMin != null
@@ -658,7 +656,7 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
           : null,
         arrivalClock: minutesToClockTime(s.minutesFromNow + rideMin),
       }))
-  }, [busLeg.scheduledDepartures, predictions, arrivalAtBusStopMin, rideMin])
+  }, [busLeg.scheduledDepartures, filteredPredictions, arrivalAtBusStopMin, rideMin])
 
   // Match helper for identifying the selected departure in the list
   const isSelectedPrediction = (p: { minutes: number; vehicleId?: string }) => {

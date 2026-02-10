@@ -68,7 +68,7 @@ router.get('/trips', asyncHandler(async (req, res) => {
 
     trips = [...metroBus, ...busMetro]
       .sort((a, b) => a.totalTimeMinutes - b.totalTimeMinutes)
-      .slice(0, 5)
+      .slice(0, 7)
 
     routeCache.set(cacheKey, { data: trips, ts: now })
   }
