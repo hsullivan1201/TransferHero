@@ -14,14 +14,14 @@ How Metrobus data flows through TransferHero: GTFS download → parse → spatia
 - `calendar.txt` + `calendar_dates.txt` → service calendars and exceptions
 
 **Data structures** (in-memory):
-- `busStops: Map<stopId, BusStop>` — all bus stops
-- `busRoutes: Map<routeId, BusRoute>` — route metadata
-- `busTrips: Map<tripId, BusTrip>` — trip→route+direction+serviceId
-- `routeStopSequences: Map<routeId_directionId, stopId[]>` — ordered stop list per route+direction
-- `stopRoutes: Map<stopId, Set<routeId>>` — reverse index: routes serving each stop
-- `tripStopTimes: Map<tripId, StopTime[]>` — departure times per trip (for schedule index)
-- `calendar: Map<serviceId, CalendarEntry>` — day-of-week service patterns
-- `calendarDates: Map<serviceId, Exception[]>` — date-specific overrides
+- `busStops: Map<stopId, BusStop>` -all bus stops
+- `busRoutes: Map<routeId, BusRoute>` -route metadata
+- `busTrips: Map<tripId, BusTrip>` -trip→route+direction+serviceId
+- `routeStopSequences: Map<routeId_directionId, stopId[]>` -ordered stop list per route+direction
+- `stopRoutes: Map<stopId, Set<routeId>>` -reverse index: routes serving each stop
+- `tripStopTimes: Map<tripId, StopTime[]>` -departure times per trip (for schedule index)
+- `calendar: Map<serviceId, CalendarEntry>` -day-of-week service patterns
+- `calendarDates: Map<serviceId, Exception[]>` -date-specific overrides
 
 **Refresh**: Re-downloaded every 24 hours via `setInterval`. Atomic swap of data structures.
 
@@ -37,22 +37,22 @@ Grid-based spatial index for "bus stops near a point" queries:
 
 Pre-computed at startup after both Metro exits and bus stops are loaded:
 - For each Metro station exit, find bus stops within 400m
-- `stationBusStops: Map<stationCode, BusStop[]>` — bus stops near each Metro station
-- `busStopStations: Map<stopId, {stationCode, walkMeters, exitName, exitLat, exitLon}[]>` — Metro stations near each bus stop
+- `stationBusStops: Map<stationCode, BusStop[]>` -bus stops near each Metro station
+- `busStopStations: Map<stopId, {stationCode, walkMeters, exitName, exitLat, exitLon}[]>` -Metro stations near each bus stop
 - Stores the nearest exit name and precise coordinates per stop+station pair for walk cards and car positioning
 
 This is the key link between the two networks.
 
 ## Schedule Index
 
-`busScheduleIndex.ts` — a lazy, day-scoped index for GTFS schedule lookups.
+`busScheduleIndex.ts` -a lazy, day-scoped index for GTFS schedule lookups.
 
 **Build**: On first query (or day change), computes active service IDs from `calendar.txt` + `calendar_dates.txt`, then indexes all departures by stop ID. Sorted by departure time for binary search.
 
 **Exports**:
-- `getNextScheduledDepartures(stopId, routeId, directionId, limit?, afterMinFromNow?, extraRouteIds?)` — next N departures for a stop+route+direction, with optional variant route inclusion
-- `getNextDeparture(stopId, routeId, directionId, afterMinFromNow?)` — single next departure with tripId (used for ride time lookups)
-- `getScheduledRideMinutes(tripId, boardStopId, alightStopId)` — GTFS-accurate ride time between two stops on a specific trip
+- `getNextScheduledDepartures(stopId, routeId, directionId, limit?, afterMinFromNow?, extraRouteIds?)` -next N departures for a stop+route+direction, with optional variant route inclusion
+- `getNextDeparture(stopId, routeId, directionId, afterMinFromNow?)` -single next departure with tripId (used for ride time lookups)
+- `getScheduledRideMinutes(tripId, boardStopId, alightStopId)` -GTFS-accurate ride time between two stops on a specific trip
 
 These power the `scheduledDepartures` and `scheduledRideMinutes` fields on `BusLeg`.
 
@@ -82,22 +82,22 @@ Under WMATA's Better Bus network, express variants use an `X` suffix (e.g. D5X f
 2. For each candidate route (other than the primary), verify via GTFS stop sequences that both stops appear in order
 3. Verified variants are passed as `extraRouteIds` to `getNextScheduledDepartures`, so scheduled departures include express variants
 
-The same logic runs in `filterPredictionsForRoute` for RT predictions — any prediction whose `routeId` differs from the primary but serves both stops in order is included.
+The same logic runs in `filterPredictionsForRoute` for RT predictions -any prediction whose `routeId` differs from the primary but serves both stops in order is included.
 
 ### Time Estimation & Ranking
 
-All candidate trips are ranked by estimated total time. The estimate uses pure math (Haversine + heuristics) — no API calls at this stage:
+All candidate trips are ranked by estimated total time. The estimate uses pure math (Haversine + heuristics) -no API calls at this stage:
 
 - **Walk time**: Haversine distance × 1.4 (grid factor for non-straight-line walking) ÷ 1.33 m/s walking speed
 - **Bus ride**: `scheduledRideMinutes` from GTFS when available, otherwise stop count × 1 min/stop (DC urban average)
 - **Metro ride**: Haversine distance between station centroids × 2.5 min/km (~24 km/h average including stops, dwell, transfers)
-- **Outside walk**: The walk that falls outside the hybrid trip itself — origin→first Metro station for metro-bus, or destination Metro station→final destination for bus-metro. Computed via Haversine to station centroids.
+- **Outside walk**: The walk that falls outside the hybrid trip itself -origin→first Metro station for metro-bus, or destination Metro station→final destination for bus-metro. Computed via Haversine to station centroids.
 
-**Why Haversine instead of Google Directions API?** We show 5 candidate trips before the user selects one. Calling Google's Directions API for all 5 would be expensive and slow (~200ms each, $5/1000 calls). Haversine with scaling factors gives surprisingly accurate ranking for DC's grid — typically within 1-2 minutes of Google's walking estimates. We only call the Directions API once the user selects a specific trip (via `/api/buses/walk`), enriching the two walk segments with precise distances and times.
+**Why Haversine instead of Google Directions API?** We show 5 candidate trips before the user selects one. Calling Google's Directions API for all 5 would be expensive and slow (~200ms each, $5/1000 calls). Haversine with scaling factors gives surprisingly accurate ranking for DC's grid -typically within 1-2 minutes of Google's walking estimates. We only call the Directions API once the user selects a specific trip (via `/api/buses/walk`), enriching the two walk segments with precise distances and times.
 
 ### Deduplication
 
-When multiple stops on the same route connect to the same Metro station, we keep only the candidate with the least total walking distance (`boardWalkMeters + alightWalkMeters`). Within the same route, riding extra bus stops is essentially free — you're already on the bus. The actual ride time comes from GTFS schedule data later, so the dedup only needs to minimize walking.
+When multiple stops on the same route connect to the same Metro station, we keep only the candidate with the least total walking distance (`boardWalkMeters + alightWalkMeters`). Within the same route, riding extra bus stops is essentially free -you're already on the bus. The actual ride time comes from GTFS schedule data later, so the dedup only needs to minimize walking.
 
 ## API Endpoints
 
@@ -127,7 +127,7 @@ Each `HybridTrip.busLeg` includes:
 GET /api/buses/predictions?stopCode=1001234&routeId=D50&boardStopId=12345&alightStopId=67890
 ```
 
-Fetches fresh RT predictions for a specific stop. `boardStopId` and `alightStopId` enable variant route detection — predictions from express variants (e.g. D5X) that serve both stops in order are included automatically.
+Fetches fresh RT predictions for a specific stop. `boardStopId` and `alightStopId` enable variant route detection -predictions from express variants (e.g. D5X) that serve both stops in order are included automatically.
 
 ### Walk Enrichment (on selection)
 ```
@@ -164,7 +164,7 @@ For bus→metro trips, bus departures are selectable. Selecting a bus chains tim
 1. **Bus selected** → compute `arrivalAtMetroMin = busDeparture + rideTime + alightWalk`
 2. **Metro trains annotated** as `CatchableTrain[]` with `_waitTime` relative to metro arrival, `_canCatch` (threshold: -5 min, wider than metro transfers due to bus timing imprecision), `_arrivalClock`
 3. **Missed trains filtered out**, remaining sorted live-first then by departure
-4. **Selecting a metro train** enables leg 2 fetch (for transfer trips) — same as pure Metro mode
+4. **Selecting a metro train** enables leg 2 fetch (for transfer trips) -same as pure Metro mode
 5. **Journey card** updates: `busWait` becomes deterministic, `metroWait` shows station wait time (not time-from-now), ride times flow through
 
 Clearing bus selection resets all downstream state (metro train, leg 2 train).
@@ -178,7 +178,7 @@ For metro→bus trips, after the user selects a Metro train, the client computes
 - **Catchable**: `prediction.minutes >= arrivalAtBusStopMin - 1` (1-min grace period)
 - Before train selection, predictions show unfiltered (no wait times)
 
-Leg 2 trains are selectable in metro-bus trips — selecting a later leg 2 train recalculates which buses are catchable.
+Leg 2 trains are selectable in metro-bus trips -selecting a later leg 2 train recalculates which buses are catchable.
 
 ### Walk Cards
 
@@ -208,7 +208,7 @@ Candidates: ART (Arlington), DASH (Alexandria), Ride On (Montgomery), TheBus (PG
 - **GTFS download fails**: Bus features disabled, Metro works normally. Check WMATA API key and network.
 - **No bus options shown**: Check if `stationBusStops` map has entries for the relevant Metro stations. Destination may be >400m from any bus stop.
 - **Only bus-metro showing (no metro-bus)**: Likely no bus stops within 400m of the destination. Check `queryNearbyStops` results. Area may only have non-WMATA transit (ART, DASH, etc.).
-- **Missing express variants**: Variant detection requires both stops to appear in the GTFS stop sequence for the express route. Some express routes skip stops — this is correct behavior (the express doesn't serve that segment).
+- **Missing express variants**: Variant detection requires both stops to appear in the GTFS stop sequence for the express route. Some express routes skip stops -this is correct behavior (the express doesn't serve that segment).
 - **Scheduled departures not showing**: Check schedule index build log. If `activeServiceIds` is empty, `calendar.txt` may not cover today's date (common during GTFS feed transitions).
 - **Irrational bus-metro suggestions**: The 1km origin-to-station distance filter may need tuning. Check `getOriginToStation` distances in logs.
 - **Stale predictions**: Cache TTL is 15s. Check WMATA API status.
