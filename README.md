@@ -2,16 +2,25 @@
 
 [transferhero.app](https://transferhero.app)
 
-A DC Metro transfer assistant that helps you plan connections across all Metro lines using real-time WMATA data and GTFS Realtime. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
+A DC Metro transfer assistant that helps you plan trips across all Metro lines (and buses) using real-time WMATA data and GTFS Realtime. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
 
 ![demo](./transferhero-demo.gif)
 
+## Credits
+
+Car position data comes from [eable2's DCMetroStationExits](https://github.com/eable2/DCMetroStationExits/). They manually mapped out platform exit locations for every station, which is no small feat. See [their r/WMATA post](https://www.reddit.com/r/WMATA/comments/1lb7dhi/wmata_metro_station_platform_exit_guide_update/) for the full story.
+
 ## What it does
 
-- Shows real-time train predictions from WMATA + GTFS-RT
-- Figures out the best transfer station for your route
-- Tells you which car to board for the fastest transfer/exit
-- Shows which connecting trains you can catch based on when you'll arrive
+- Search for any station, address, or place as your origin/destination
+- Real-time train predictions from WMATA + GTFS-RT
+- Figures out the best transfer station for your route (and shows alternatives)
+- Tells you which car to board for the fastest transfer or exit
+- Select a train and see which connecting trains you can actually catch
+- Metro+Bus mode for last-mile bus connections with live predictions
+- Walking directions to/from stations with Google Maps links
+- "Use current location" to route from wherever you are
+- Full journey breakdown: wait times, ride times, walks, transfers, estimated arrival
 
 ### Transfer stations supported
 - Metro Center (Red ↔ Orange/Silver/Blue)
@@ -20,16 +29,19 @@ A DC Metro transfer assistant that helps you plan connections across all Metro l
 - Fort Totten (Red ↔ Yellow/Green)
 
 ### Other features
-- Car position diagrams based on real platform exit data
+- Car position diagrams based on real platform exit data (243 exits)
+- "Already on a train?" mode -select a departed train to see what you can still catch
 - Accessibility mode (prioritizes elevator exits)
 - Dark mode
 - Shows alternatives within 10 min of the fastest route
 
 ## Tech stack
 
-**Frontend**: React 18, TypeScript, Vite, Tailwind, TanStack Query
+**Frontend**: React 18, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Leaflet (walking maps)
 
 **Backend**: Express, TypeScript, Protobuf.js (for GTFS-RT), Zod
+
+**APIs**: WMATA (trains + buses), Google Places (geocoding), Google Directions (walking)
 
 **Architecture**: Monorepo with npm workspaces
 
@@ -51,6 +63,7 @@ TransferHero/
 ### Prerequisites
 - Node.js 18+
 - WMATA API key from [developer.wmata.com](https://developer.wmata.com/)
+- Google Maps API key (for place search + walking directions)
 
 ### Install
 
@@ -63,10 +76,13 @@ npm install
 Create `packages/server/.env`:
 ```bash
 WMATA_API_KEY=your_api_key_here
+GOOGLE_MAPS_API_KEY=your_google_api_key_here
 PORT=3001
 NODE_ENV=development
 CORS_ORIGIN=*
 ```
+
+You'll need a [WMATA API key](https://developer.wmata.com/) and a [Google Maps API key](https://console.cloud.google.com/) with Places and Directions APIs enabled.
 
 ### Run
 
@@ -91,35 +107,44 @@ cd packages/server && npm start
 
 ## API
 
-### GET /api/stations
-Returns all Metro stations.
+### Trips
+- **GET /api/stations** -all Metro stations
+- **GET /api/trips** -trip plan with Leg 1 & Leg 2 trains
+  - `from`, `to` (required): station codes
+  - `walkTime`: transfer walk time in minutes (1-15, default 3)
+  - `transferStation`: specific transfer station
+  - `accessible`: prioritize elevator exits
+  - `includeDeparted`: show already-departed trains
+- **GET /api/trips/:tripId/leg2** -catchable Leg 2 trains for a selected first-leg train
 
-### GET /api/trips
-Returns trip plan with trains.
+### Destinations
+- **GET /api/destinations/search** -place search via Google Places
+- **GET /api/destinations/resolve** -resolve lat/lon to best station + exit
 
-Query params:
-- `from` (required): origin station code
-- `to` (required): destination station code
-- `walkTime`: transfer walk time in minutes (1-15, default 3)
-- `transferStation`: specific transfer station to use
-- `accessible`: prioritize elevator exits
+### Buses
+- **GET /api/buses/trips** -hybrid Metro+Bus trip options
+  - `originLat`, `originLon`, `destLat`, `destLon`: coordinates
+  - `originStation`, `destStation`: Metro station codes
+- **GET /api/buses/predictions** -real-time bus arrival predictions
+- **GET /api/buses/walk** -walking directions for bus segments
 
-### GET /api/trips/leg2
-Returns second-leg trains for a selected first-leg train.
-
-### GET /api/health
-Health check.
+### Other
+- **GET /api/health** -health check
 
 ## Data sources
 
 | Source | What it's used for |
 |--------|-------------------|
-| WMATA StationPrediction API | Real-time arrivals (0-15 min) |
-| WMATA GTFS-RT | Schedule adherence data |
-| GTFS static files | Travel times, station info |
-| DCMetroStationExits dataset | Car position recommendations |
+| WMATA StationPrediction API | Real-time train arrivals (0-15 min) |
+| WMATA GTFS-RT | GPS-tracked train positions |
+| WMATA GTFS static (rail) | Travel times, station info |
+| WMATA GTFS static (bus) | Bus stops, routes, schedules (~8k stops, ~300 routes) |
+| WMATA NextBus API | Real-time bus predictions |
+| Google Places API | Place/address geocoding |
+| Google Directions API | Walking routes and times |
+| DCMetroStationExits dataset | Car position recommendations (243 exits) |
 
-The server refreshes GTFS data daily at 3 AM.
+The server refreshes GTFS data daily. Bus predictions are cached for 15s, train data for 30s.
 
 ## Contributing
 
