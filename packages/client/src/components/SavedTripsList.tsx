@@ -59,7 +59,7 @@ export function SavedTripsList({ trips, onLoad, onDelete }: SavedTripsListProps)
                 <SelectionLabel sel={trip.to} />
               </div>
               <span className="text-xs text-[var(--text-secondary)] shrink-0 ml-auto">
-                {trip.walkTime}min · {timeAgo(trip.savedAt)}
+                {timeAgo(trip.savedAt)}
               </span>
             </button>
             <button
