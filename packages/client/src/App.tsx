@@ -61,6 +61,12 @@ function AppContent() {
   // Mode toggle state
   const [tripMode, setTripMode] = useState<'metro' | 'metro-bus'>('metro')
 
+  // Auto-lock to Metro+Bus when either endpoint is bus-only
+  const busOnlyLock = !!(tripState.originPlaceContext?.busOnly || tripState.destPlaceContext?.busOnly)
+  useEffect(() => {
+    if (busOnlyLock) setTripMode('metro-bus')
+  }, [busOnlyLock])
+
   // Bus trips hook — only fetches when Metro+Bus tab is active and we have coordinates
   const {
     data: busTripsData,
@@ -193,6 +199,7 @@ function AppContent() {
               mode={tripMode}
               onModeChange={setTripMode}
               busCount={busTripsData?.trips.length}
+              busOnlyLock={busOnlyLock}
             />
           </div>
         )}

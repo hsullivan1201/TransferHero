@@ -8,6 +8,7 @@ import { getAllExits } from './stationService.js'
 import { ALL_STATIONS } from '../data/stations.js'
 
 const SEARCH_RADIUS_M = 400
+const BUS_ONLY_RADIUS_M = 950 // ~16-17 min walk to a bus stop for bus-only fallback
 const WALK_SPEED_MPS = 1.33
 const GRID_FACTOR = 1.4
 const BUS_MIN_PER_STOP = 1 // DC urban average (~10-12mph, stops every 1-2 blocks)
@@ -449,4 +450,95 @@ function rankCandidates(
 
   trips.sort((a, b) => a.totalTimeMinutes - b.totalTimeMinutes)
   return trips.slice(0, MAX_RESULTS)
+}
+
+/**
+ * For locations with no Metro station within walking distance, find the nearest
+ * Metro station reachable via bus. Returns the station/exit info and walk distance
+ * to the nearest bus stop (not the Metro station).
+ */
+export function findBusConnectedStation(lat: number, lon: number): {
+  station: { code: string; name: string; lines: string[] }
+  exit: { id: string; name: string; lat: number; lon: number; isAccessible: boolean }
+  walkTimeMinutes: number
+  walkDistanceMeters: number
+} | null {
+  const sequences = getRouteStopSequences()
+  const stopRoutesMap = getStopRoutes()
+  const busStopStationsMap = getBusStopStations()
+  const allStops = getBusStops()
+  const exitCache = getAllExits()
+
+  const nearbyStops = queryNearbyStops(lat, lon, BUS_ONLY_RADIUS_M)
+  if (nearbyStops.length === 0) return null
+
+  let bestCandidate: {
+    stationCode: string
+    exitName: string
+    exitLat: number
+    exitLon: number
+    totalWalkMeters: number // walk to bus stop + walk from alight stop to metro
+    busStopWalkMeters: number // just the walk to the boarding bus stop
+  } | null = null
+
+  for (const boardStop of nearbyStops) {
+    const routeIds = stopRoutesMap.get(boardStop.stopId)
+    if (!routeIds) continue
+
+    const boardWalkMeters = haversineMeters(lat, lon, boardStop.lat, boardStop.lon)
+
+    for (const routeId of routeIds) {
+      for (const directionId of [0, 1]) {
+        const seqKey = `${routeId}_${directionId}`
+        const sequence = sequences.get(seqKey)
+        if (!sequence) continue
+
+        const boardIdx = sequence.indexOf(boardStop.stopId)
+        if (boardIdx === -1) continue
+
+        // Walk forward to find a stop near a Metro station
+        let found = 0
+        for (let i = boardIdx + 1; i < sequence.length && found < MAX_SEARCH_STOPS; i++) {
+          const stopId = sequence[i]
+          const nearbyStations = busStopStationsMap.get(stopId)
+          if (!nearbyStations || nearbyStations.length === 0) continue
+
+          found++
+          for (const { stationCode, walkMeters: alightWalkMeters, exitName, exitLat, exitLon } of nearbyStations) {
+            const totalWalk = boardWalkMeters + alightWalkMeters
+            if (!bestCandidate || totalWalk < bestCandidate.totalWalkMeters) {
+              bestCandidate = {
+                stationCode,
+                exitName,
+                exitLat,
+                exitLon,
+                totalWalkMeters: totalWalk,
+                busStopWalkMeters: boardWalkMeters,
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (!bestCandidate) return null
+
+  const station = STATION_BY_CODE.get(bestCandidate.stationCode)
+  if (!station) return null
+
+  // Find matching exit
+  const stationExits = exitCache.get(bestCandidate.stationCode) || []
+  const exit = stationExits.find(e => e.name === bestCandidate!.exitName)
+    || stationExits[0]
+  if (!exit) return null
+
+  const busStopWalkMeters = Math.round(bestCandidate.busStopWalkMeters)
+
+  return {
+    station,
+    exit,
+    walkTimeMinutes: estimateWalkMinutes(busStopWalkMeters),
+    walkDistanceMeters: busStopWalkMeters,
+  }
 }

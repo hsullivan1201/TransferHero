@@ -28,6 +28,7 @@ function buildPlaceContext(
       walkDistanceMeters: override.walkDistanceMeters,
       direction,
       alternatives: alts,
+      busOnly: resolved.busOnly,
     }
   }
   return {
@@ -38,6 +39,7 @@ function buildPlaceContext(
     walkDistanceMeters: resolved.walkDistanceMeters,
     direction,
     alternatives: resolved.alternatives,
+    busOnly: resolved.busOnly,
   }
 }
 

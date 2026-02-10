@@ -2,17 +2,21 @@ interface ModeToggleProps {
   mode: 'metro' | 'metro-bus'
   onModeChange: (mode: 'metro' | 'metro-bus') => void
   busCount?: number
+  busOnlyLock?: boolean
 }
 
-export function ModeToggle({ mode, onModeChange, busCount }: ModeToggleProps) {
+export function ModeToggle({ mode, onModeChange, busCount, busOnlyLock }: ModeToggleProps) {
   return (
     <div className="flex rounded-lg border border-[var(--border-color)] overflow-hidden bg-[var(--card-bg)]">
       <button
-        onClick={() => onModeChange('metro')}
-        className={`px-4 py-2 text-sm font-medium transition-colors cursor-pointer ${
-          mode === 'metro'
-            ? 'bg-[#E31837] text-white'
-            : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)]'
+        onClick={() => !busOnlyLock && onModeChange('metro')}
+        disabled={busOnlyLock}
+        className={`px-4 py-2 text-sm font-medium transition-colors ${
+          busOnlyLock
+            ? 'opacity-40 cursor-not-allowed text-[var(--text-secondary)]'
+            : mode === 'metro'
+              ? 'bg-[#E31837] text-white cursor-pointer'
+              : 'text-[var(--text-secondary)] hover:bg-[var(--bg-tertiary)] cursor-pointer'
         }`}
       >
         Metro

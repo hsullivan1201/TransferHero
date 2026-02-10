@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { MapPin, Navigation, ChevronDown, ChevronUp, Check } from 'lucide-react'
+import { MapPin, Navigation, Bus, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import type { PlaceContext } from '@transferhero/shared'
 import { formatDistance } from '../utils/geo'
 
@@ -12,10 +12,11 @@ interface DestinationBannerProps {
 export function DestinationBanner({ context, isLocation, onSelectAlternative }: DestinationBannerProps) {
   const [isExpanded, setIsExpanded] = useState(false)
   const isOrigin = context.direction === 'to_station'
-  const Icon = isLocation ? Navigation : MapPin
+  const isBusOnly = !!context.busOnly
+  const Icon = isBusOnly ? Bus : isLocation ? Navigation : MapPin
 
   const alternatives = context.alternatives ?? []
-  const hasAlternatives = alternatives.length > 0 && !!onSelectAlternative
+  const hasAlternatives = !isBusOnly && alternatives.length > 0 && !!onSelectAlternative
 
   return (
     <div className="bg-[var(--bg-tertiary)] rounded text-sm">
@@ -25,7 +26,21 @@ export function DestinationBanner({ context, isLocation, onSelectAlternative }: 
       >
         <Icon className="w-3.5 h-3.5 text-[var(--text-secondary)] shrink-0" />
         <span className="flex-1 text-[var(--text-secondary)]">
-          {isOrigin ? (
+          {isBusOnly ? (
+            isOrigin ? (
+              <>
+                Bus to <span className="font-medium text-[var(--text-primary)]">{context.station.name}</span>
+                {' · '}
+                {context.walkTimeMinutes} min walk to bus stop
+              </>
+            ) : (
+              <>
+                Via <span className="font-medium text-[var(--text-primary)]">{context.station.name}</span>
+                {' · '}
+                Bus from Metro
+              </>
+            )
+          ) : isOrigin ? (
             <>
               Walk to <span className="font-medium text-[var(--text-primary)]">{context.station.name}</span>
               {' · '}

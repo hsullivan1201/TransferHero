@@ -188,6 +188,8 @@ export interface PlaceContext {
     walkTimeMinutes: number
     walkDistanceMeters: number
   }>
+  /** True when the location is too far to walk to any Metro station and must use bus */
+  busOnly?: boolean
 }
 
 export interface ResolveResponse {
@@ -201,6 +203,8 @@ export interface ResolveResponse {
     walkTimeMinutes: number
     walkDistanceMeters: number
   }>
+  /** True when the location is too far to walk to any Metro station and must use bus */
+  busOnly?: boolean
 }
 
 // Bus integration types

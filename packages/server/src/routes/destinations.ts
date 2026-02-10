@@ -5,6 +5,7 @@ import { searchPlaces, isGeocodingEnabled } from '../services/geocodingService.j
 import { resolveDestination } from '../services/exitResolver.js'
 import { loadStationExits } from '../services/stationService.js'
 import { getWalkingDirections } from '../services/walkingDirectionsService.js'
+import { findBusConnectedStation } from '../services/busRouteFinder.js'
 
 const router = Router()
 
@@ -45,8 +46,23 @@ router.get('/resolve', asyncHandler(async (req, res) => {
 
   const result = resolveDestination(lat, lon)
   if (!result) {
-    console.warn(`[destinations] No stations within walking distance of (${lat}, ${lon})`)
-    throw new NotFoundError('No stations within walking distance')
+    // No Metro station within walking distance — try bus-connected fallback
+    const busResult = findBusConnectedStation(lat, lon)
+    if (!busResult) {
+      console.warn(`[destinations] No stations or bus connections near (${lat}, ${lon})`)
+      throw new NotFoundError('No stations within walking distance')
+    }
+
+    console.log(`[destinations] Bus-only fallback: (${lat}, ${lon}) → ${busResult.station.name} via bus`)
+    res.json({
+      station: busResult.station,
+      exit: busResult.exit,
+      walkTimeMinutes: busResult.walkTimeMinutes,
+      walkDistanceMeters: busResult.walkDistanceMeters,
+      alternatives: [],
+      busOnly: true,
+    })
+    return
   }
 
   // Enrich with real Google walking directions (parallel, fallback to Haversine)
