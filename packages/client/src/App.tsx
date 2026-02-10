@@ -34,7 +34,7 @@ function AppContent() {
 
   // grab a fresh copy of the selected train for timing math
   // only trust exact tripId; line+destination matching was chaos
-  const liveLeg1Train = tripState.selectedLeg1Train && tripData?.trip.leg1.trains
+  const liveLeg1Train = tripState.selectedLeg1Train && tripData?.trip?.leg1?.trains
     ? (tripState.selectedLeg1Train._tripId
         ? tripData.trip.leg1.trains.find(t => t._tripId === tripState.selectedLeg1Train!._tripId)
         : undefined
@@ -50,7 +50,7 @@ function AppContent() {
     departureTimestamp: tripState.departureTimestamp,
     walkTime: tripState.walkTime,
     transferStation: tripState.selectedAlternative?.station,
-    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null && tripData?.trip.isDirect !== true,
+    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null && tripData?.trip?.isDirect !== true,
     // pass along realtime transfer arrival, recalculated so it's not stale
     transferArrivalMin: liveLeg1Train?._transferArrivalTimestamp
       ? Math.round((liveLeg1Train._transferArrivalTimestamp - Date.now()) / 60000)
@@ -165,11 +165,11 @@ function AppContent() {
             stations={stations}
             onGo={handleGo}
             isLoading={tripLoading}
-            transfer={tripData?.trip.isDirect ? null : tripData?.trip.transfer}
+            transfer={tripData?.trip?.isDirect ? null : tripData?.trip?.transfer}
             onSelectAlternative={tripState.selectAlternative}
             selectedAlternativeIndex={
               tripState.selectedAlternative
-                ? tripData?.trip.transfer?.alternatives?.findIndex(
+                ? tripData?.trip?.transfer?.alternatives?.findIndex(
                     a => a.station === tripState.selectedAlternative?.station
                   ) ?? -1
                 : -1

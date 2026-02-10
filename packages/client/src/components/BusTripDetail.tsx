@@ -103,15 +103,15 @@ export function BusTripDetail({
 
   // Get live copy of selected train
   const displayTrain = useMemo(() => {
-    if (!selectedTrain || !metroTripData?.trip.leg1.trains) return null
+    if (!selectedTrain || !metroTripData?.trip?.leg1?.trains) return null
     if (selectedTrain._tripId) {
       return metroTripData.trip.leg1.trains.find(t => t._tripId === selectedTrain._tripId) || selectedTrain
     }
     return selectedTrain
   }, [selectedTrain, metroTripData])
 
-  const isDirect = metroTripData?.trip.isDirect ?? false
-  const transfer = metroTripData?.trip.transfer ?? null
+  const isDirect = metroTripData?.trip?.isDirect ?? false
+  const transfer = metroTripData?.trip?.transfer ?? null
   const transferName = transfer?.name ?? ''
 
   // Destination exit info for bus→metro (metro destination is the final stop)
@@ -141,10 +141,10 @@ export function BusTripDetail({
     showDeparted,
   })
 
-  const rawMetroTrains = metroTripData?.trip.leg1.trains ?? []
-  const leg1CarPosition = metroTripData?.trip.leg1.carPosition ?? null
-  const leg2Trains = leg2Data?.trains ?? metroTripData?.trip.leg2?.trains ?? []
-  const leg2CarPosition = metroTripData?.trip.leg2?.carPosition ?? null
+  const rawMetroTrains = metroTripData?.trip?.leg1?.trains ?? []
+  const leg1CarPosition = metroTripData?.trip?.leg1?.carPosition ?? null
+  const leg2Trains = leg2Data?.trains ?? metroTripData?.trip?.leg2?.trains ?? []
+  const leg2CarPosition = metroTripData?.trip?.leg2?.carPosition ?? null
 
   // Bus→Metro: compute when user arrives at metro station after selecting a bus
   const arrivalAtMetroMin = useMemo((): number | null => {
@@ -259,7 +259,7 @@ export function BusTripDetail({
   }, [displayTrain, departureTimestamp, isMetroBus, arrivalAtMetroMin, metroTrains])
 
   // Real metro ride times from pathfinding API (not the rough bus-route estimate)
-  const transferData = metroTripData?.trip.transfer
+  const transferData = metroTripData?.trip?.transfer
   const leg1Ride = transferData?.leg1Time ?? null
   const leg2Ride = transferData?.leg2Time ?? null
   const transferWalk = !isDirect ? walkTime : null
