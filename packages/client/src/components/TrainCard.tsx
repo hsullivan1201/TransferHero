@@ -1,10 +1,10 @@
 // react/packages/client/src/components/TrainCard.tsx
-import { useState, useEffect, memo } from 'react'
+import { memo } from 'react'
 import { Satellite, Rss, Check } from 'lucide-react'
 import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getLineClass } from '../utils/lineColors'
 import { getDisplayName } from '../utils/displayNames'
-import { minutesToClockTime, getTrainMinutes, formatTimeWithSeconds, millisecondsToClockTime } from '../utils/time'
+import { minutesToClockTime, getTrainMinutes } from '../utils/time'
 
 interface TrainCardProps {
   train: Train | CatchableTrain
@@ -27,41 +27,17 @@ export const TrainCard = memo(function TrainCard({
   onClick,
   customStatus
 }: TrainCardProps) {
-  // live countdown brain: tick every second only when we're in seconds-mode
-  const [now, setNow] = useState(Date.now())
-
-  // trust the timestamp when we have it; eyeballing is for humans
-  const hasTimestamp = !!train._destArrivalTimestamp && train._destArrivalTimestamp > now
-  const millisRemaining = hasTimestamp && train._destArrivalTimestamp ? train._destArrivalTimestamp - now : 0
-  const shouldShowSeconds = hasTimestamp && millisRemaining < 2 * 60 * 1000 // under 2 minutes
-
-  // spin up a tiny metronome only when showing seconds on the selected card
-  useEffect(() => {
-    if (!shouldShowSeconds || !isSelected) {
-      return // skip the timer if we're in minute-land or not the active card
-    }
-
-    // ping every second so the clock feels alive
-    const interval = setInterval(() => {
-      setNow(Date.now())
-    }, 1000)
-
-    return () => clearInterval(interval)
-  }, [shouldShowSeconds, isSelected])
-
   const trainMin = getTrainMinutes(train.Min)
   
   // figure out if the train already bailed—except when it's the one we picked
   const isDeparted = !isSelected && (train._departed === true || (typeof trainMin === 'number' && trainMin < 0))
   const departedMinAgo = isDeparted ? Math.abs(trainMin) : 0
   
-  const clockTime = shouldShowSeconds
-    ? millisecondsToClockTime(millisRemaining)
-    : isDeparted && train._transferArrivalTime
-      ? train._transferArrivalTime // Show transfer arrival time for departed trains
-      : isCatchableTrain(train)
-        ? minutesToClockTime(trainMin) // CatchableTrains: show departure time (arrival is in status text)
-        : train._destArrivalTime || minutesToClockTime(trainMin)
+  const clockTime = isDeparted && train._transferArrivalTime
+    ? train._transferArrivalTime
+    : isCatchableTrain(train)
+      ? minutesToClockTime(trainMin)
+      : train._destArrivalTime || minutesToClockTime(trainMin)
 
   // handles 5, '5', and whatever creative string shows up
   let minDisplay = ''
@@ -70,9 +46,6 @@ export const TrainCard = memo(function TrainCard({
     minDisplay = `Left ${departedMinAgo}m ago`
   } else if (train.Min === 'ARR' || train.Min === 'BRD') {
     minDisplay = train.Min
-  } else if (shouldShowSeconds) {
-    // seconds view for under 2 minutes when we have a timestamp
-    minDisplay = formatTimeWithSeconds(millisRemaining)
   } else if (
     typeof train.Min === 'number' ||
     (!isNaN(Number(train.Min)) && String(train.Min).trim() !== '')
