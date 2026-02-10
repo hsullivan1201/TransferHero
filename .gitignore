@@ -4,6 +4,7 @@ metro-gtfs/
 metro-gtfs-old/
 .DS_Store
 .claude/
+CLAUDE.md
 node_modules
 packages/server/.env
 packages/client/dist

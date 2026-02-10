@@ -14,8 +14,11 @@ interface BusTripListProps {
   accessible: boolean
 }
 
+const INITIAL_VISIBLE = 3
+
 export function BusTripList({ trips, isLoading, stationNames, originPlaceContext, destPlaceContext, walkTime, accessible }: BusTripListProps) {
   const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [expanded, setExpanded] = useState(false)
 
   if (isLoading) {
     return (
@@ -60,9 +63,12 @@ export function BusTripList({ trips, isLoading, stationNames, originPlaceContext
     )
   }
 
+  const visibleTrips = expanded ? trips : trips.slice(0, INITIAL_VISIBLE)
+  const hiddenCount = trips.length - INITIAL_VISIBLE
+
   return (
     <div className="space-y-3">
-      {trips.map((trip, i) => (
+      {visibleTrips.map((trip, i) => (
         <BusTripCard
           key={`${trip.busLeg.routeId}-${trip.metroFrom}-${trip.metroTo}-${i}`}
           trip={trip}
@@ -70,6 +76,14 @@ export function BusTripList({ trips, isLoading, stationNames, originPlaceContext
           onSelect={() => setSelectedIndex(i)}
         />
       ))}
+      {!expanded && hiddenCount > 0 && (
+        <button
+          onClick={() => setExpanded(true)}
+          className="w-full py-2 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+        >
+          Show {hiddenCount} more option{hiddenCount > 1 ? 's' : ''}
+        </button>
+      )}
     </div>
   )
 }
