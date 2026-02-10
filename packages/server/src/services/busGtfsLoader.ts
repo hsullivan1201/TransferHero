@@ -252,20 +252,24 @@ async function downloadAndParse(): Promise<void> {
       stops.sort((a, b) => a.seq - b.seq)
     }
 
-    // Build sequences per route+direction (use first trip of each route+direction as representative)
-    const seenRouteDir = new Set<string>()
+    // Build sequences per route+direction and stop→routes index.
+    // WMATA routes often have multiple trip patterns (short-turns, express,
+    // time-of-day variants). We use the LONGEST trip as the representative
+    // sequence (most stops = full pattern), and build the stop→routes index
+    // from ALL trips so every stop is discoverable.
     for (const [tripId, stopTimes] of newTripStopTimes) {
       const trip = newTrips.get(tripId)
       if (!trip) continue
 
       const key = `${trip.routeId}_${trip.directionId}`
-      if (seenRouteDir.has(key)) continue
-      seenRouteDir.add(key)
 
-      const orderedStops = stopTimes.map(st => st.stopId)
-      newRouteStopSequences.set(key, orderedStops)
+      // Use longest trip as representative sequence for this route+direction
+      const existing = newRouteStopSequences.get(key)
+      if (!existing || stopTimes.length > existing.length) {
+        newRouteStopSequences.set(key, stopTimes.map(st => st.stopId))
+      }
 
-      // Build stop→routes reverse index
+      // Build stop→routes reverse index from ALL trips
       for (const st of stopTimes) {
         let routes = newStopRoutes.get(st.stopId)
         if (!routes) {
