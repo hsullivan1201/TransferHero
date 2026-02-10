@@ -1,8 +1,9 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useCallback } from 'react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { Header, Footer, EmptyState, TripSelector, TripView, ModeToggle, BusTripList } from './components'
+import { Header, Footer, EmptyState, TripSelector, TripView, ModeToggle, BusTripList, SavedTripsList } from './components'
 import { useStations, useTrip, useLeg2, useTripState } from './hooks/useTrip'
 import { useBusTrips } from './hooks/useBusTrips'
+import { useSavedTrips, type SavedTrip } from './hooks/useSavedTrips'
 import type { Station, PlaceContext } from '@transferhero/shared'
 
 const queryClient = new QueryClient({
@@ -17,6 +18,9 @@ const queryClient = new QueryClient({
 function AppContent() {
   const { data: stations = [], isLoading: stationsLoading, error: stationsError } = useStations()
   const tripState = useTripState()
+  const { savedTrips, saveTrip, deleteTrip, isSaved } = useSavedTrips()
+  const [loadTrip, setLoadTrip] = useState<SavedTrip | null>(null)
+  const handleTripLoaded = useCallback(() => setLoadTrip(null), [])
 
   const {
     data: tripData,
@@ -184,6 +188,10 @@ function AppContent() {
             onDestPlaceContext={tripState.setDestPlaceContext}
             activeOriginPlaceContext={tripState.originPlaceContext}
             activeDestPlaceContext={tripState.destPlaceContext}
+            onSaveTrip={saveTrip}
+            checkTripSaved={isSaved}
+            loadTrip={loadTrip}
+            onTripLoaded={handleTripLoaded}
           />
         )}
 
@@ -251,7 +259,9 @@ function AppContent() {
               }
           />
           ) : !tripLoading && !tripError && (
-            <EmptyState />
+            savedTrips.length > 0
+              ? <SavedTripsList trips={savedTrips} onLoad={setLoadTrip} onDelete={deleteTrip} />
+              : <EmptyState />
           )}
         </div>
       </main>

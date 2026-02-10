@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect } from 'react'
-import { ArrowRight } from 'lucide-react'
+import { useState, useCallback, useEffect, useRef } from 'react'
+import { ArrowRight, Bookmark, BookmarkCheck } from 'lucide-react'
 import type { Station, TransferResult, TransferAlternative, PlaceContext, PlaceResult, ResolveResponse } from '@transferhero/shared'
 import { SmartSelector, type SmartSelection } from './SmartSelector'
 import { DestinationBanner } from './DestinationBanner'
 import { TransferDisplay } from './TransferDisplay'
 import { useDestinationResolve } from '../hooks/useDestination'
+import { savedToSelection, type SavedTrip } from '../hooks/useSavedTrips'
 
 type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
 
@@ -54,6 +55,10 @@ interface TripSelectorProps {
   onDestPlaceContext?: (ctx: PlaceContext | null) => void
   activeOriginPlaceContext?: PlaceContext | null
   activeDestPlaceContext?: PlaceContext | null
+  onSaveTrip?: (from: SmartSelection, to: SmartSelection, walkTime: number) => void
+  checkTripSaved?: (from: SmartSelection | null, to: SmartSelection | null) => boolean
+  loadTrip?: SavedTrip | null
+  onTripLoaded?: () => void
 }
 
 export function TripSelector({
@@ -67,6 +72,10 @@ export function TripSelector({
   onDestPlaceContext,
   activeOriginPlaceContext,
   activeDestPlaceContext,
+  onSaveTrip,
+  checkTripSaved,
+  loadTrip,
+  onTripLoaded,
 }: TripSelectorProps) {
   const [fromSelection, setFromSelection] = useState<SmartSelection | null>(null)
   const [toSelection, setToSelection] = useState<SmartSelection | null>(null)
@@ -75,6 +84,20 @@ export function TripSelector({
   // station override when user picks an alternative walking station
   const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
   const [destOverride, setDestOverride] = useState<WalkingAlt | null>(null)
+
+  // Load a saved trip into the selectors
+  const lastLoadedId = useRef<string | null>(null)
+  useEffect(() => {
+    if (loadTrip && loadTrip.id !== lastLoadedId.current) {
+      lastLoadedId.current = loadTrip.id
+      setFromSelection(savedToSelection(loadTrip.from))
+      setToSelection(savedToSelection(loadTrip.to))
+      setWalkTime(loadTrip.walkTime)
+      setOriginOverride(null)
+      setDestOverride(null)
+      onTripLoaded?.()
+    }
+  }, [loadTrip?.id])
 
   // resolve place selections to stations
   const fromPlace = fromSelection && fromSelection.type !== 'station' ? fromSelection.place : null
@@ -231,15 +254,30 @@ export function TripSelector({
           </select>
         </div>
 
-        {/* Go button */}
-        <button
-          onClick={handleGo}
-          disabled={!canGo || isLoading}
-          className="shrink-0 px-6 py-2 bg-[#E31837] text-white font-semibold rounded hover:bg-[#c41430] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
-        >
-          <ArrowRight className="w-5 h-5" />
-          {isLoading ? 'Loading...' : 'Go'}
-        </button>
+        {/* Go + Save buttons */}
+        <div className="shrink-0 flex gap-2">
+          <button
+            onClick={handleGo}
+            disabled={!canGo || isLoading}
+            className="flex-1 lg:flex-none px-6 py-2 bg-[#E31837] text-white font-semibold rounded hover:bg-[#c41430] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center gap-2"
+          >
+            <ArrowRight className="w-5 h-5" />
+            {isLoading ? 'Loading...' : 'Go'}
+          </button>
+          {onSaveTrip && (
+            <button
+              onClick={() => fromSelection && toSelection && onSaveTrip(fromSelection, toSelection, walkTime)}
+              disabled={!canGo}
+              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded border border-[var(--border-color)] text-[var(--text-secondary)] active:text-[#E31837] active:border-[#E31837] hover:text-[#E31837] hover:border-[#E31837] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              aria-label={checkTripSaved?.(fromSelection, toSelection) ? 'Trip saved' : 'Save trip'}
+            >
+              {checkTripSaved?.(fromSelection, toSelection)
+                ? <BookmarkCheck className="w-5 h-5 text-[#E31837]" />
+                : <Bookmark className="w-5 h-5" />
+              }
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Transfer Display - shows transfer station with alternatives */}

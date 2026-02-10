@@ -39,6 +39,11 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
             </li>
           </ul>
 
+          <h3 className="font-medium text-[var(--text-primary)]">Saved trips</h3>
+          <p>
+            When you save a trip, it's stored in your browser's local storage on your device. This data never leaves your phone or computer; we don't see it, collect it, or back it up. Clearing your browser data will delete your saved trips.
+          </p>
+
           <h3 className="font-medium text-[var(--text-primary)]">What we don't do</h3>
           <ul className="list-disc pl-5 space-y-1">
             <li>We don't create accounts or track you across sessions.</li>
