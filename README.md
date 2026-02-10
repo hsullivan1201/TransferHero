@@ -37,7 +37,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 
 ## Tech stack
 
-**Frontend**: React 18, TypeScript, Vite, Tailwind CSS 4, TanStack Query, Leaflet (walking maps)
+**Frontend**: React 18, TypeScript, Vite, Tailwind CSS 4, TanStack Query
 
 **Backend**: Express, TypeScript, Protobuf.js (for GTFS-RT), Zod
 
