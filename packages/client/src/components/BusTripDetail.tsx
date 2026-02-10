@@ -121,6 +121,11 @@ export function BusTripDetail({
     ? resolveExitLabel(destPlaceContext.station.code, destPlaceContext.exit.name)
     : undefined
 
+  // Exit label for metro→bus (metro destination is the transfer station, exit nearest to bus stop)
+  const busExitLabel = isMetroBus && busLeg.nearestExitName
+    ? resolveExitLabel(trip.metroTo, busLeg.nearestExitName)
+    : undefined
+
   // Leg 2: fetch when train is selected and trip has a transfer
   const tripId = `${trip.metroFrom}-${trip.metroTo}`
   const transferArrivalMin = displayTrain?._transferArrivalTimestamp
@@ -438,7 +443,7 @@ export function BusTripDetail({
         onClearSelection={handleClearSelection}
         isDirect={isDirect}
         destinationExitName={isDirect ? (isMetroBus ? busLeg.nearestExitName : destExitName) : undefined}
-        destinationExitLabel={isDirect && !isMetroBus ? destExitLabel : undefined}
+        destinationExitLabel={isDirect ? (isMetroBus ? busExitLabel : destExitLabel) : undefined}
         showDeparted={showDeparted}
         onToggleShowDeparted={() => setShowDeparted(d => !d)}
       />
@@ -453,7 +458,7 @@ export function BusTripDetail({
           carPosition={leg2CarPosition}
           isLoading={leg2Loading}
           destinationExitName={isMetroBus ? busLeg.nearestExitName : destExitName}
-          destinationExitLabel={!isMetroBus ? destExitLabel : undefined}
+          destinationExitLabel={isMetroBus ? busExitLabel : destExitLabel}
           selectedTrain={isMetroBus ? displayLeg2Train : undefined}
           onTrainSelect={isMetroBus ? handleLeg2Select : undefined}
           onClearSelection={isMetroBus ? handleLeg2Clear : undefined}
