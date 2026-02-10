@@ -13,21 +13,18 @@ export interface BusWalkEnrichment {
 }
 
 export async function fetchBusTrips(
-  originLat: number,
-  originLon: number,
-  destLat: number,
-  destLon: number,
+  originLat: number | undefined,
+  originLon: number | undefined,
+  destLat: number | undefined,
+  destLon: number | undefined,
   originStation: string,
   destStation: string
 ): Promise<BusTripsResponse> {
-  const params = new URLSearchParams({
-    originLat: originLat.toString(),
-    originLon: originLon.toString(),
-    destLat: destLat.toString(),
-    destLon: destLon.toString(),
-    originStation,
-    destStation,
-  })
+  const params = new URLSearchParams({ originStation, destStation })
+  if (originLat != null) params.set('originLat', originLat.toString())
+  if (originLon != null) params.set('originLon', originLon.toString())
+  if (destLat != null) params.set('destLat', destLat.toString())
+  if (destLon != null) params.set('destLon', destLon.toString())
 
   const res = await fetch(`${API_BASE}/buses/trips?${params}`)
   if (!res.ok) return { trips: [], busDataAvailable: false }

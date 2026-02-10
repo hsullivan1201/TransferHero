@@ -13,16 +13,14 @@ export function useBusTrips(
   return useQuery({
     queryKey: ['bus-trips', originLat, originLon, destLat, destLon, originStation, destStation],
     queryFn: () => fetchBusTrips(
-      originLat!,
-      originLon!,
-      destLat!,
-      destLon!,
+      originLat ?? undefined,
+      originLon ?? undefined,
+      destLat ?? undefined,
+      destLon ?? undefined,
       originStation!,
       destStation!
     ),
-    enabled: enabled && originLat !== null && originLon !== null &&
-      destLat !== null && destLon !== null &&
-      originStation !== null && destStation !== null,
+    enabled: enabled && originStation !== null && destStation !== null,
     staleTime: 60_000, // 60s — bus routes are static, no need for frequent refetches
     gcTime: 5 * 60_000,
   })

@@ -17,6 +17,14 @@ interface ScheduleIndex {
 let index: ScheduleIndex | null = null
 
 /**
+ * Invalidate the cached schedule index (e.g. after a GTFS data refresh).
+ * Next query will rebuild from fresh data.
+ */
+export function invalidateScheduleIndex(): void {
+  index = null
+}
+
+/**
  * Format YYYYMMDD number from a Date
  */
 function toYYYYMMDD(d: Date): number {

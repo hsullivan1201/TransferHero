@@ -3,6 +3,7 @@ import unzipper from 'unzipper'
 import csv from 'csv-parser'
 import { Readable } from 'stream'
 import type { BusStop } from '@transferhero/shared'
+import { invalidateScheduleIndex } from './busScheduleIndex.js'
 
 // Parsed GTFS data structures
 export interface BusRoute {
@@ -291,6 +292,9 @@ async function downloadAndParse(): Promise<void> {
   busCalendarDates = newCalendarDates
   busTripStopTimes = newTripStopTimes
   loaded = true
+
+  // Schedule index was built from old data — force rebuild on next query
+  invalidateScheduleIndex()
 
   console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${newTripStopTimes.size} trip stop times`)
 }

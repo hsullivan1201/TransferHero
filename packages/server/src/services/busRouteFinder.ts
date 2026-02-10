@@ -23,7 +23,7 @@ const STATION_BY_CODE = new Map(ALL_STATIONS.map(s => [s.code, s]))
 // Station centroid cache (avg of exit coordinates) for metro time estimates
 let stationCentroids: Map<string, { lat: number; lon: number }> | null = null
 
-function getStationCentroid(stationCode: string): { lat: number; lon: number } | null {
+export function getStationCentroid(stationCode: string): { lat: number; lon: number } | null {
   if (!stationCentroids) {
     stationCentroids = new Map()
     const exitCache = getAllExits()

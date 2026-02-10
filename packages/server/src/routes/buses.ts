@@ -2,7 +2,7 @@ import { Router } from 'express'
 import { z } from 'zod'
 import { asyncHandler, ValidationError } from '../middleware/errorHandler.js'
 import { isBusDataLoaded } from '../services/busGtfsLoader.js'
-import { findMetroBusTrips, findBusMetroTrips } from '../services/busRouteFinder.js'
+import { findMetroBusTrips, findBusMetroTrips, getStationCentroid } from '../services/busRouteFinder.js'
 import { fetchBusPredictions, filterPredictionsForRoute } from '../services/busPredictions.js'
 import { getWalkingDirections } from '../services/walkingDirectionsService.js'
 import type { HybridTrip } from '@transferhero/shared'
@@ -10,10 +10,10 @@ import type { HybridTrip } from '@transferhero/shared'
 const router = Router()
 
 const tripsSchema = z.object({
-  originLat: z.coerce.number().min(-90).max(90),
-  originLon: z.coerce.number().min(-180).max(180),
-  destLat: z.coerce.number().min(-90).max(90),
-  destLon: z.coerce.number().min(-180).max(180),
+  originLat: z.coerce.number().min(-90).max(90).optional(),
+  originLon: z.coerce.number().min(-180).max(180).optional(),
+  destLat: z.coerce.number().min(-90).max(90).optional(),
+  destLon: z.coerce.number().min(-180).max(180).optional(),
   originStation: z.string().min(2).max(10),
   destStation: z.string().min(2).max(10),
 })
@@ -37,7 +37,21 @@ router.get('/trips', asyncHandler(async (req, res) => {
     return res.json({ trips: [], busDataAvailable: false })
   }
 
-  const { originLat, originLon, destLat, destLon, originStation, destStation } = tripsSchema.parse(req.query)
+  const parsed = tripsSchema.parse(req.query)
+  const { originStation, destStation } = parsed
+
+  // Fall back to station centroids when coordinates aren't provided
+  // (happens when user selects a Metro station directly instead of a place)
+  const originCentroid = getStationCentroid(originStation)
+  const destCentroid = getStationCentroid(destStation)
+  const originLat = parsed.originLat ?? originCentroid?.lat
+  const originLon = parsed.originLon ?? originCentroid?.lon
+  const destLat = parsed.destLat ?? destCentroid?.lat
+  const destLon = parsed.destLon ?? destCentroid?.lon
+
+  if (originLat == null || originLon == null || destLat == null || destLon == null) {
+    return res.json({ trips: [], busDataAvailable: true })
+  }
 
   // Check route cache
   const cacheKey = `${originLat.toFixed(4)}_${originLon.toFixed(4)}_${destLat.toFixed(4)}_${destLon.toFixed(4)}_${originStation}_${destStation}`
