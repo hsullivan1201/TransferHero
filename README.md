@@ -29,6 +29,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 - Fort Totten (Red ↔ Yellow/Green)
 
 ### Other features
+- Save frequently-used trips for quick access (stored locally in your browser, never sent to a server)
 - Car position diagrams based on real platform exit data (243 exits)
 - "Already on a train?" mode -select a departed train to see what you can still catch
 - Accessibility mode (prioritizes elevator exits)
@@ -68,7 +69,7 @@ TransferHero/
 ### Install
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/hsullivan1201/TransferHero.git
 cd TransferHero
 npm install
 ```

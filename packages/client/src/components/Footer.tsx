@@ -32,7 +32,7 @@ export function Footer() {
                 Privacy
               </button>
               <a
-                href="https://github.com"
+                href="https://github.com/hsullivan1201/TransferHero"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center gap-1 hover:text-[var(--text-primary)] transition-colors"
