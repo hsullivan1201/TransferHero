@@ -309,19 +309,24 @@ export function BusTripDetail({
   const busWait = useMemo((): number | null => {
     if (isMetroBus) {
       // Metro→Bus: estimate from arrival at bus stop
-      if (!busPredictions || busPredictions.length === 0) return null
-      if (estimatedArrivalAtBusStop == null) return null
+      if (!busPredictions || busPredictions.length === 0)
+        return busLeg.scheduledWaitMinutes ?? null
+      if (estimatedArrivalAtBusStop == null)
+        return busLeg.scheduledWaitMinutes ?? null
       const catchable = busPredictions.find(p => p.minutes >= estimatedArrivalAtBusStop - 1)
-      return catchable ? Math.max(0, Math.round(catchable.minutes - estimatedArrivalAtBusStop)) : null
+      return catchable
+        ? Math.max(0, Math.round(catchable.minutes - estimatedArrivalAtBusStop))
+        : busLeg.scheduledWaitMinutes ?? null
     }
     // Bus→Metro: deterministic when bus is selected
     if (selectedBusDeparture) {
       return Math.max(0, selectedBusDeparture.minutesFromNow - busLeg.boardWalkMinutes)
     }
-    // Fallback: use first prediction
-    if (!busPredictions || busPredictions.length === 0) return null
+    // Fallback: use first prediction, then schedule
+    if (!busPredictions || busPredictions.length === 0)
+      return busLeg.scheduledWaitMinutes ?? null
     return Math.max(0, Math.round(busPredictions[0].minutes - busLeg.boardWalkMinutes))
-  }, [busPredictions, isMetroBus, estimatedArrivalAtBusStop, busLeg.boardWalkMinutes, selectedBusDeparture])
+  }, [busPredictions, isMetroBus, estimatedArrivalAtBusStop, busLeg.boardWalkMinutes, busLeg.scheduledWaitMinutes, selectedBusDeparture])
 
   const originWalk = isMetroBus ? (originPlaceContext?.walkTimeMinutes ?? null) : null
   const destWalk = !isMetroBus ? (destPlaceContext?.walkTimeMinutes ?? null) : null

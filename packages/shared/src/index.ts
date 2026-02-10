@@ -246,6 +246,8 @@ export interface BusLeg {
   scheduledDepartures?: BusScheduledDeparture[]
   /** GTFS-based ride time in minutes (more accurate than estimatedRideMinutes) */
   scheduledRideMinutes?: number
+  /** GTFS-based bus wait time in minutes (used as fallback when no real-time predictions) */
+  scheduledWaitMinutes?: number
 }
 
 export interface HybridTrip {

@@ -13,7 +13,7 @@ const GRID_FACTOR = 1.4
 const BUS_MIN_PER_STOP = 1 // DC urban average (~10-12mph, stops every 1-2 blocks)
 const MAX_RESULTS = 5
 const MAX_SEARCH_STOPS = 5 // check up to 5 Metro-connected stops per route direction
-const AVG_METRO_WAIT = 5 // fallback wait for metro when no schedule data
+const AVG_METRO_WAIT = 3 // half of typical ~6 min headway
 const AVG_BUS_WAIT = 8 // fallback bus wait when no schedule data
 const DEFAULT_TRANSFER_WALK = 2 // minutes to walk between platforms
 
@@ -441,6 +441,7 @@ function rankCandidates(
         nearestExitLon: c.nearestExitLon,
         scheduledDepartures: scheduledDepartures.length > 0 ? scheduledDepartures : undefined,
         scheduledRideMinutes,
+        scheduledWaitMinutes: nextBus ? busWaitMinutes : undefined,
       },
       totalTimeMinutes,
     })
