@@ -857,6 +857,7 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                       .map(s => ({ type: 'sched' as const, min: s.minutesFromNow, data: s })),
                   ]
                     .sort((a, b) => a.min - b.min)
+                    .slice(0, selectedDeparture ? undefined : 3)
                     .map((item, i) => item.type === 'rt' ? (
                     <div
                       key={`rt-${i}`}
