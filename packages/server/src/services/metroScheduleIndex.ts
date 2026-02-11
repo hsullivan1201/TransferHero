@@ -265,16 +265,16 @@ function lowerBound(deps: MetroDeparture[], targetSec: number): number {
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
- * Load metro schedule data (call at startup after GTFS files are available).
+ * Load metro schedule data and eagerly build the index.
+ * Call at startup after GTFS files are available.
+ * Building eagerly avoids blocking the event loop during a request.
  */
 export function loadMetroScheduleData(): void {
   try {
-    // Verify files exist by trying to read calendar_dates header
-    readFileSync(resolve(GTFS_DIR, 'calendar_dates.txt'), 'utf-8')
-    readFileSync(resolve(GTFS_DIR, 'trips.txt'), 'utf-8')
-    readFileSync(resolve(GTFS_DIR, 'stop_times.txt'), 'utf-8')
+    const testPath = resolve(GTFS_DIR, 'calendar_dates.txt')
+    readFileSync(testPath, { encoding: 'utf-8', flag: 'r' }).slice(0, 1) // existence check only
     dataLoaded = true
-    console.log('[MetroSchedule] GTFS files available, index will build on first query')
+    ensureIndex() // Build now, not on first request
   } catch {
     console.warn('[MetroSchedule] Metro GTFS files not yet available')
     dataLoaded = false
