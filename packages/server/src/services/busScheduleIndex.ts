@@ -8,6 +8,37 @@ interface StopDeparture {
   directionId: number
 }
 
+/**
+ * Get current date/time in Eastern Time (America/New_York).
+ * WMATA GTFS departure times are in ET, so all schedule comparisons must use ET.
+ * Avoids relying on server system timezone (often UTC in cloud deployments).
+ */
+function getEasternTime(): { date: Date; nowSec: number; dateStr: string } {
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)!.value)
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  const hour = get('hour') % 24 // Intl may return 24 for midnight
+  const minute = get('minute')
+  const second = get('second')
+
+  const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+  const nowSec = hour * 3600 + minute * 60 + second
+
+  // Create Date with ET values for day-of-week / date comparisons
+  const date = new Date(year, month - 1, day, hour, minute, second)
+
+  return { date, nowSec, dateStr }
+}
+
 interface ScheduleIndex {
   date: string // YYYY-MM-DD, rebuild on day change
   activeServiceIds: Set<string>
@@ -91,17 +122,16 @@ function computeActiveServices(date: Date): Set<string> {
  * Build or rebuild the schedule index. Lazy — only called on first query or day change.
  */
 function ensureScheduleIndex(): ScheduleIndex {
-  const now = new Date()
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+  const et = getEasternTime()
 
-  if (index && index.date === todayStr) {
+  if (index && index.date === et.dateStr) {
     return index
   }
 
-  console.log(`[BusSchedule] Building schedule index for ${todayStr}...`)
+  console.log(`[BusSchedule] Building schedule index for ${et.dateStr}...`)
   const startMs = Date.now()
 
-  const activeServiceIds = computeActiveServices(now)
+  const activeServiceIds = computeActiveServices(et.date)
   const trips = getBusTrips()
   const tripStopTimes = getBusTripStopTimes()
 
@@ -135,7 +165,7 @@ function ensureScheduleIndex(): ScheduleIndex {
     deps.sort((a, b) => a.depSec - b.depSec)
   }
 
-  index = { date: todayStr, activeServiceIds, stopDepartures }
+  index = { date: et.dateStr, activeServiceIds, stopDepartures }
 
   const elapsed = Date.now() - startMs
   console.log(`[BusSchedule] Index built in ${elapsed}ms: ${activeServiceIds.size} active services, ${stopDepartures.size} stops with departures`)
@@ -177,8 +207,7 @@ export function getNextScheduledDepartures(
   const deps = idx.stopDepartures.get(stopId)
   if (!deps || deps.length === 0) return []
 
-  const now = new Date()
-  const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+  const { nowSec } = getEasternTime()
   const searchFromSec = nowSec + afterMinFromNow * 60
 
   const startIdx = lowerBound(deps, searchFromSec)
@@ -214,8 +243,7 @@ export function getNextDeparture(
   const deps = idx.stopDepartures.get(stopId)
   if (!deps || deps.length === 0) return null
 
-  const now = new Date()
-  const nowSec = now.getHours() * 3600 + now.getMinutes() * 60 + now.getSeconds()
+  const { nowSec } = getEasternTime()
   const searchFromSec = nowSec + afterMinFromNow * 60
 
   const startIdx = lowerBound(deps, searchFromSec)
