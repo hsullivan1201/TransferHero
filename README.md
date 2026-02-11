@@ -40,7 +40,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 
 **Frontend**: React 18, TypeScript, Vite, Tailwind CSS 4, TanStack Query
 
-**Backend**: Express, TypeScript, Protobuf.js (for GTFS-RT), Zod
+**Backend**: Express, TypeScript, Protobuf.js (for GTFS-RT), better-sqlite3, Zod
 
 **APIs**: WMATA (trains + buses), Google Places (geocoding), Google Directions (walking)
 
@@ -146,6 +146,14 @@ cd packages/server && npm start
 | DCMetroStationExits dataset | Car position recommendations (243 exits) |
 
 The server refreshes GTFS data daily. Bus predictions are cached for 15s, train data for 30s.
+
+## Bus schedule storage
+
+Metro+Bus mode shows ~7 route options with time estimates. Hitting the WMATA API for each one would be too slow and eat through rate limits, so the server queries local GTFS schedules instead. Live predictions are only fetched when you tap into a specific trip. This also covers buses that aren't GPS-tracked.
+
+The GTFS feed has ~97k trips and 500k+ stop_times—way too much for memory (OOM'd the server at 1GB+ RSS). So trips and stop_times go into a SQLite database (`better-sqlite3`), streamed from the GTFS zip on startup. Only today's active services are indexed (~12k trips). Small stuff (stops, routes, calendar) stays in memory.
+
+The DB rebuilds every 24h and swaps atomically. WAL mode on, mmap off to keep RSS predictable (~300MB).
 
 ## Contributing
 
