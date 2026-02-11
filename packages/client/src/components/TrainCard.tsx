@@ -35,9 +35,7 @@ export const TrainCard = memo(function TrainCard({
   
   const clockTime = isDeparted && train._transferArrivalTime
     ? train._transferArrivalTime
-    : isCatchableTrain(train)
-      ? minutesToClockTime(trainMin)
-      : train._destArrivalTime || minutesToClockTime(trainMin)
+    : minutesToClockTime(trainMin)
 
   // handles 5, '5', and whatever creative string shows up
   let minDisplay = ''
