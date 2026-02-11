@@ -1,16 +1,28 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { Header, Footer, EmptyState, TripSelector, TripView, ModeToggle, BusTripList, SavedTripsList } from './components'
 import { useStations, useTrip, useLeg2, useTripState } from './hooks/useTrip'
 import { useBusTrips } from './hooks/useBusTrips'
 import { useSavedTrips, type SavedTrip } from './hooks/useSavedTrips'
 import type { Station, PlaceContext } from '@transferhero/shared'
 
+// Override TanStack Query's focus detection to use Page Visibility API
+// instead of window focus/blur events (more reliable, especially on mobile).
+// Combined with refetchIntervalInBackground: false (the default), this pauses
+// polling when the tab is hidden and fires an immediate refetch on return.
+focusManager.setEventListener((handleFocus) => {
+  const onVisibilityChange = () => {
+    handleFocus(document.visibilityState === 'visible')
+  }
+  document.addEventListener('visibilitychange', onVisibilityChange)
+  return () => document.removeEventListener('visibilitychange', onVisibilityChange)
+})
+
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
       retry: 2,
-      refetchOnWindowFocus: false,
+      refetchOnWindowFocus: true,
     },
   },
 })
