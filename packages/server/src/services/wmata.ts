@@ -310,17 +310,20 @@ export function enrichTrainsWithDestinationArrival(
 }
 
 /**
- * Fetch predictions at destination and match to origin trains
- * WMATA realtime is preferred for displayed times, GTFS-RT used as fallback
- * 
+ * Fetch predictions at destination and match to origin trains.
+ * GTFS-RT trip ID match is tried first (exact), then WMATA prediction matching.
+ *
  * @param prefetchedPredictions - Optional pre-fetched predictions to avoid redundant API calls
+ * @param expectedTravelTime - Optional expected travel time in minutes; tightens the WMATA
+ *   matching window to [expected-5, expected+10] and sorts by proximity instead of earliest
  */
 export async function fetchDestinationArrivals(
   originTrains: Train[],
   destinationCode: string,
   apiKey: string,
   gtfsEntities?: any[],
-  prefetchedPredictions?: Train[]
+  prefetchedPredictions?: Train[],
+  expectedTravelTime?: number
 ): Promise<Train[]> {
   // reuse prefetched predictions if we have them; otherwise fetch (cache helps)
   const destPredictions = prefetchedPredictions ?? await fetchStationPredictions(destinationCode, apiKey)
@@ -328,10 +331,25 @@ export async function fetchDestinationArrivals(
   return originTrains.map(train => {
     const originMin = getTrainMinutes(train.Min)
 
-    // prefer WMATA realtime at destination first
-    // match by line + destination within a sane travel window
-    const minTravelTime = 2  // at least 2 minutes between any two stations
-    const maxTravelTime = 45 // cap it so we don't pair nonsense trips
+    // prefer GTFS-RT trip ID match first (exact train tracking, most reliable)
+    if (gtfsEntities && train._tripId) {
+      const arrivalData = getArrivalAtStation(gtfsEntities, train._tripId, destinationCode)
+      if (arrivalData) {
+        const arrivalDate = new Date(arrivalData.timestamp)
+        return {
+          ...train,
+          _destArrivalMin: arrivalData.minutes,
+          _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
+          _destArrivalTimestamp: arrivalData.timestamp,
+          _realtimeSource: 'gtfs-rt' as const
+        }
+      }
+    }
+
+    // fallback: WMATA realtime matching by line + destination within a travel window
+    // when expectedTravelTime is provided, tighten the window (trains can be delayed but rarely early)
+    const minTravelTime = expectedTravelTime ? Math.max(2, expectedTravelTime - 5) : 2
+    const maxTravelTime = expectedTravelTime ? expectedTravelTime + 10 : 45
 
     const matchingTrains = destPredictions.filter(destTrain => {
       if (destTrain.Line !== train.Line) return false
@@ -346,8 +364,18 @@ export async function fetchDestinationArrivals(
     })
 
     if (matchingTrains.length > 0) {
-      // sort by arrival time and grab the first
-      matchingTrains.sort((a, b) => getTrainMinutes(a.Min) - getTrainMinutes(b.Min))
+      if (expectedTravelTime) {
+        // sort by proximity to expected travel time (closest match first)
+        matchingTrains.sort((a, b) => {
+          const aTravelTime = getTrainMinutes(a.Min) - originMin
+          const bTravelTime = getTrainMinutes(b.Min) - originMin
+          return Math.abs(aTravelTime - expectedTravelTime) - Math.abs(bTravelTime - expectedTravelTime)
+        })
+      } else {
+        // no expected time: sort by earliest arrival (original behavior)
+        matchingTrains.sort((a, b) => getTrainMinutes(a.Min) - getTrainMinutes(b.Min))
+      }
+
       const matched = matchingTrains[0]
       const destArrivalMin = getTrainMinutes(matched.Min)
 
@@ -360,21 +388,6 @@ export async function fetchDestinationArrivals(
         _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
         _destArrivalTimestamp: arrivalTimestamp,
         _realtimeSource: 'wmata' as const
-      }
-    }
-
-    // fallback: use GTFS-RT tripId if WMATA didn't have a match
-    if (gtfsEntities && train._tripId) {
-      const arrivalData = getArrivalAtStation(gtfsEntities, train._tripId, destinationCode)
-      if (arrivalData) {
-        const arrivalDate = new Date(arrivalData.timestamp)
-        return {
-          ...train,
-          _destArrivalMin: arrivalData.minutes,
-          _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
-          _destArrivalTimestamp: arrivalData.timestamp,
-          _realtimeSource: 'gtfs-rt' as const
-        }
       }
     }
 

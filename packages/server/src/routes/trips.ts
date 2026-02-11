@@ -203,12 +203,14 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     })
 
     // add realtime destination arrivals (using prefetched destPreds to avoid another call)
+    const directTravelTime = calculateRouteTravelTime(from, to, sharedLines[0])
     const trainsWithArrival = await fetchDestinationArrivals(
       mergedTrains,
       to,
       apiKey,
       gtfsEntities,
-      destPreds  // Prefetched predictions
+      destPreds,  // Prefetched predictions
+      directTravelTime
     )
 
     let sortedTrains = sortTrains(trainsWithArrival)
@@ -330,12 +332,14 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     })
 
     // reuse transferPreds so we don't refetch
+    const leg1ExpectedTime = calculateRouteTravelTime(from, currentTransfer.fromPlatform, currentTransfer.fromLine!)
     const leg1WithTransferArrival = await fetchDestinationArrivals(
       leg1MergedTrains,
       currentTransfer.fromPlatform,
       apiKey,
       gtfsEntities,
-      transferPreds  // Prefetched transfer station predictions
+      transferPreds,  // Prefetched transfer station predictions
+      leg1ExpectedTime
     )
 
     const leg1WithBothArrivals = leg1WithTransferArrival.map(train => ({
@@ -387,12 +391,14 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     })
 
     // reuse destPreds so we don't refetch
+    const leg2ExpectedTime = calculateRouteTravelTime(currentTransfer.toPlatform, to, currentTransfer.toLine!)
     const leg2WithArrival = await fetchDestinationArrivals(
       leg2MergedTrains,
       to,
       apiKey,
       gtfsEntities,
-      destPreds  // Prefetched destination predictions
+      destPreds,  // Prefetched destination predictions
+      leg2ExpectedTime
     )
     const leg2SortedTrains = sortTrains(leg2WithArrival)
 
@@ -593,20 +599,21 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
     scheduledTrains
   })
 
+  // leg 2 travel time (used for both matching window and fallback)
+  const leg2TravelTimeFallback = transfer.leg2Time || calculateRouteTravelTime(
+    transfer.toPlatform,
+    to,
+    transfer.toLine!
+  )
+
   // add realtime arrival at the final destination (reusing destPreds)
   const trainsWithArrival = await fetchDestinationArrivals(
     mergedTrains,
     to,
     apiKey,
     gtfsEntities,
-    destPreds  // Prefetched destination predictions
-  )
-
-  // leg 2 travel time fallback for trains without realtime data
-  const leg2TravelTimeFallback = transfer.leg2Time || calculateRouteTravelTime(
-    transfer.toPlatform,
-    to,
-    transfer.toLine!
+    destPreds,  // Prefetched destination predictions
+    leg2TravelTimeFallback
   )
 
   // calculate catchability for each train
