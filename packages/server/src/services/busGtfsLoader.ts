@@ -73,6 +73,51 @@ function getApiKey(): string {
 }
 
 /**
+ * Get current date in Eastern Time as a Date object.
+ * WMATA GTFS uses ET for all schedule data.
+ */
+function getEasternDate(): Date {
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour12: false,
+  }).formatToParts(now)
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)!.value)
+  return new Date(get('year'), get('month') - 1, get('day'))
+}
+
+/**
+ * Compute active service IDs for a date, using the provided calendar data.
+ * (Can't use the module-level caches because they haven't been swapped yet during parsing.)
+ */
+function computeActiveServicesForDate(
+  date: Date,
+  calendar: Map<string, BusCalendarEntry>,
+  calendarDates: Map<string, BusCalendarException[]>,
+): Set<string> {
+  const dateNum = date.getFullYear() * 10000 + (date.getMonth() + 1) * 100 + date.getDate()
+  const jsDay = date.getDay()
+  const dayIdx = jsDay === 0 ? 6 : jsDay - 1 // Mon=0..Sun=6
+
+  const active = new Set<string>()
+  for (const [serviceId, entry] of calendar) {
+    if (dateNum >= entry.startDate && dateNum <= entry.endDate && entry.days[dayIdx]) {
+      active.add(serviceId)
+    }
+  }
+  for (const [serviceId, exceptions] of calendarDates) {
+    for (const ex of exceptions) {
+      if (ex.date === dateNum) {
+        if (ex.added) active.add(serviceId)
+        else active.delete(serviceId)
+      }
+    }
+  }
+  return active
+}
+
+/**
  * Parse HH:MM:SS (possibly >24:00:00) to seconds since midnight
  */
 function parseTimeToSeconds(timeStr: string): number {
@@ -278,26 +323,48 @@ async function downloadAndParse(): Promise<void> {
   // Free zip buffer + extracted file buffers — no longer needed
   files.clear()
 
+  // Compute active services for today + tomorrow (for late-night lookups)
+  const today = getEasternDate()
+  const tomorrow = new Date(today)
+  tomorrow.setDate(tomorrow.getDate() + 1)
+  const activeServices = computeActiveServicesForDate(today, newCalendar, newCalendarDates)
+  const tomorrowServices = computeActiveServicesForDate(tomorrow, newCalendar, newCalendarDates)
+  for (const s of tomorrowServices) activeServices.add(s)
+  console.log(`[BusGTFS] Active services (today+tomorrow): ${[...activeServices].join(', ')}`)
+
+  // Filter trips to active services only — reduces DB from ~400MB to ~50-100MB
+  const activeTripIds = new Set<string>()
+  const filteredTrips = new Map<string, BusTrip>()
+  for (const [tripId, trip] of parsedTrips) {
+    if (activeServices.has(trip.serviceId)) {
+      filteredTrips.set(tripId, trip)
+      activeTripIds.add(tripId)
+    }
+  }
+  console.log(`[BusGTFS] Filtered trips: ${filteredTrips.size} of ${parsedTrips.size} (${activeServices.size} active services)`)
+  parsedTrips.clear()  // Free full set — no longer needed
+
   // --- SQLite: create temp DB and insert trips + stop_times ---
   console.log('[BusGTFS] Creating SQLite database...')
   const newDb = createDatabase(DB_PATH_NEW)
 
-  // Insert all trips in a single transaction
+  // Insert filtered trips in a single transaction
   const insertTrip = newDb.prepare(
     'INSERT INTO trips (trip_id, route_id, direction_id, headsign, service_id) VALUES (?, ?, ?, ?, ?)'
   )
-  const tripCount = parsedTrips.size
+  const tripCount = filteredTrips.size
   const insertTrips = newDb.transaction((trips: Map<string, BusTrip>) => {
     for (const [tripId, trip] of trips) {
       insertTrip.run(tripId, trip.routeId, trip.directionId, trip.headsign, trip.serviceId)
     }
   })
-  insertTrips(parsedTrips)
-  parsedTrips.clear()  // Free ~15MB — no longer needed
+  insertTrips(filteredTrips)
+  filteredTrips.clear()
   console.log(`[BusGTFS] Inserted ${tripCount} trips into SQLite`)
 
-  // Stream stop_times.txt into SQLite in batches
+  // Stream stop_times.txt into SQLite — only for active trips
   let stopTimeCount = 0
+  let skippedStopTimes = 0
   if (stopTimesFile) {
     const insertStopTime = newDb.prepare(
       'INSERT INTO stop_times (trip_id, stop_id, seq, dep_sec) VALUES (?, ?, ?, ?)'
@@ -314,6 +381,7 @@ async function downloadAndParse(): Promise<void> {
       stopTimesFile.stream()
         .pipe(csv())
         .on('data', (row: StopTimeRow) => {
+          if (!activeTripIds.has(row.trip_id)) { skippedStopTimes++; return }
           const seq = parseInt(row.stop_sequence)
           if (isNaN(seq)) return
           const depSec = parseTimeToSeconds(row.departure_time)
@@ -332,7 +400,8 @@ async function downloadAndParse(): Promise<void> {
         .on('error', reject)
     })
   }
-  console.log(`[BusGTFS] Inserted ${stopTimeCount} stop_times into SQLite`)
+  activeTripIds.clear()  // Free trip ID set
+  console.log(`[BusGTFS] Inserted ${stopTimeCount} stop_times into SQLite (skipped ${skippedStopTimes})`)
 
   // Create indexes after bulk insert
   console.log('[BusGTFS] Creating indexes...')
