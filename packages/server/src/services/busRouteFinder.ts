@@ -202,6 +202,11 @@ export function findMetroBusTrips(
     ? haversineMeters(originLat, originLon, originCentroid.lat, originCentroid.lon)
     : 0
 
+  // If the origin is too far from the metro station to walk (e.g. bus-connected
+  // origins), metro-bus trips are impractical — the user needs a bus to reach
+  // the station first, which is the bus-metro pattern instead.
+  if (outsideWalkMeters > 2000) return []
+
   return rankCandidates(candidates, 'metro-bus', originStationCode, outsideWalkMeters)
 }
 

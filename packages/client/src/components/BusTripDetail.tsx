@@ -328,7 +328,8 @@ export function BusTripDetail({
     return Math.max(0, Math.round(busPredictions[0].minutes - busLeg.boardWalkMinutes))
   }, [busPredictions, isMetroBus, estimatedArrivalAtBusStop, busLeg.boardWalkMinutes, busLeg.scheduledWaitMinutes, selectedBusDeparture])
 
-  const originWalk = isMetroBus ? (originPlaceContext?.walkTimeMinutes ?? null) : null
+  // For bus-connected origins, walkTimeMinutes is the bus-stop walk, not the metro walk — exclude it
+  const originWalk = isMetroBus && !originPlaceContext?.busOnly ? (originPlaceContext?.walkTimeMinutes ?? null) : null
   const destWalk = !isMetroBus ? (destPlaceContext?.walkTimeMinutes ?? null) : null
 
   // Build metro segments for total time (leg1 + transfer walk + leg2 wait + leg2 ride, or direct ride)
@@ -383,8 +384,8 @@ export function BusTripDetail({
         </div>
       </div>
 
-      {/* Walking card: origin place → first station (metro-bus only) */}
-      {isMetroBus && originPlaceContext && (
+      {/* Walking card: origin place → first station (metro-bus only, skip for bus-connected origins) */}
+      {isMetroBus && originPlaceContext && !originPlaceContext.busOnly && (
         <WalkingCard context={originPlaceContext} />
       )}
 
