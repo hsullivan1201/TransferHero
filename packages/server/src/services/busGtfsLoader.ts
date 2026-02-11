@@ -115,7 +115,7 @@ function createDatabase(dbPath: string): Database.Database {
   newDb.pragma('journal_mode = WAL')
   newDb.pragma('synchronous = OFF')     // temp DB — rebuilt on restart
   newDb.pragma('cache_size = -8192')     // 8MB cache
-  newDb.pragma('mmap_size = 268435456')  // 256MB mmap
+  newDb.pragma('mmap_size = 0')           // disable mmap — OS page cache is sufficient
 
   newDb.exec(`
     CREATE TABLE trips (
@@ -275,6 +275,9 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
+  // Free zip buffer + extracted file buffers — no longer needed
+  files.clear()
+
   // --- SQLite: create temp DB and insert trips + stop_times ---
   console.log('[BusGTFS] Creating SQLite database...')
   const newDb = createDatabase(DB_PATH_NEW)
@@ -283,13 +286,15 @@ async function downloadAndParse(): Promise<void> {
   const insertTrip = newDb.prepare(
     'INSERT INTO trips (trip_id, route_id, direction_id, headsign, service_id) VALUES (?, ?, ?, ?, ?)'
   )
+  const tripCount = parsedTrips.size
   const insertTrips = newDb.transaction((trips: Map<string, BusTrip>) => {
     for (const [tripId, trip] of trips) {
       insertTrip.run(tripId, trip.routeId, trip.directionId, trip.headsign, trip.serviceId)
     }
   })
   insertTrips(parsedTrips)
-  console.log(`[BusGTFS] Inserted ${parsedTrips.size} trips into SQLite`)
+  parsedTrips.clear()  // Free ~15MB — no longer needed
+  console.log(`[BusGTFS] Inserted ${tripCount} trips into SQLite`)
 
   // Stream stop_times.txt into SQLite in batches
   let stopTimeCount = 0
@@ -405,7 +410,7 @@ async function downloadAndParse(): Promise<void> {
   invalidateScheduleIndex()
   invalidateHeadsignCache()
 
-  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${parsedTrips.size} trips (SQLite), ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${stopTimeCount} stop_times (SQLite)`)
+  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${tripCount} trips (SQLite), ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${stopTimeCount} stop_times (SQLite)`)
 }
 
 /**
