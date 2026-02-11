@@ -1,5 +1,5 @@
 import type { BusStop, HybridTrip } from '@transferhero/shared'
-import { getBusRoutes, getRouteStopSequences, getStopRoutes, getBusStops, getBusTrips } from './busGtfsLoader.js'
+import { getBusRoutes, getRouteStopSequences, getStopRoutes, getBusStops, getBusDb } from './busGtfsLoader.js'
 import { queryNearbyStops, getBusStopStations, haversineMeters } from './busStopIndex.js'
 import { getNextScheduledDepartures, getScheduledRideMinutes, getNextDeparture } from './busScheduleIndex.js'
 import { findTransfer } from './pathfinding.js'
@@ -85,17 +85,30 @@ function estimateWalkMinutes(meters: number): number {
   return Math.max(1, Math.round((meters * GRID_FACTOR) / (WALK_SPEED_MPS * 60)))
 }
 
-/**
- * Build a lookup: routeId+directionId → headsign (from first matching trip)
- */
+// Cached headsign lookup — rebuilt from SQLite after each GTFS refresh
+let headsignCache: Map<string, string> | null = null
+
+export function invalidateHeadsignCache(): void {
+  headsignCache = null
+}
+
 function buildHeadsignLookup(): Map<string, string> {
+  if (headsignCache) return headsignCache
+
+  const busDb = getBusDb()
+  if (!busDb) return new Map()
+
+  const rows = busDb.prepare(`
+    SELECT route_id || '_' || direction_id AS key, headsign
+    FROM trips GROUP BY route_id, direction_id
+  `).all() as { key: string; headsign: string }[]
+
   const lookup = new Map<string, string>()
-  for (const trip of getBusTrips().values()) {
-    const key = `${trip.routeId}_${trip.directionId}`
-    if (!lookup.has(key)) {
-      lookup.set(key, trip.headsign)
-    }
+  for (const row of rows) {
+    lookup.set(row.key, row.headsign)
   }
+
+  headsignCache = lookup
   return lookup
 }
 

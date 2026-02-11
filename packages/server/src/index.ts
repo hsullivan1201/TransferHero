@@ -23,7 +23,6 @@ import { initGtfsRefreshJob } from './jobs/gtfsRefresh.js'
 
 // bus data
 import { loadBusGtfs } from './services/busGtfsLoader.js'
-import { eagerBuildScheduleIndex } from './services/busScheduleIndex.js'
 import { buildSpatialIndex, buildStationProximity } from './services/busStopIndex.js'
 import { loadStationExits } from './services/stationService.js'
 
@@ -94,15 +93,23 @@ app.listen(PORT, () => {
 
   // kick off the gtfs refresh cron if we're not testing
   if (process.env.NODE_ENV !== 'test') {
+    const logMemory = (label: string) => {
+      const mem = process.memoryUsage()
+      console.log(`[Memory] ${label}: RSS=${(mem.rss / 1024 / 1024).toFixed(0)}MB heap=${(mem.heapUsed / 1024 / 1024).toFixed(0)}/${(mem.heapTotal / 1024 / 1024).toFixed(0)}MB`)
+    }
+
+    logMemory('boot')
+
     // GTFS refresh must complete first — on a fresh deploy, it downloads stops.txt
     // which stationService and the bus proximity map both need
     initGtfsRefreshJob()
-      .then(() => loadStationExits())
+      .then(() => { logMemory('after metro GTFS'); return loadStationExits() })
       .then(() => loadBusGtfs())
       .then(() => {
-        eagerBuildScheduleIndex()
+        logMemory('after bus GTFS')
         buildSpatialIndex()
         buildStationProximity()
+        logMemory('startup complete')
       })
       .catch(err => {
         console.warn('[Startup] Data load failed — bus features disabled:', err)

@@ -1,9 +1,12 @@
 import fetch from 'node-fetch'
 import unzipper from 'unzipper'
 import csv from 'csv-parser'
+import fs from 'fs'
 import { Readable } from 'stream'
+import Database from 'better-sqlite3'
 import type { BusStop } from '@transferhero/shared'
 import { invalidateScheduleIndex } from './busScheduleIndex.js'
+import { invalidateHeadsignCache } from './busRouteFinder.js'
 
 // Parsed GTFS data structures
 export interface BusRoute {
@@ -43,21 +46,25 @@ interface StopTimeRow {
   departure_time: string
 }
 
-// In-memory caches
+// In-memory caches (small data — kept in memory)
 let busStops = new Map<string, BusStop>()
 let busRoutes = new Map<string, BusRoute>()
-let busTrips = new Map<string, BusTrip>()
 let routeStopSequences = new Map<string, string[]>()
 let stopRoutes = new Map<string, Set<string>>()
 let busCalendar = new Map<string, BusCalendarEntry>()
 let busCalendarDates = new Map<string, BusCalendarException[]>()
-let busTripStopTimes = new Map<string, StopTimeEntry[]>()
+
+// SQLite database (trips + stop_times — big data)
+let db: Database.Database | null = null
+const DB_PATH = '/tmp/transferhero-bus-gtfs.db'
+const DB_PATH_NEW = '/tmp/transferhero-bus-gtfs.db.new'
 
 let loaded = false
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 
 const GTFS_URL = 'https://api.wmata.com/gtfs/bus-gtfs-static.zip'
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
+const INSERT_BATCH_SIZE = 5000
 
 function getApiKey(): string {
   const key = process.env.WMATA_API_KEY
@@ -94,64 +101,53 @@ function parseCsv<T>(buffer: Buffer): Promise<T[]> {
 }
 
 /**
- * Compute which trip IDs are active today, so we can skip storing
- * stop times for inactive trips (saves ~200MB of RAM).
+ * Create a new SQLite database with the GTFS schema.
+ * Tables are created without indexes; indexes are added after bulk inserts.
  */
-function computeActiveTripIds(
-  trips: Map<string, BusTrip>,
-  calendar: Map<string, BusCalendarEntry>,
-  calendarDates: Map<string, BusCalendarException[]>
-): Set<string> {
-  // Get today's date in Eastern Time
-  const now = new Date()
-  const parts = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/New_York',
-    year: 'numeric', month: '2-digit', day: '2-digit',
-  }).formatToParts(now)
+function createDatabase(dbPath: string): Database.Database {
+  // Remove any existing file at this path
+  try { fs.unlinkSync(dbPath); } catch { /* ignore if not exists */ }
+  // Also clean up WAL/SHM files from prior runs
+  try { fs.unlinkSync(dbPath + '-wal'); } catch { /* ignore */ }
+  try { fs.unlinkSync(dbPath + '-shm'); } catch { /* ignore */ }
 
-  const get = (type: string) => parseInt(parts.find(p => p.type === type)!.value)
-  const year = get('year')
-  const month = get('month')
-  const day = get('day')
-  const dateNum = year * 10000 + month * 100 + day
-  const date = new Date(year, month - 1, day)
-  const jsDay = date.getDay()
-  const dayIdx = jsDay === 0 ? 6 : jsDay - 1
+  const newDb = new Database(dbPath)
+  newDb.pragma('journal_mode = WAL')
+  newDb.pragma('synchronous = OFF')     // temp DB — rebuilt on restart
+  newDb.pragma('cache_size = -8192')     // 8MB cache
+  newDb.pragma('mmap_size = 268435456')  // 256MB mmap
 
-  // Find active services for today AND tomorrow
-  // (covers day-of-week transitions between bus GTFS refreshes)
-  const tomorrow = new Date(year, month - 1, day + 1)
-  const tomorrowDateNum = tomorrow.getFullYear() * 10000 + (tomorrow.getMonth() + 1) * 100 + tomorrow.getDate()
-  const tomorrowJsDay = tomorrow.getDay()
-  const tomorrowDayIdx = tomorrowJsDay === 0 ? 6 : tomorrowJsDay - 1
+  newDb.exec(`
+    CREATE TABLE trips (
+      trip_id TEXT PRIMARY KEY,
+      route_id TEXT NOT NULL,
+      direction_id INTEGER NOT NULL,
+      headsign TEXT NOT NULL DEFAULT '',
+      service_id TEXT NOT NULL
+    );
 
-  const activeServices = new Set<string>()
-  for (const [serviceId, entry] of calendar) {
-    const todayActive = dateNum >= entry.startDate && dateNum <= entry.endDate && entry.days[dayIdx]
-    const tomorrowActive = tomorrowDateNum >= entry.startDate && tomorrowDateNum <= entry.endDate && entry.days[tomorrowDayIdx]
-    if (todayActive || tomorrowActive) {
-      activeServices.add(serviceId)
-    }
-  }
-  for (const [serviceId, exceptions] of calendarDates) {
-    for (const ex of exceptions) {
-      if (ex.date === dateNum || ex.date === tomorrowDateNum) {
-        if (ex.added) activeServices.add(serviceId)
-        else activeServices.delete(serviceId)
-      }
-    }
-  }
+    CREATE TABLE stop_times (
+      trip_id TEXT NOT NULL,
+      stop_id TEXT NOT NULL,
+      seq INTEGER NOT NULL,
+      dep_sec INTEGER NOT NULL,
+      PRIMARY KEY (trip_id, seq)
+    );
+  `)
 
-  // Collect trip IDs belonging to active services
-  const active = new Set<string>()
-  for (const [tripId, trip] of trips) {
-    if (activeServices.has(trip.serviceId)) {
-      active.add(tripId)
-    }
-  }
+  return newDb
+}
 
-  console.log(`[BusGTFS] Active service filter: ${activeServices.size} services, ${active.size}/${trips.size} trips active today`)
-  return active
+/**
+ * Add indexes after bulk inserts (faster than indexing during insert)
+ */
+function createIndexes(targetDb: Database.Database): void {
+  targetDb.exec(`
+    CREATE INDEX idx_trips_service ON trips(service_id);
+    CREATE INDEX idx_trips_route_dir ON trips(route_id, direction_id);
+    CREATE INDEX idx_st_stop_dep ON stop_times(stop_id, dep_sec, trip_id);
+    CREATE INDEX idx_st_trip_stop ON stop_times(trip_id, stop_id, dep_sec);
+  `)
 }
 
 /**
@@ -173,8 +169,6 @@ async function downloadAndParse(): Promise<void> {
   const buffer = Buffer.from(arrayBuffer)
 
   // Extract needed files from ZIP
-  // Small files are buffered; stop_times.txt is streamed later to avoid OOM
-  // (stop_times.txt decompresses to ~100MB+ and parsing it into JS objects spikes even higher)
   const files = new Map<string, Buffer>()
   const smallFiles = new Set(['stops.txt', 'routes.txt', 'trips.txt', 'calendar.txt', 'calendar_dates.txt'])
 
@@ -196,7 +190,6 @@ async function downloadAndParse(): Promise<void> {
   if (files.has('stops.txt')) {
     const rows = await parseCsv<{ stop_id: string; stop_code: string; stop_name: string; stop_lat: string; stop_lon: string; location_type?: string }>(files.get('stops.txt')!)
     for (const row of rows) {
-      // location_type 0 or empty = stop/platform (not station parent)
       const locType = row.location_type || '0'
       if (locType !== '0' && locType !== '') continue
       const lat = parseFloat(row.stop_lat)
@@ -225,12 +218,12 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
-  // Parse trips.txt
-  const newTrips = new Map<string, BusTrip>()
+  // Parse trips.txt into a temporary Map (needed for calendar lookup + SQLite insert)
+  const parsedTrips = new Map<string, BusTrip>()
   if (files.has('trips.txt')) {
     const rows = await parseCsv<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string; service_id: string }>(files.get('trips.txt')!)
     for (const row of rows) {
-      newTrips.set(row.trip_id, {
+      parsedTrips.set(row.trip_id, {
         routeId: row.route_id,
         directionId: parseInt(row.direction_id) || 0,
         headsign: row.trip_headsign || '',
@@ -282,92 +275,137 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
-  // Compute today's active services so we can skip inactive trip stop times
-  // (97k trips → ~12k active, saves ~200MB of RAM)
-  const activeTripIds = computeActiveTripIds(newTrips, newCalendar, newCalendarDates)
+  // --- SQLite: create temp DB and insert trips + stop_times ---
+  console.log('[BusGTFS] Creating SQLite database...')
+  const newDb = createDatabase(DB_PATH_NEW)
 
-  // Parse stop_times.txt → build route stop sequences + stop→routes index + retain active stop times
-  // Streamed directly from zip entry to avoid buffering the huge file in memory
-  const newRouteStopSequences = new Map<string, string[]>()
-  const newStopRoutes = new Map<string, Set<string>>()
-  const newTripStopTimes = new Map<string, StopTimeEntry[]>()
-  let skippedTrips = 0
+  // Insert all trips in a single transaction
+  const insertTrip = newDb.prepare(
+    'INSERT INTO trips (trip_id, route_id, direction_id, headsign, service_id) VALUES (?, ?, ?, ?, ?)'
+  )
+  const insertTrips = newDb.transaction((trips: Map<string, BusTrip>) => {
+    for (const [tripId, trip] of trips) {
+      insertTrip.run(tripId, trip.routeId, trip.directionId, trip.headsign, trip.serviceId)
+    }
+  })
+  insertTrips(parsedTrips)
+  console.log(`[BusGTFS] Inserted ${parsedTrips.size} trips into SQLite`)
 
+  // Stream stop_times.txt into SQLite in batches
+  let stopTimeCount = 0
   if (stopTimesFile) {
-    // Stream from zip entry through csv-parser directly into the map
+    const insertStopTime = newDb.prepare(
+      'INSERT INTO stop_times (trip_id, stop_id, seq, dep_sec) VALUES (?, ?, ?, ?)'
+    )
+    const insertBatch = newDb.transaction((batch: [string, string, number, number][]) => {
+      for (const row of batch) {
+        insertStopTime.run(row[0], row[1], row[2], row[3])
+      }
+    })
+
+    let batch: [string, string, number, number][] = []
+
     await new Promise<void>((resolve, reject) => {
       stopTimesFile.stream()
         .pipe(csv())
         .on('data', (row: StopTimeRow) => {
-          // Only store stop times for today's active trips to save memory
-          if (!activeTripIds.has(row.trip_id)) {
-            skippedTrips++
-            return
-          }
           const seq = parseInt(row.stop_sequence)
           if (isNaN(seq)) return
           const depSec = parseTimeToSeconds(row.departure_time)
-          const entry: StopTimeEntry = { stopId: row.stop_id, seq, depSec }
-          const existing = newTripStopTimes.get(row.trip_id)
-          if (existing) {
-            existing.push(entry)
-          } else {
-            newTripStopTimes.set(row.trip_id, [entry])
+          if (depSec < 0) return
+          batch.push([row.trip_id, row.stop_id, seq, depSec])
+          stopTimeCount++
+          if (batch.length >= INSERT_BATCH_SIZE) {
+            insertBatch(batch)
+            batch = []
           }
         })
-        .on('end', () => resolve())
+        .on('end', () => {
+          if (batch.length > 0) insertBatch(batch)
+          resolve()
+        })
         .on('error', reject)
     })
+  }
+  console.log(`[BusGTFS] Inserted ${stopTimeCount} stop_times into SQLite`)
 
-    // Sort each trip's stop times by sequence
-    for (const stops of newTripStopTimes.values()) {
-      stops.sort((a, b) => a.seq - b.seq)
-    }
+  // Create indexes after bulk insert
+  console.log('[BusGTFS] Creating indexes...')
+  createIndexes(newDb)
 
-    // Build sequences per route+direction and stop→routes index.
-    // WMATA routes often have multiple trip patterns (short-turns, express,
-    // time-of-day variants). We use the LONGEST active trip as the representative
-    // sequence (most stops = full pattern), and build the stop→routes index
-    // from active trips so only running routes are discoverable.
-    for (const [tripId, stopTimes] of newTripStopTimes) {
-      const trip = newTrips.get(tripId)
-      if (!trip) continue
+  // Build routeStopSequences + stopRoutes from SQLite
+  // Use the longest trip per route+direction as the representative sequence
+  const newRouteStopSequences = new Map<string, string[]>()
+  const newStopRoutes = new Map<string, Set<string>>()
 
-      const key = `${trip.routeId}_${trip.directionId}`
+  const longestTrips = newDb.prepare(`
+    SELECT t.route_id, t.direction_id, st.trip_id, COUNT(*) as cnt
+    FROM stop_times st JOIN trips t ON st.trip_id = t.trip_id
+    GROUP BY st.trip_id
+    ORDER BY t.route_id, t.direction_id, cnt DESC
+  `).all() as { route_id: string; direction_id: number; trip_id: string; cnt: number }[]
 
-      // Use longest trip as representative sequence for this route+direction
-      const existing = newRouteStopSequences.get(key)
-      if (!existing || stopTimes.length > existing.length) {
-        newRouteStopSequences.set(key, stopTimes.map(st => st.stopId))
-      }
-
-      // Build stop→routes reverse index from active trips
-      for (const st of stopTimes) {
-        let routes = newStopRoutes.get(st.stopId)
-        if (!routes) {
-          routes = new Set()
-          newStopRoutes.set(st.stopId, routes)
-        }
-        routes.add(trip.routeId)
-      }
-    }
+  const seenKeys = new Set<string>()
+  const getStopSeq = newDb.prepare(
+    'SELECT stop_id FROM stop_times WHERE trip_id = ? ORDER BY seq'
+  )
+  for (const row of longestTrips) {
+    const key = `${row.route_id}_${row.direction_id}`
+    if (seenKeys.has(key)) continue
+    seenKeys.add(key)
+    const stops = (getStopSeq.all(row.trip_id) as { stop_id: string }[]).map(r => r.stop_id)
+    newRouteStopSequences.set(key, stops)
   }
 
-  // Atomic swap
+  // Build stop→routes reverse index
+  const stopRouteRows = newDb.prepare(`
+    SELECT DISTINCT st.stop_id, t.route_id
+    FROM stop_times st JOIN trips t ON st.trip_id = t.trip_id
+  `).all() as { stop_id: string; route_id: string }[]
+
+  for (const row of stopRouteRows) {
+    let routes = newStopRoutes.get(row.stop_id)
+    if (!routes) {
+      routes = new Set()
+      newStopRoutes.set(row.stop_id, routes)
+    }
+    routes.add(row.route_id)
+  }
+
+  // Atomic swap: assign new DB, close old
+  const oldDb = db
+  db = newDb
+  if (oldDb) {
+    try { oldDb.close(); } catch { /* ignore */ }
+  }
+  // Rename temp DB files over live path
+  // Since we already assigned the new handle, the live path is just for cleanup on next run
+  try {
+    if (fs.existsSync(DB_PATH)) {
+      fs.unlinkSync(DB_PATH)
+    }
+    fs.renameSync(DB_PATH_NEW, DB_PATH)
+    // Move WAL/SHM too if they exist
+    try { if (fs.existsSync(DB_PATH_NEW + '-wal')) fs.renameSync(DB_PATH_NEW + '-wal', DB_PATH + '-wal'); } catch { /* ignore */ }
+    try { if (fs.existsSync(DB_PATH_NEW + '-shm')) fs.renameSync(DB_PATH_NEW + '-shm', DB_PATH + '-shm'); } catch { /* ignore */ }
+  } catch {
+    // Non-fatal — DB handle is already pointing to the right file
+  }
+
+  // Swap in-memory caches
   busStops = newStops
   busRoutes = newRoutes
-  busTrips = newTrips
   routeStopSequences = newRouteStopSequences
   stopRoutes = newStopRoutes
   busCalendar = newCalendar
   busCalendarDates = newCalendarDates
-  busTripStopTimes = newTripStopTimes
   loaded = true
 
-  // Schedule index was built from old data — force rebuild on next query
+  // Invalidate caches that depend on the old data
   invalidateScheduleIndex()
+  invalidateHeadsignCache()
 
-  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${newTripStopTimes.size} trip stop times (${skippedTrips} inactive rows skipped)`)
+  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${parsedTrips.size} trips (SQLite), ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${stopTimeCount} stop_times (SQLite)`)
 }
 
 /**
@@ -395,9 +433,8 @@ export async function loadBusGtfs(): Promise<void> {
 export function isBusDataLoaded(): boolean { return loaded }
 export function getBusStops(): Map<string, BusStop> { return busStops }
 export function getBusRoutes(): Map<string, BusRoute> { return busRoutes }
-export function getBusTrips(): Map<string, BusTrip> { return busTrips }
 export function getRouteStopSequences(): Map<string, string[]> { return routeStopSequences }
 export function getStopRoutes(): Map<string, Set<string>> { return stopRoutes }
 export function getBusCalendar(): Map<string, BusCalendarEntry> { return busCalendar }
 export function getBusCalendarDates(): Map<string, BusCalendarException[]> { return busCalendarDates }
-export function getBusTripStopTimes(): Map<string, StopTimeEntry[]> { return busTripStopTimes }
+export function getBusDb(): Database.Database | null { return db }

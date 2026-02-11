@@ -1,5 +1,5 @@
 import type { BusScheduledDeparture } from '@transferhero/shared'
-import { getBusCalendar, getBusCalendarDates, getBusTrips, getBusTripStopTimes } from './busGtfsLoader.js'
+import { getBusCalendar, getBusCalendarDates, getBusDb } from './busGtfsLoader.js'
 
 interface StopDeparture {
   depSec: number
@@ -39,30 +39,6 @@ function getEasternTime(): { date: Date; nowSec: number; dateStr: string } {
   return { date, nowSec, dateStr }
 }
 
-interface ScheduleIndex {
-  date: string // YYYY-MM-DD, rebuild on day change
-  activeServiceIds: Set<string>
-  stopDepartures: Map<string, StopDeparture[]> // stopId → sorted departures
-}
-
-let index: ScheduleIndex | null = null
-
-/**
- * Invalidate the cached schedule index (e.g. after a GTFS data refresh).
- * Next query will rebuild from fresh data.
- */
-export function invalidateScheduleIndex(): void {
-  index = null
-}
-
-/**
- * Eagerly build the schedule index at startup.
- * Avoids blocking the event loop on the first bus request.
- */
-export function eagerBuildScheduleIndex(): void {
-  ensureScheduleIndex()
-}
-
 /**
  * Format YYYYMMDD number from a Date
  */
@@ -83,7 +59,6 @@ function getGtfsDayIndex(d: Date): number {
  * Format seconds since midnight to "h:mm AM/PM"
  */
 function formatTime(sec: number): string {
-  // Normalize >24h times
   const normalizedSec = sec % 86400
   const h = Math.floor(normalizedSec / 3600)
   const m = Math.floor((normalizedSec % 3600) / 60)
@@ -103,14 +78,12 @@ function computeActiveServices(date: Date): Set<string> {
 
   const active = new Set<string>()
 
-  // Base: calendar.txt regular services
   for (const [serviceId, entry] of calendar) {
     if (dateNum >= entry.startDate && dateNum <= entry.endDate && entry.days[dayIdx]) {
       active.add(serviceId)
     }
   }
 
-  // Exceptions: calendar_dates.txt
   for (const [serviceId, exceptions] of calendarDates) {
     for (const ex of exceptions) {
       if (ex.date === dateNum) {
@@ -126,82 +99,66 @@ function computeActiveServices(date: Date): Set<string> {
   return active
 }
 
+// Cached service state: active service IDs + SQL IN clause fragment, rebuilt once per day
+interface ServiceState {
+  dateStr: string
+  activeServiceIds: Set<string>
+  serviceParams: string[]  // Array of active service IDs for SQL binding
+  inClause: string         // Pre-built "?,?,?" placeholder string
+}
+
+let cached: ServiceState | null = null
+
 /**
- * Build or rebuild the schedule index. Lazy — only called on first query or day change.
+ * Invalidate the cached service state (e.g. after a GTFS data refresh).
+ * Next query will rebuild from fresh data.
  */
-function ensureScheduleIndex(): ScheduleIndex {
-  const et = getEasternTime()
-
-  if (index && index.date === et.dateStr) {
-    return index
-  }
-
-  console.log(`[BusSchedule] Building schedule index for ${et.dateStr}...`)
-  const startMs = Date.now()
-
-  const activeServiceIds = computeActiveServices(et.date)
-  const trips = getBusTrips()
-  const tripStopTimes = getBusTripStopTimes()
-
-  const stopDepartures = new Map<string, StopDeparture[]>()
-
-  for (const [tripId, trip] of trips) {
-    if (!activeServiceIds.has(trip.serviceId)) continue
-
-    const stopTimes = tripStopTimes.get(tripId)
-    if (!stopTimes) continue
-
-    for (const st of stopTimes) {
-      if (st.depSec < 0) continue // invalid time
-      const entry: StopDeparture = {
-        depSec: st.depSec,
-        tripId,
-        routeId: trip.routeId,
-        directionId: trip.directionId,
-      }
-      const existing = stopDepartures.get(st.stopId)
-      if (existing) {
-        existing.push(entry)
-      } else {
-        stopDepartures.set(st.stopId, [entry])
-      }
-    }
-  }
-
-  // Sort each stop's departures by time
-  for (const deps of stopDepartures.values()) {
-    deps.sort((a, b) => a.depSec - b.depSec)
-  }
-
-  index = { date: et.dateStr, activeServiceIds, stopDepartures }
-
-  const elapsed = Date.now() - startMs
-  console.log(`[BusSchedule] Index built in ${elapsed}ms: ${activeServiceIds.size} active services, ${stopDepartures.size} stops with departures`)
-
-  return index
+export function invalidateScheduleIndex(): void {
+  cached = null
 }
 
 /**
- * Binary search for the first departure at or after `targetSec` in sorted array
+ * Ensure we have today's active service IDs computed.
+ * Rebuilds on day change or after invalidation.
  */
-function lowerBound(deps: StopDeparture[], targetSec: number): number {
-  let lo = 0
-  let hi = deps.length
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1
-    if (deps[mid].depSec < targetSec) {
-      lo = mid + 1
-    } else {
-      hi = mid
-    }
+function ensureServiceState(): ServiceState | null {
+  const busDb = getBusDb()
+  if (!busDb) return null
+
+  const et = getEasternTime()
+
+  if (cached && cached.dateStr === et.dateStr) {
+    return cached
   }
-  return lo
+
+  console.log(`[BusSchedule] Building service state for ${et.dateStr}...`)
+  const startMs = Date.now()
+
+  const activeServiceIds = computeActiveServices(et.date)
+  if (activeServiceIds.size === 0) {
+    console.log('[BusSchedule] No active services today')
+    return null
+  }
+
+  const serviceParams = Array.from(activeServiceIds)
+  const inClause = serviceParams.map(() => '?').join(',')
+
+  cached = {
+    dateStr: et.dateStr,
+    activeServiceIds,
+    serviceParams,
+    inClause,
+  }
+
+  const elapsed = Date.now() - startMs
+  console.log(`[BusSchedule] Service state built in ${elapsed}ms: ${activeServiceIds.size} active services`)
+
+  return cached
 }
 
 /**
  * Get next scheduled departures for a stop+route+direction.
  * @param afterMinFromNow — only return departures at least this many minutes from now
- *   (e.g. if the user won't arrive at the stop for 15 min, pass 15)
  */
 export function getNextScheduledDepartures(
   stopId: string,
@@ -211,18 +168,28 @@ export function getNextScheduledDepartures(
   afterMinFromNow: number = 0,
   extraRouteIds?: Set<string>,
 ): BusScheduledDeparture[] {
-  const idx = ensureScheduleIndex()
-  const deps = idx.stopDepartures.get(stopId)
-  if (!deps || deps.length === 0) return []
+  const state = ensureServiceState()
+  if (!state) return []
 
   const { nowSec } = getEasternTime()
   const searchFromSec = nowSec + afterMinFromNow * 60
 
-  const startIdx = lowerBound(deps, searchFromSec)
+  // Fetch generous number of candidates to filter route/direction in JS
+  const fetchLimit = limit * 20
+  const busDb = getBusDb()!
+
+  const rows = busDb.prepare(`
+    SELECT st.dep_sec AS depSec, st.trip_id AS tripId, t.route_id AS routeId, t.direction_id AS directionId
+    FROM stop_times st JOIN trips t ON st.trip_id = t.trip_id
+    WHERE st.stop_id = ? AND st.dep_sec >= ? AND t.service_id IN (${state.inClause})
+    ORDER BY st.dep_sec
+    LIMIT ?
+  `).all(stopId, searchFromSec, ...state.serviceParams, fetchLimit) as StopDeparture[]
+
   const results: BusScheduledDeparture[] = []
 
-  for (let i = startIdx; i < deps.length && results.length < limit; i++) {
-    const d = deps[i]
+  for (const d of rows) {
+    if (results.length >= limit) break
     const routeMatch = d.routeId === routeId || (extraRouteIds != null && extraRouteIds.has(d.routeId))
     if (routeMatch && d.directionId === directionId) {
       results.push({
@@ -237,8 +204,7 @@ export function getNextScheduledDepartures(
 
 /**
  * Get the next departure (full detail) at a stop for a route+direction.
- * Returns tripId, depSec, and wait time. Used for ride time lookups and
- * computing realistic bus wait in trip estimates.
+ * Returns tripId, depSec, and wait time.
  * @param afterMinFromNow — search from this many minutes in the future
  */
 export function getNextDeparture(
@@ -247,17 +213,24 @@ export function getNextDeparture(
   directionId: number,
   afterMinFromNow: number = 0
 ): { tripId: string; depSec: number; minutesFromNow: number } | null {
-  const idx = ensureScheduleIndex()
-  const deps = idx.stopDepartures.get(stopId)
-  if (!deps || deps.length === 0) return null
+  const state = ensureServiceState()
+  if (!state) return null
 
   const { nowSec } = getEasternTime()
   const searchFromSec = nowSec + afterMinFromNow * 60
 
-  const startIdx = lowerBound(deps, searchFromSec)
+  const busDb = getBusDb()!
 
-  for (let i = startIdx; i < deps.length; i++) {
-    const d = deps[i]
+  // A stop typically has ~200 departures/day, so fetching a batch is fast
+  const rows = busDb.prepare(`
+    SELECT st.dep_sec AS depSec, st.trip_id AS tripId, t.route_id AS routeId, t.direction_id AS directionId
+    FROM stop_times st JOIN trips t ON st.trip_id = t.trip_id
+    WHERE st.stop_id = ? AND st.dep_sec >= ? AND t.service_id IN (${state.inClause})
+    ORDER BY st.dep_sec
+    LIMIT 100
+  `).all(stopId, searchFromSec, ...state.serviceParams) as StopDeparture[]
+
+  for (const d of rows) {
     if (d.routeId === routeId && d.directionId === directionId) {
       return {
         tripId: d.tripId,
@@ -278,16 +251,21 @@ export function getScheduledRideMinutes(
   boardStopId: string,
   alightStopId: string
 ): number | null {
-  const tripStopTimes = getBusTripStopTimes()
-  const stopTimes = tripStopTimes.get(tripId)
-  if (!stopTimes) return null
+  const busDb = getBusDb()
+  if (!busDb) return null
+
+  const rows = busDb.prepare(`
+    SELECT stop_id, dep_sec FROM stop_times
+    WHERE trip_id = ? AND stop_id IN (?, ?)
+    ORDER BY seq
+  `).all(tripId, boardStopId, alightStopId) as { stop_id: string; dep_sec: number }[]
 
   let boardSec: number | null = null
   let alightSec: number | null = null
 
-  for (const st of stopTimes) {
-    if (st.stopId === boardStopId && boardSec === null) boardSec = st.depSec
-    if (st.stopId === alightStopId && alightSec === null) alightSec = st.depSec
+  for (const row of rows) {
+    if (row.stop_id === boardStopId && boardSec === null) boardSec = row.dep_sec
+    if (row.stop_id === alightStopId && alightSec === null) alightSec = row.dep_sec
   }
 
   if (boardSec === null || alightSec === null || boardSec < 0 || alightSec < 0) return null
