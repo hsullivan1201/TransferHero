@@ -4,6 +4,7 @@ import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getTrainMinutes } from '@transferhero/shared'
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
 import { getStaticTrips } from '../data/staticTrips.js'
+import { getScheduledTrains } from '../data/scheduleData.js'
 import { findTransfer, getAllTerminiForStation } from '../services/pathfinding.js'
 import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from '../services/travelTime.js'
 import { mergeTrainData, sortTrains } from '../services/trainMerger.js'
@@ -193,9 +194,11 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
     )
     const gtfsTrains = gtfsTrainArrays.flat()
 
+    const scheduledTrains = getScheduledTrains(from, terminus, 35)
     const mergedTrains = mergeTrainData({
       apiTrains: apiFiltered,
-      gtfsTrains: gtfsTrains
+      gtfsTrains: gtfsTrains,
+      scheduledTrains
     })
 
     // add realtime destination arrivals (using prefetched destPreds to avoid another call)
@@ -318,9 +321,11 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       parseUpdatesToTrains(gtfsEntities, platform, terminusFirst, staticTrips, leg1AllowedLines)
     )
     const leg1GtfsTrains = leg1GtfsTrainArrays.flat()
+    const leg1ScheduledTrains = getScheduledTrains(from, terminusFirst, 35)
     const leg1MergedTrains = mergeTrainData({
       apiTrains: leg1ApiFiltered,
-      gtfsTrains: leg1GtfsTrains
+      gtfsTrains: leg1GtfsTrains,
+      scheduledTrains: leg1ScheduledTrains
     })
 
     // reuse transferPreds so we don't refetch
@@ -373,9 +378,11 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
       || (currentTransfer.toLine ? [currentTransfer.toLine] : undefined)
     const leg2ApiFiltered = filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
     const leg2GtfsTrains = parseUpdatesToTrains(gtfsEntities, currentTransfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
+    const leg2ScheduledTrains = getScheduledTrains(currentTransfer.toPlatform, terminusSecond, 35)
     const leg2MergedTrains = mergeTrainData({
       apiTrains: leg2ApiFiltered,
-      gtfsTrains: leg2GtfsTrains
+      gtfsTrains: leg2GtfsTrains,
+      scheduledTrains: leg2ScheduledTrains
     })
 
     // reuse destPreds so we don't refetch
@@ -571,9 +578,11 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   const apiFiltered = filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
   const gtfsTrains = parseUpdatesToTrains(gtfsEntities, transfer.toPlatform, terminusSecond, staticTrips, leg2AllowedLines)
 
+  const scheduledTrains = getScheduledTrains(transfer.toPlatform, terminusSecond, 35)
   const mergedTrains = mergeTrainData({
     apiTrains: apiFiltered,
-    gtfsTrains: gtfsTrains
+    gtfsTrains: gtfsTrains,
+    scheduledTrains
   })
 
   // add realtime arrival at the final destination (reusing destPreds)

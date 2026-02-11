@@ -30,8 +30,8 @@ export function loadScheduleConfig(): ScheduleConfig {
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
     // try .json first (new format), fall back to .js (legacy)
-    const jsonPath = resolve(__dirname, '../../../../../schedule-data.json')
-    const jsPath = resolve(__dirname, '../../../../../schedule-data.js')
+    const jsonPath = resolve(__dirname, '../../../../schedule-data.json')
+    const jsPath = resolve(__dirname, '../../../../schedule-data.js')
 
     let fileContent: string
     let usingLegacy = false
@@ -92,7 +92,8 @@ function getCurrentMinutes(): number {
 function generateScheduledTrains(
   patternKey: string,
   scheduleConfig: ScheduleConfig,
-  startFromMinutes = 0
+  startFromMinutes = 0,
+  windowMinutes = 60
 ): Train[] {
   const pattern = scheduleConfig.patterns[patternKey]
   if (!pattern) return []
@@ -104,15 +105,17 @@ function generateScheduledTrains(
 
   const trains: Train[] = []
   const searchStart = currentMinutes + startFromMinutes
+  const endMinFromNow = startFromMinutes + windowMinutes
 
   let trainTime = firstTrainMin
   while (trainTime < searchStart && trainTime <= lastTrainMin) {
     trainTime += frequency
   }
 
-  for (let i = 0; i < 8 && trainTime <= lastTrainMin; i++) {
+  while (trainTime <= lastTrainMin) {
     const minFromNow = trainTime - currentMinutes
-    if (minFromNow >= startFromMinutes && minFromNow <= 60) {
+    if (minFromNow > endMinFromNow) break // past the window
+    if (minFromNow >= startFromMinutes) {
       trains.push({
         Line: pattern.line as Line,
         DestinationName: pattern.destination,
@@ -140,25 +143,36 @@ export function getScheduledTrains(
 ): Train[] {
   const scheduleConfig = cachedScheduleConfig ?? loadScheduleConfig()
   const terminusList = ensureArray(terminus)
+  const normalizedTermini = terminusList.map(t => normalizeDestination(t))
   let allTrains: Train[] = []
 
+  const matchesTerminus = (patternDest: string) => {
+    const normalizedPatternDest = normalizeDestination(patternDest)
+    return normalizedTermini.some(term => {
+      if (normalizedPatternDest === term) return true
+      if (normalizedPatternDest.includes(term) || term.includes(normalizedPatternDest)) return true
+      const destFirst = normalizedPatternDest.split(/[\s\-\/]/)[0]
+      const termFirst = term.split(/[\s\-\/]/)[0]
+      return destFirst === termFirst
+    })
+  }
+
+  // Try exact station match first
   for (const [patternKey, pattern] of Object.entries(scheduleConfig.patterns)) {
-    if (pattern.station === stationCode) {
-      // Normalize and match destination names
-      const normalizedPatternDest = normalizeDestination(pattern.destination)
-      const normalizedTermini = terminusList.map(t => normalizeDestination(t))
+    if (pattern.station === stationCode && matchesTerminus(pattern.destination)) {
+      const generatedTrains = generateScheduledTrains(patternKey, scheduleConfig, startFromMinutes)
+      allTrains = allTrains.concat(generatedTrains)
+    }
+  }
 
-      const matches = normalizedTermini.some(term => {
-        if (normalizedPatternDest === term) return true
-        if (normalizedPatternDest.includes(term) || term.includes(normalizedPatternDest)) return true
-        const destFirst = normalizedPatternDest.split(/[\s\-\/]/)[0]
-        const termFirst = term.split(/[\s\-\/]/)[0]
-        return destFirst === termFirst
-      })
-
-      if (matches) {
+  // Fallback: no patterns for this station — use same-line frequency from any station
+  // Metro runs at the same headway across a line, so frequency is transferable
+  if (allTrains.length === 0) {
+    for (const [patternKey, pattern] of Object.entries(scheduleConfig.patterns)) {
+      if (matchesTerminus(pattern.destination)) {
         const generatedTrains = generateScheduledTrains(patternKey, scheduleConfig, startFromMinutes)
         allTrains = allTrains.concat(generatedTrains)
+        break // one matching pattern is enough for frequency
       }
     }
   }
