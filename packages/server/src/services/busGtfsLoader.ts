@@ -114,8 +114,8 @@ function createDatabase(dbPath: string): Database.Database {
   const newDb = new Database(dbPath)
   newDb.pragma('journal_mode = WAL')
   newDb.pragma('synchronous = OFF')     // temp DB — rebuilt on restart
-  newDb.pragma('cache_size = -8192')     // 8MB cache
-  newDb.pragma('mmap_size = 0')           // disable mmap — OS page cache is sufficient
+  newDb.pragma('cache_size = -2048')     // 2MB cache (runtime queries are small)
+  newDb.pragma('mmap_size = 0')           // disable mmap — avoid RSS bloat
 
   newDb.exec(`
     CREATE TABLE trips (
@@ -376,6 +376,10 @@ async function downloadAndParse(): Promise<void> {
     }
     routes.add(row.route_id)
   }
+
+  // Checkpoint WAL into main DB file (eliminates 100MB+ WAL) and release cached pages
+  newDb.pragma('wal_checkpoint(TRUNCATE)')
+  newDb.pragma('shrink_memory')
 
   // Atomic swap: assign new DB, close old
   const oldDb = db
