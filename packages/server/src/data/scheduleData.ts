@@ -2,7 +2,10 @@ import { readFileSync } from 'fs'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
 import type { Train, Line } from '@transferhero/shared'
-import { ensureArray, normalizeDestination } from '@transferhero/shared'
+import { ensureArray, normalizeDestination, getDisplayName } from '@transferhero/shared'
+import { getMetroDepartures } from '../services/metroScheduleIndex.js'
+
+// ── Legacy types (fallback when GTFS not loaded) ───────────────────────
 
 export interface SchedulePattern {
   station: string
@@ -19,17 +22,13 @@ export interface ScheduleConfig {
 
 let cachedScheduleConfig: ScheduleConfig | null = null
 
-/**
- * Load schedule config data from the root schedule-data.js file
- */
-export function loadScheduleConfig(): ScheduleConfig {
-  if (cachedScheduleConfig) {
-    return cachedScheduleConfig
-  }
+// ── Legacy helpers ─────────────────────────────────────────────────────
+
+function loadScheduleConfig(): ScheduleConfig {
+  if (cachedScheduleConfig) return cachedScheduleConfig
 
   try {
     const __dirname = dirname(fileURLToPath(import.meta.url))
-    // try .json first (new format), fall back to .js (legacy)
     const jsonPath = resolve(__dirname, '../../../../schedule-data.json')
     const jsPath = resolve(__dirname, '../../../../schedule-data.js')
 
@@ -43,7 +42,6 @@ export function loadScheduleConfig(): ScheduleConfig {
     }
 
     if (usingLegacy) {
-      // legacy .js format: extract and transform to JSON
       const jsonMatch = fileContent.match(/const\s+SCHEDULE_CONFIG\s*=\s*(\{[\s\S]*?\n\};)/)
       if (!jsonMatch) {
         console.warn('[ScheduleData] Could not parse schedule-data.js format')
@@ -59,37 +57,25 @@ export function loadScheduleConfig(): ScheduleConfig {
       cachedScheduleConfig = JSON.parse(fileContent) as ScheduleConfig
     }
 
-    console.log(`[ScheduleData] Loaded ${Object.keys(cachedScheduleConfig.patterns).length} schedule patterns`)
+    console.log(`[ScheduleData] Loaded ${Object.keys(cachedScheduleConfig.patterns).length} legacy schedule patterns`)
     return cachedScheduleConfig
   } catch (error) {
-    console.error('[ScheduleData] Failed to load schedule data:', error)
-    if (error instanceof Error) {
-      console.error('[ScheduleData] Error details:', error.message)
-    }
+    console.error('[ScheduleData] Failed to load legacy schedule data:', error)
     return { patterns: {} }
   }
 }
 
-/**
- * Convert time string (HH:MM) to minutes since midnight
- */
 function timeToMinutes(timeStr: string): number {
   const [hours, minutes] = timeStr.split(':').map(Number)
   return hours * 60 + minutes
 }
 
-/**
- * Get current minutes since midnight
- */
 function getCurrentMinutes(): number {
   const now = new Date()
   return now.getHours() * 60 + now.getMinutes()
 }
 
-/**
- * Generate scheduled trains for a specific pattern
- */
-function generateScheduledTrains(
+function generateLegacyTrains(
   patternKey: string,
   scheduleConfig: ScheduleConfig,
   startFromMinutes = 0,
@@ -114,7 +100,7 @@ function generateScheduledTrains(
 
   while (trainTime <= lastTrainMin) {
     const minFromNow = trainTime - currentMinutes
-    if (minFromNow > endMinFromNow) break // past the window
+    if (minFromNow > endMinFromNow) break
     if (minFromNow >= startFromMinutes) {
       trains.push({
         Line: pattern.line as Line,
@@ -130,13 +116,7 @@ function generateScheduledTrains(
   return trains
 }
 
-/**
- * Get scheduled trains for a station and terminus
- * @param stationCode - Station code (e.g., 'A01')
- * @param terminus - Terminus destination(s) to filter by
- * @param startFromMinutes - Minimum minutes from now to start search (default: 0)
- */
-export function getScheduledTrains(
+function getLegacyScheduledTrains(
   stationCode: string,
   terminus: string | string[],
   startFromMinutes = 0
@@ -157,26 +137,53 @@ export function getScheduledTrains(
     })
   }
 
-  // Try exact station match first
   for (const [patternKey, pattern] of Object.entries(scheduleConfig.patterns)) {
     if (pattern.station === stationCode && matchesTerminus(pattern.destination)) {
-      const generatedTrains = generateScheduledTrains(patternKey, scheduleConfig, startFromMinutes)
+      const generatedTrains = generateLegacyTrains(patternKey, scheduleConfig, startFromMinutes)
       allTrains = allTrains.concat(generatedTrains)
     }
   }
 
-  // Fallback: no patterns for this station — use same-line frequency from any station
-  // Metro runs at the same headway across a line, so frequency is transferable
   if (allTrains.length === 0) {
     for (const [patternKey, pattern] of Object.entries(scheduleConfig.patterns)) {
       if (matchesTerminus(pattern.destination)) {
-        const generatedTrains = generateScheduledTrains(patternKey, scheduleConfig, startFromMinutes)
+        const generatedTrains = generateLegacyTrains(patternKey, scheduleConfig, startFromMinutes)
         allTrains = allTrains.concat(generatedTrains)
-        break // one matching pattern is enough for frequency
+        break
       }
     }
   }
 
   allTrains.sort((a, b) => parseInt(String(a.Min)) - parseInt(String(b.Min)))
   return allTrains
+}
+
+// ── Public API ─────────────────────────────────────────────────────────
+
+/**
+ * Get scheduled trains for a station and terminus.
+ * Uses real GTFS departure times when available, falls back to legacy frequency-based generation.
+ */
+export function getScheduledTrains(
+  stationCode: string,
+  terminus: string | string[],
+  startFromMinutes = 0
+): Train[] {
+  // Try GTFS-based schedule first
+  const gtfsDepartures = getMetroDepartures(stationCode, terminus, startFromMinutes)
+
+  if (gtfsDepartures.length > 0) {
+    return gtfsDepartures.map(dep => ({
+      Line: dep.line,
+      DestinationName: getDisplayName(dep.headsign),
+      Min: dep.minutesFromNow.toString(),
+      Car: '8',
+      _scheduled: true,
+      _tripId: dep.tripId,
+    }))
+  }
+
+  // Fallback to legacy frequency-based schedule
+  console.log(`[ScheduleData] GTFS miss for ${stationCode}→${terminus}, using legacy schedule`)
+  return getLegacyScheduledTrains(stationCode, terminus, startFromMinutes)
 }

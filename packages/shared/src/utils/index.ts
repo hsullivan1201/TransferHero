@@ -25,10 +25,13 @@ const DESTINATION_ALIASES: Record<string, string> = {
   'vienna': 'vienna',
   'vienna/fairfax-gmu': 'vienna',
   'vienna/fairfax': 'vienna',
+  'vienna fairfax-gmu': 'vienna',
   'ashburn': 'ashburn',
   'largo': 'largo',
+  'downtown largo': 'largo',
   'wiehle': 'wiehle-reston east',
   'wiehle-reston': 'wiehle-reston east',
+  'wiehle reston east': 'wiehle-reston east',
   'franconia-spfld': 'franconia-springfield',
   'franconia': 'franconia-springfield',
   'fr spgfld': 'franconia-springfield',
@@ -65,6 +68,11 @@ const DISPLAY_NAMES: Record<string, string> = {
   'branch ave': 'Branch Ave',
   'huntington': 'Huntington',
   'mt vernon sq': 'Mt Vernon Sq',
+  'dulles airport': 'Dulles Airport',
+  'mclean': 'McLean',
+  'west falls church': 'West Falls Church',
+  'reagan national airport': 'Reagan National Airport',
+  'hyattsville crossing': 'Hyattsville Crossing',
 }
 
 /**

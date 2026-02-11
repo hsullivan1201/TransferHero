@@ -10,6 +10,7 @@ import { fileURLToPath } from 'url'
 import { setGtfsLastUpdated } from '../routes/health.js'
 import { clearAllCache } from '../middleware/cache.js'
 import { loadStationExits } from '../services/stationService.js'
+import { invalidateMetroScheduleIndex, loadMetroScheduleData } from '../services/metroScheduleIndex.js'
 import { ROUTE_TO_LINE } from '@transferhero/shared'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
@@ -107,23 +108,27 @@ async function parseTripsFromZip(zipPath: string): Promise<Map<string, TripInfo>
   })
 }
 
+const METRO_GTFS_FILES = ['stops.txt', 'trips.txt', 'stop_times.txt', 'calendar_dates.txt']
+
 /**
- * extract stops.txt from the GTFS zip so exitParser can use it
+ * extract required GTFS files from the zip for exit parser and schedule index
  */
-async function extractStopsFromZip(zipPath: string): Promise<void> {
+async function extractFilesFromZip(zipPath: string): Promise<void> {
   const gtfsDir = resolve(__dirname, '../../../../metro-gtfs')
   if (!existsSync(gtfsDir)) {
     mkdirSync(gtfsDir, { recursive: true })
   }
-  const stopsPath = resolve(gtfsDir, 'stops.txt')
+
+  const needed = new Set(METRO_GTFS_FILES)
 
   return new Promise((res, rej) => {
     createReadStream(zipPath)
       .pipe(Parse())
       .on('entry', (entry) => {
-        if (entry.path === 'stops.txt') {
-          entry.pipe(createWriteStream(stopsPath))
-            .on('finish', () => console.log(`[GTFS Refresh] Extracted stops.txt to ${stopsPath}`))
+        if (needed.has(entry.path)) {
+          const outPath = resolve(gtfsDir, entry.path)
+          entry.pipe(createWriteStream(outPath))
+            .on('finish', () => console.log(`[GTFS Refresh] Extracted ${entry.path}`))
             .on('error', rej)
         } else {
           entry.autodrain()
@@ -187,9 +192,13 @@ async function refreshGtfs(): Promise<void> {
     // write static trips file
     await writeStaticTripsFile(trips)
 
-    // extract stops.txt for the exit resolver
-    await extractStopsFromZip(zipPath)
+    // extract GTFS files for exit resolver and schedule index
+    await extractFilesFromZip(zipPath)
     await loadStationExits(true)
+
+    // invalidate metro schedule index so it rebuilds from fresh data
+    invalidateMetroScheduleIndex()
+    loadMetroScheduleData()
 
     // clear caches
     clearAllCache()
@@ -245,8 +254,11 @@ export function initGtfsRefreshJob(): Promise<void> {
 async function checkAndRefreshIfStale(): Promise<void> {
   try {
     const staticTripsPath = resolve(__dirname, '../../../../../static-trips.json')
-    const stopsPath = resolve(__dirname, '../../../../metro-gtfs/stops.txt')
-    if (!existsSync(staticTripsPath) || !existsSync(stopsPath)) {
+    const gtfsDir = resolve(__dirname, '../../../../metro-gtfs')
+    const requiredFiles = [staticTripsPath, ...METRO_GTFS_FILES.map(f => resolve(gtfsDir, f))]
+    const missingFiles = requiredFiles.filter(f => !existsSync(f))
+
+    if (missingFiles.length > 0) {
       console.log('[GTFS Refresh] missing data files, running initial refresh...')
       await refreshGtfs()
       return
@@ -261,6 +273,8 @@ async function checkAndRefreshIfStale(): Promise<void> {
       await refreshGtfs()
     } else {
       console.log(`[GTFS Refresh] static-trips.json is ${ageHours.toFixed(1)}h old, still fresh`)
+      // Data is fresh — just tell the schedule index files are available
+      loadMetroScheduleData()
     }
   } catch (error) {
     console.error('[GTFS Refresh] Error checking staleness:', error)
