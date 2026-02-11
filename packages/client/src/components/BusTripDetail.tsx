@@ -181,10 +181,11 @@ export function BusTripDetail({
       }
     })
 
-    // filter to only catchable trains, sort live first then by departure
+    // sort catchable first, then live-first, then by departure time
     return annotated
-      .filter(t => t._canCatch)
       .sort((a, b) => {
+        // catchable trains always before missed ones
+        if (a._canCatch !== b._canCatch) return a._canCatch ? -1 : 1
         const aIsLive = !a._scheduled
         const bIsLive = !b._scheduled
         if (aIsLive !== bIsLive) return aIsLive ? -1 : 1

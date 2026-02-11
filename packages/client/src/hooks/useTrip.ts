@@ -54,7 +54,7 @@ export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation,
     queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, accessible, showDeparted],
     queryFn: () => {
       const currentDepartureMin = departureTimestamp
-        ? Math.round((departureTimestamp - Date.now()) / 60000)
+        ? Math.max(-120, Math.round((departureTimestamp - Date.now()) / 60000))
         : 0
 
       return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible, showDeparted)
