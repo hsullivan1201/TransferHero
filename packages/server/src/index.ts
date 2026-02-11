@@ -23,6 +23,7 @@ import { initGtfsRefreshJob } from './jobs/gtfsRefresh.js'
 
 // bus data
 import { loadBusGtfs } from './services/busGtfsLoader.js'
+import { eagerBuildScheduleIndex } from './services/busScheduleIndex.js'
 import { buildSpatialIndex, buildStationProximity } from './services/busStopIndex.js'
 import { loadStationExits } from './services/stationService.js'
 
@@ -99,6 +100,7 @@ app.listen(PORT, () => {
       .then(() => loadStationExits())
       .then(() => loadBusGtfs())
       .then(() => {
+        eagerBuildScheduleIndex()
         buildSpatialIndex()
         buildStationProximity()
       })

@@ -56,6 +56,14 @@ export function invalidateScheduleIndex(): void {
 }
 
 /**
+ * Eagerly build the schedule index at startup.
+ * Avoids blocking the event loop on the first bus request.
+ */
+export function eagerBuildScheduleIndex(): void {
+  ensureScheduleIndex()
+}
+
+/**
  * Format YYYYMMDD number from a Date
  */
 function toYYYYMMDD(d: Date): number {

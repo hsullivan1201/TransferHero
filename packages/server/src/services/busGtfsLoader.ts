@@ -94,6 +94,67 @@ function parseCsv<T>(buffer: Buffer): Promise<T[]> {
 }
 
 /**
+ * Compute which trip IDs are active today, so we can skip storing
+ * stop times for inactive trips (saves ~200MB of RAM).
+ */
+function computeActiveTripIds(
+  trips: Map<string, BusTrip>,
+  calendar: Map<string, BusCalendarEntry>,
+  calendarDates: Map<string, BusCalendarException[]>
+): Set<string> {
+  // Get today's date in Eastern Time
+  const now = new Date()
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)
+
+  const get = (type: string) => parseInt(parts.find(p => p.type === type)!.value)
+  const year = get('year')
+  const month = get('month')
+  const day = get('day')
+  const dateNum = year * 10000 + month * 100 + day
+  const date = new Date(year, month - 1, day)
+  const jsDay = date.getDay()
+  const dayIdx = jsDay === 0 ? 6 : jsDay - 1
+
+  // Find active services for today AND tomorrow
+  // (covers day-of-week transitions between bus GTFS refreshes)
+  const tomorrow = new Date(year, month - 1, day + 1)
+  const tomorrowDateNum = tomorrow.getFullYear() * 10000 + (tomorrow.getMonth() + 1) * 100 + tomorrow.getDate()
+  const tomorrowJsDay = tomorrow.getDay()
+  const tomorrowDayIdx = tomorrowJsDay === 0 ? 6 : tomorrowJsDay - 1
+
+  const activeServices = new Set<string>()
+  for (const [serviceId, entry] of calendar) {
+    const todayActive = dateNum >= entry.startDate && dateNum <= entry.endDate && entry.days[dayIdx]
+    const tomorrowActive = tomorrowDateNum >= entry.startDate && tomorrowDateNum <= entry.endDate && entry.days[tomorrowDayIdx]
+    if (todayActive || tomorrowActive) {
+      activeServices.add(serviceId)
+    }
+  }
+  for (const [serviceId, exceptions] of calendarDates) {
+    for (const ex of exceptions) {
+      if (ex.date === dateNum || ex.date === tomorrowDateNum) {
+        if (ex.added) activeServices.add(serviceId)
+        else activeServices.delete(serviceId)
+      }
+    }
+  }
+
+  // Collect trip IDs belonging to active services
+  const active = new Set<string>()
+  for (const [tripId, trip] of trips) {
+    if (activeServices.has(trip.serviceId)) {
+      active.add(tripId)
+    }
+  }
+
+  console.log(`[BusGTFS] Active service filter: ${activeServices.size} services, ${active.size}/${trips.size} trips active today`)
+  return active
+}
+
+/**
  * Download and parse WMATA bus GTFS feed
  */
 async function downloadAndParse(): Promise<void> {
@@ -221,11 +282,16 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
-  // Parse stop_times.txt → build route stop sequences + stop→routes index + retain full stop times
+  // Compute today's active services so we can skip inactive trip stop times
+  // (97k trips → ~12k active, saves ~200MB of RAM)
+  const activeTripIds = computeActiveTripIds(newTrips, newCalendar, newCalendarDates)
+
+  // Parse stop_times.txt → build route stop sequences + stop→routes index + retain active stop times
   // Streamed directly from zip entry to avoid buffering the huge file in memory
   const newRouteStopSequences = new Map<string, string[]>()
   const newStopRoutes = new Map<string, Set<string>>()
   const newTripStopTimes = new Map<string, StopTimeEntry[]>()
+  let skippedTrips = 0
 
   if (stopTimesFile) {
     // Stream from zip entry through csv-parser directly into the map
@@ -233,6 +299,11 @@ async function downloadAndParse(): Promise<void> {
       stopTimesFile.stream()
         .pipe(csv())
         .on('data', (row: StopTimeRow) => {
+          // Only store stop times for today's active trips to save memory
+          if (!activeTripIds.has(row.trip_id)) {
+            skippedTrips++
+            return
+          }
           const seq = parseInt(row.stop_sequence)
           if (isNaN(seq)) return
           const depSec = parseTimeToSeconds(row.departure_time)
@@ -255,9 +326,9 @@ async function downloadAndParse(): Promise<void> {
 
     // Build sequences per route+direction and stop→routes index.
     // WMATA routes often have multiple trip patterns (short-turns, express,
-    // time-of-day variants). We use the LONGEST trip as the representative
+    // time-of-day variants). We use the LONGEST active trip as the representative
     // sequence (most stops = full pattern), and build the stop→routes index
-    // from ALL trips so every stop is discoverable.
+    // from active trips so only running routes are discoverable.
     for (const [tripId, stopTimes] of newTripStopTimes) {
       const trip = newTrips.get(tripId)
       if (!trip) continue
@@ -270,7 +341,7 @@ async function downloadAndParse(): Promise<void> {
         newRouteStopSequences.set(key, stopTimes.map(st => st.stopId))
       }
 
-      // Build stop→routes reverse index from ALL trips
+      // Build stop→routes reverse index from active trips
       for (const st of stopTimes) {
         let routes = newStopRoutes.get(st.stopId)
         if (!routes) {
@@ -296,7 +367,7 @@ async function downloadAndParse(): Promise<void> {
   // Schedule index was built from old data — force rebuild on next query
   invalidateScheduleIndex()
 
-  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${newTripStopTimes.size} trip stop times`)
+  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${newTrips.size} trips, ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${newTripStopTimes.size} trip stop times (${skippedTrips} inactive rows skipped)`)
 }
 
 /**

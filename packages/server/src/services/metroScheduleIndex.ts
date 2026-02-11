@@ -17,7 +17,7 @@ interface MetroDeparture {
 }
 
 interface MetroScheduleIndex {
-  date: string // YYYY-MM-DD, rebuild on day change
+  date: string // cache key: "YYYY-MM-DD-window", rebuild on day/window change
   activeServiceIds: Set<string>
   stationDepartures: Map<string, MetroDeparture[]> // stationCode → sorted departures
 }
@@ -65,6 +65,53 @@ function getEasternTime(): { date: Date; nowSec: number; dateStr: string } {
   const date = new Date(year, month - 1, day, hour, minute, second)
 
   return { date, nowSec, dateStr }
+}
+
+// ── Multi-day service helpers ────────────────────────────────────────
+
+/**
+ * Determine time window for cache key.
+ * - 'early' (before 4 AM): include yesterday's after-midnight trains
+ * - 'late' (after 9 PM): include tomorrow's trains
+ * - 'day': today only
+ */
+function getWindowKey(nowSec: number): string {
+  if (nowSec < 14400) return 'early'
+  if (nowSec >= 75600) return 'late'
+  return 'day'
+}
+
+interface ServiceDayConfig {
+  dateNum: number
+  depSecOffset: number
+}
+
+/**
+ * Determine which service days to load based on time of day.
+ * Always includes today. Before 4 AM adds yesterday (after-midnight trains).
+ * After 9 PM adds tomorrow (early morning trains).
+ */
+function getServiceDays(et: { date: Date; nowSec: number }): ServiceDayConfig[] {
+  const today = toYYYYMMDD(et.date)
+  const days: ServiceDayConfig[] = [{ dateNum: today, depSecOffset: 0 }]
+
+  if (et.nowSec < 14400) {
+    // Before 4 AM: yesterday's after-midnight trains (depSec > 86400 in GTFS)
+    // Offset -86400 converts yesterday's midnight-relative times to today's
+    const yesterday = new Date(et.date)
+    yesterday.setDate(yesterday.getDate() - 1)
+    days.push({ dateNum: toYYYYMMDD(yesterday), depSecOffset: -86400 })
+  }
+
+  if (et.nowSec >= 75600) {
+    // After 9 PM: tomorrow's trains
+    // Offset +86400 converts tomorrow's midnight-relative times to today's
+    const tomorrow = new Date(et.date)
+    tomorrow.setDate(tomorrow.getDate() + 1)
+    days.push({ dateNum: toYYYYMMDD(tomorrow), depSecOffset: 86400 })
+  }
+
+  return days
 }
 
 // ── GTFS file parsers ──────────────────────────────────────────────────
@@ -140,10 +187,12 @@ function parseTrips(): Map<string, MetroTrip> {
 
 /**
  * Parse stop_times.txt, filtered to active trips only.
+ * Applies per-service day offsets so multi-day departures sort correctly.
  * Returns Map<stationCode, MetroDeparture[]> (unsorted).
  */
 function parseStopTimes(
-  activeTrips: Map<string, MetroTrip>
+  activeTrips: Map<string, MetroTrip>,
+  serviceOffsets: Map<string, number>
 ): Map<string, MetroDeparture[]> {
   const path = resolve(GTFS_DIR, 'stop_times.txt')
   const content = readFileSync(path, 'utf-8')
@@ -173,7 +222,8 @@ function parseStopTimes(
     const depStr = cols[depIdx]?.trim()
     if (!depStr) continue
     const depParts = depStr.split(':')
-    const depSec = parseInt(depParts[0]) * 3600 + parseInt(depParts[1]) * 60 + parseInt(depParts[2])
+    const baseSec = parseInt(depParts[0]) * 3600 + parseInt(depParts[1]) * 60 + parseInt(depParts[2])
+    const depSec = baseSec + (serviceOffsets.get(trip.serviceId) ?? 0)
 
     const existing = stationDeps.get(stationCode)
     const entry: MetroDeparture = {
@@ -202,20 +252,35 @@ function ensureIndex(): MetroScheduleIndex | null {
   if (!dataLoaded) return null
 
   const et = getEasternTime()
-  if (index && index.date === et.dateStr) return index
+  const windowKey = getWindowKey(et.nowSec)
+  const cacheKey = `${et.dateStr}-${windowKey}`
 
-  console.log(`[MetroSchedule] Building index for ${et.dateStr}...`)
+  if (index && index.date === cacheKey) return index
+
+  console.log(`[MetroSchedule] Building index for ${cacheKey}...`)
   const startMs = Date.now()
 
-  // 1. Find active services for today
+  // 1. Find active services across all relevant service days
   const calendarDates = parseCalendarDates()
-  const todayNum = toYYYYMMDD(et.date)
-  const activeServiceIds = calendarDates.get(todayNum) ?? new Set<string>()
+  const serviceDays = getServiceDays(et)
+  const activeServiceIds = new Set<string>()
+  const serviceOffsets = new Map<string, number>()
+
+  for (const { dateNum, depSecOffset } of serviceDays) {
+    const serviceIds = calendarDates.get(dateNum) ?? new Set<string>()
+    for (const sid of serviceIds) {
+      activeServiceIds.add(sid)
+      // Today's offset (0) takes priority if a service appears on multiple days
+      if (!serviceOffsets.has(sid) || depSecOffset === 0) {
+        serviceOffsets.set(sid, depSecOffset)
+      }
+    }
+  }
 
   if (activeServiceIds.size === 0) {
-    console.warn(`[MetroSchedule] No active services for ${et.dateStr} (${todayNum})`)
-    // Return empty index rather than null
-    index = { date: et.dateStr, activeServiceIds, stationDepartures: new Map() }
+    const dayNums = serviceDays.map(d => d.dateNum).join(', ')
+    console.warn(`[MetroSchedule] No active services for ${cacheKey} (checked: ${dayNums})`)
+    index = { date: cacheKey, activeServiceIds, stationDepartures: new Map() }
     return index
   }
 
@@ -228,19 +293,20 @@ function ensureIndex(): MetroScheduleIndex | null {
     }
   }
 
-  // 3. Parse stop_times filtered to active trips
-  const stationDepartures = parseStopTimes(activeTrips)
+  // 3. Parse stop_times filtered to active trips, applying day offsets
+  const stationDepartures = parseStopTimes(activeTrips, serviceOffsets)
 
   // 4. Sort each station's departures by time
   for (const deps of stationDepartures.values()) {
     deps.sort((a, b) => a.depSec - b.depSec)
   }
 
-  index = { date: et.dateStr, activeServiceIds, stationDepartures }
+  index = { date: cacheKey, activeServiceIds, stationDepartures }
 
+  const dayLabels = serviceDays.map(d => d.depSecOffset === 0 ? 'today' : d.depSecOffset > 0 ? 'tomorrow' : 'yesterday')
   const elapsed = Date.now() - startMs
   console.log(
-    `[MetroSchedule] Index built in ${elapsed}ms: ${activeServiceIds.size} active services, ${stationDepartures.size} stations`
+    `[MetroSchedule] Index built in ${elapsed}ms: ${activeServiceIds.size} active services, ${stationDepartures.size} stations (days: ${dayLabels.join('+')})`
   )
 
   return index
