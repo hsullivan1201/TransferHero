@@ -43,7 +43,7 @@ export function errorHandler(
   res: Response,
   _next: NextFunction
 ): void {
-  console.error('[Error]', err.message)
+  console.error(`[Error] ${_req.method} ${_req.originalUrl} |`, err.message)
 
   // Handle Zod validation errors
   if (err instanceof ZodError) {

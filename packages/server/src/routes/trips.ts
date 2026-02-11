@@ -120,6 +120,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
   // validate request
   const result = tripQuerySchema.safeParse(req.query)
   if (!result.success) {
+    console.error(`[Trip] Validation failed | raw query:`, JSON.stringify(req.query), '| issues:', JSON.stringify(result.error.issues.map(i => ({ field: i.path.join('.'), message: i.message, received: req.query[i.path[0] as string] }))))
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 
@@ -495,6 +496,13 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   // Validate request
   const result = leg2QuerySchema.safeParse(req.query)
   if (!result.success) {
+    const rawQuery = req.query
+    const issues = result.error.issues.map(i => ({
+      field: i.path.join('.'),
+      message: i.message,
+      received: rawQuery[i.path[0] as string]
+    }))
+    console.error(`[Trip] Leg2 validation failed | tripId=${req.params.tripId} | UA=${req.headers['user-agent']} | raw query:`, JSON.stringify(rawQuery), '| issues:', JSON.stringify(issues))
     throw new ValidationError(result.error.issues.map((issue) => issue.message).join(', '))
   }
 

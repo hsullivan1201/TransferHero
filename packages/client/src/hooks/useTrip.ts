@@ -53,9 +53,14 @@ export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation,
     // to the server in the queryFn.
     queryKey: ['leg2', tripId, departureTimestamp, walkTime, transferStation, accessible, showDeparted],
     queryFn: () => {
-      const currentDepartureMin = departureTimestamp
-        ? Math.max(-120, Math.round((departureTimestamp - Date.now()) / 60000))
+      const rawMin = departureTimestamp
+        ? Math.round((departureTimestamp - Date.now()) / 60000)
         : 0
+      const currentDepartureMin = Math.max(-120, rawMin)
+
+      if (rawMin < -120) {
+        console.warn(`[useLeg2] departureMin clamped: raw=${rawMin} clamped=${currentDepartureMin} | departureTimestamp=${departureTimestamp} now=${Date.now()} drift=${Date.now() - (departureTimestamp || 0)}ms`)
+      }
 
       return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible, showDeparted)
     },
