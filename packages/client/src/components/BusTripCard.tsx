@@ -1,5 +1,14 @@
 import { Bus, Footprints, ArrowRight, Clock3 } from 'lucide-react'
-import type { HybridTrip } from '@transferhero/shared'
+import type { HybridTrip, BusAgencyId } from '@transferhero/shared'
+
+function agencyLabel(id: BusAgencyId): string {
+  switch (id) {
+    case 'art': return 'ART'
+    case 'wmata': return 'Metrobus'
+    case 'fairfax': return 'Ffx Connector'
+    default: return id
+  }
+}
 
 interface BusTripCardProps {
   trip: HybridTrip
@@ -27,12 +36,12 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
               <span>{fromName} → {toName}</span>
               <ArrowRight className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
               <BusIcon />
-              <span className="text-[#0f9b8e]">{busLeg.routeName}</span>
+              <span className="text-[#0f9b8e]">{agencyLabel(busLeg.agencyId)} {busLeg.routeName}</span>
             </>
           ) : (
             <>
               <BusIcon />
-              <span className="text-[#0f9b8e]">{busLeg.routeName}</span>
+              <span className="text-[#0f9b8e]">{agencyLabel(busLeg.agencyId)} {busLeg.routeName}</span>
               <ArrowRight className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
               <MetroIcon />
               <span>{fromName} → {toName}</span>
@@ -62,7 +71,7 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
           <BusIcon />
           <div className="text-sm text-[var(--text-primary)] flex-1">
             <div className="flex items-center gap-1 flex-wrap">
-              <span className="font-medium">{busLeg.routeName}</span>
+              <span className="font-medium">{agencyLabel(busLeg.agencyId)} {busLeg.routeName}</span>
               {busLeg.headsign && (
                 <span className="text-xs text-[var(--text-secondary)]">→ {busLeg.headsign}</span>
               )}

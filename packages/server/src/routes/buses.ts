@@ -1,11 +1,12 @@
 import { Router } from 'express'
 import { z } from 'zod'
 import { asyncHandler, ValidationError } from '../middleware/errorHandler.js'
-import { isBusDataLoaded } from '../services/busGtfsLoader.js'
+import { isBusDataLoaded, getFeedConfigs, stripAgencyPrefix } from '../services/busGtfsLoader.js'
 import { findMetroBusTrips, findBusMetroTrips, getStationCentroid } from '../services/busRouteFinder.js'
 import { fetchBusPredictions, filterPredictionsForRoute } from '../services/busPredictions.js'
+import { fetchGtfsRtBusPredictions } from '../services/gtfsRtPredictions.js'
 import { getWalkingDirections } from '../services/walkingDirectionsService.js'
-import type { HybridTrip } from '@transferhero/shared'
+import type { HybridTrip, BusAgencyId } from '@transferhero/shared'
 
 const router = Router()
 
@@ -77,22 +78,37 @@ router.get('/trips', asyncHandler(async (req, res) => {
 }))
 
 const predictionsSchema = z.object({
-  stopCode: z.string().min(1).max(10),
-  routeId: z.string().min(1).max(10),
+  stopCode: z.string().min(1).max(20),
+  routeId: z.string().min(1).max(20),
   boardStopId: z.string().optional(),
   alightStopId: z.string().optional(),
+  agencyId: z.enum(['wmata', 'art', 'fairfax']).default('wmata'),
 })
 
 /**
  * GET /api/buses/predictions
  * Fetch real-time predictions for a specific boarding stop + route.
- * Includes variant routes (e.g. D5X for D50) that also serve the alight stop.
- * Called only when user selects a trip — 1 WMATA API call.
+ * Dispatches to WMATA JSON API or GTFS-RT based on agencyId.
+ * Called only when user selects a trip — 1 API call.
  */
 router.get('/predictions', asyncHandler(async (req, res) => {
-  const { stopCode, routeId, boardStopId, alightStopId } = predictionsSchema.parse(req.query)
-  const apiKey = getApiKey()
-  const all = await fetchBusPredictions(stopCode, apiKey)
+  const { stopCode, routeId, boardStopId, alightStopId, agencyId } = predictionsSchema.parse(req.query)
+
+  let all
+  if (agencyId === 'wmata') {
+    // WMATA uses their proprietary JSON API with un-prefixed stop codes
+    const apiKey = getApiKey()
+    all = await fetchBusPredictions(stopCode, apiKey)
+  } else {
+    // Other agencies use GTFS-RT TripUpdates feed
+    const feed = getFeedConfigs().find(f => f.agencyId === agencyId)
+    if (!feed?.gtfsRtTripUpdatesUrl) {
+      return res.json({ predictions: [] })
+    }
+    // boardStopId is the namespaced stop ID (e.g. 'art:12345')
+    all = await fetchGtfsRtBusPredictions(agencyId, boardStopId || '', feed.gtfsRtTripUpdatesUrl, feed.headers)
+  }
+
   const predictions = filterPredictionsForRoute(all, routeId, boardStopId, alightStopId)
   res.json({ predictions })
 }))

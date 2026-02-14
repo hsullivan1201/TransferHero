@@ -4,7 +4,7 @@ import csv from 'csv-parser'
 import fs from 'fs'
 import { Readable } from 'stream'
 import Database from 'better-sqlite3'
-import type { BusStop } from '@transferhero/shared'
+import type { BusStop, BusAgencyId } from '@transferhero/shared'
 import { invalidateScheduleIndex } from './busScheduleIndex.js'
 import { invalidateHeadsignCache } from './busRouteFinder.js'
 
@@ -13,6 +13,7 @@ export interface BusRoute {
   routeId: string
   shortName: string
   longName: string
+  agencyId: BusAgencyId
 }
 
 export interface BusTrip {
@@ -46,6 +47,77 @@ interface StopTimeRow {
   departure_time: string
 }
 
+// --- Multi-agency feed configuration ---
+
+export interface AgencyFeedConfig {
+  agencyId: BusAgencyId
+  displayName: string
+  gtfsUrl: string
+  headers?: Record<string, string>
+  gtfsRtTripUpdatesUrl?: string
+}
+
+function getFeeds(): AgencyFeedConfig[] {
+  const feeds: AgencyFeedConfig[] = []
+
+  // WMATA Metrobus — requires API key
+  const wmataKey = process.env.WMATA_API_KEY
+  if (wmataKey) {
+    feeds.push({
+      agencyId: 'wmata',
+      displayName: 'Metrobus',
+      gtfsUrl: 'https://api.wmata.com/gtfs/bus-gtfs-static.zip',
+      headers: { 'api_key': wmataKey },
+      gtfsRtTripUpdatesUrl: 'https://api.wmata.com/gtfs/bus-gtfsrt-tripupdates.pb',
+    })
+  } else {
+    console.warn('[BusGTFS] WMATA_API_KEY not set — Metrobus disabled')
+  }
+
+  // ART (Arlington Transit) — open GTFS, no auth required
+  feeds.push({
+    agencyId: 'art',
+    displayName: 'ART',
+    gtfsUrl: 'https://www.arlingtontransit.com/shared/content/gtfs/art/google_transit.zip',
+    gtfsRtTripUpdatesUrl: 'https://realtime.arlingtontransit.com/gtfsrt/trips',
+  })
+
+  // Fairfax Connector — open GTFS, no auth required
+  feeds.push({
+    agencyId: 'fairfax',
+    displayName: 'Fairfax Connector',
+    gtfsUrl: 'https://www.fairfaxcounty.gov/connector/sites/connector/files/assets/connector_gtfs.zip',
+    gtfsRtTripUpdatesUrl: 'https://www.fairfaxcounty.gov/gtfsrt/trips',
+  })
+
+  return feeds
+}
+
+// --- ID namespacing helpers ---
+
+/** Prefix an ID with the agency namespace */
+function prefixId(agencyId: BusAgencyId, id: string): string {
+  return `${agencyId}:${id}`
+}
+
+/** Strip the agency prefix from a namespaced ID */
+export function stripAgencyPrefix(id: string): string {
+  const colonIdx = id.indexOf(':')
+  return colonIdx >= 0 ? id.slice(colonIdx + 1) : id
+}
+
+/** Extract the agency ID from a namespaced ID */
+export function getAgencyFromId(id: string): BusAgencyId | null {
+  const colonIdx = id.indexOf(':')
+  if (colonIdx < 0) return null
+  return id.slice(0, colonIdx) as BusAgencyId
+}
+
+/** Get the feed configs (for use by predictions layer) */
+export function getFeedConfigs(): AgencyFeedConfig[] {
+  return getFeeds()
+}
+
 // In-memory caches (small data — kept in memory)
 let busStops = new Map<string, BusStop>()
 let busRoutes = new Map<string, BusRoute>()
@@ -62,19 +134,12 @@ const DB_PATH_NEW = '/tmp/transferhero-bus-gtfs.db.new'
 let loaded = false
 let refreshInterval: ReturnType<typeof setInterval> | null = null
 
-const GTFS_URL = 'https://api.wmata.com/gtfs/bus-gtfs-static.zip'
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const INSERT_BATCH_SIZE = 5000
 
-function getApiKey(): string {
-  const key = process.env.WMATA_API_KEY
-  if (!key) throw new Error('WMATA_API_KEY not set')
-  return key
-}
-
 /**
  * Get current date in Eastern Time as a Date object.
- * WMATA GTFS uses ET for all schedule data.
+ * GTFS feeds in this region use ET for all schedule data.
  */
 function getEasternDate(): Date {
   const now = new Date()
@@ -195,19 +260,35 @@ function createIndexes(targetDb: Database.Database): void {
   `)
 }
 
-/**
- * Download and parse WMATA bus GTFS feed
- */
-async function downloadAndParse(): Promise<void> {
-  const apiKey = getApiKey()
-  console.log('[BusGTFS] Downloading bus GTFS feed...')
+/** Result of parsing a single agency feed */
+interface FeedParseResult {
+  agencyId: BusAgencyId
+  stops: Map<string, BusStop>
+  routes: Map<string, BusRoute>
+  filteredTrips: Map<string, BusTrip>
+  activeTripIds: Set<string>
+  calendar: Map<string, BusCalendarEntry>
+  calendarDates: Map<string, BusCalendarException[]>
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  stopTimesFile: any
+  tripCount: number
+}
 
-  const response = await fetch(GTFS_URL, {
-    headers: { 'api_key': apiKey }
+/**
+ * Download and parse a single agency GTFS feed.
+ * All IDs are namespaced with `{agencyId}:` prefix to prevent cross-agency collisions.
+ */
+async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseResult> {
+  const { agencyId } = feed
+  const prefix = (id: string) => prefixId(agencyId, id)
+
+  console.log(`[BusGTFS:${agencyId}] Downloading GTFS feed...`)
+  const response = await fetch(feed.gtfsUrl, {
+    headers: feed.headers || {}
   })
 
   if (!response.ok) {
-    throw new Error(`GTFS download failed: ${response.status}`)
+    throw new Error(`GTFS download failed for ${agencyId}: ${response.status}`)
   }
 
   const arrayBuffer = await response.arrayBuffer()
@@ -230,7 +311,7 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
-  // Parse stops.txt
+  // Parse stops.txt — namespace stopId, keep stopCode un-prefixed
   const newStops = new Map<string, BusStop>()
   if (files.has('stops.txt')) {
     const rows = await parseCsv<{ stop_id: string; stop_code: string; stop_name: string; stop_lat: string; stop_lon: string; location_type?: string }>(files.get('stops.txt')!)
@@ -240,44 +321,48 @@ async function downloadAndParse(): Promise<void> {
       const lat = parseFloat(row.stop_lat)
       const lon = parseFloat(row.stop_lon)
       if (isNaN(lat) || isNaN(lon)) continue
-      newStops.set(row.stop_id, {
-        stopId: row.stop_id,
+      const namespacedId = prefix(row.stop_id)
+      newStops.set(namespacedId, {
+        stopId: namespacedId,
         stopCode: row.stop_code || row.stop_id,
         name: row.stop_name,
         lat,
         lon,
+        agencyId,
       })
     }
   }
 
-  // Parse routes.txt
+  // Parse routes.txt — namespace routeId
   const newRoutes = new Map<string, BusRoute>()
   if (files.has('routes.txt')) {
     const rows = await parseCsv<{ route_id: string; route_short_name: string; route_long_name: string }>(files.get('routes.txt')!)
     for (const row of rows) {
-      newRoutes.set(row.route_id, {
-        routeId: row.route_id,
+      const namespacedId = prefix(row.route_id)
+      newRoutes.set(namespacedId, {
+        routeId: namespacedId,
         shortName: row.route_short_name || row.route_id,
         longName: row.route_long_name || '',
+        agencyId,
       })
     }
   }
 
-  // Parse trips.txt into a temporary Map (needed for calendar lookup + SQLite insert)
+  // Parse trips.txt — namespace tripId, routeId, serviceId
   const parsedTrips = new Map<string, BusTrip>()
   if (files.has('trips.txt')) {
     const rows = await parseCsv<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string; service_id: string }>(files.get('trips.txt')!)
     for (const row of rows) {
-      parsedTrips.set(row.trip_id, {
-        routeId: row.route_id,
+      parsedTrips.set(prefix(row.trip_id), {
+        routeId: prefix(row.route_id),
         directionId: parseInt(row.direction_id) || 0,
         headsign: row.trip_headsign || '',
-        serviceId: row.service_id || '',
+        serviceId: prefix(row.service_id),
       })
     }
   }
 
-  // Parse calendar.txt
+  // Parse calendar.txt — namespace serviceId
   const newCalendar = new Map<string, BusCalendarEntry>()
   if (files.has('calendar.txt')) {
     const rows = await parseCsv<{
@@ -286,7 +371,7 @@ async function downloadAndParse(): Promise<void> {
       start_date: string; end_date: string
     }>(files.get('calendar.txt')!)
     for (const row of rows) {
-      newCalendar.set(row.service_id, {
+      newCalendar.set(prefix(row.service_id), {
         days: [
           row.monday === '1',
           row.tuesday === '1',
@@ -302,7 +387,7 @@ async function downloadAndParse(): Promise<void> {
     }
   }
 
-  // Parse calendar_dates.txt
+  // Parse calendar_dates.txt — namespace serviceId
   const newCalendarDates = new Map<string, BusCalendarException[]>()
   if (files.has('calendar_dates.txt')) {
     const rows = await parseCsv<{ service_id: string; date: string; exception_type: string }>(files.get('calendar_dates.txt')!)
@@ -311,11 +396,12 @@ async function downloadAndParse(): Promise<void> {
         date: parseInt(row.date) || 0,
         added: row.exception_type === '1',
       }
-      const existing = newCalendarDates.get(row.service_id)
+      const nsServiceId = prefix(row.service_id)
+      const existing = newCalendarDates.get(nsServiceId)
       if (existing) {
         existing.push(exception)
       } else {
-        newCalendarDates.set(row.service_id, [exception])
+        newCalendarDates.set(nsServiceId, [exception])
       }
     }
   }
@@ -330,9 +416,9 @@ async function downloadAndParse(): Promise<void> {
   const activeServices = computeActiveServicesForDate(today, newCalendar, newCalendarDates)
   const tomorrowServices = computeActiveServicesForDate(tomorrow, newCalendar, newCalendarDates)
   for (const s of tomorrowServices) activeServices.add(s)
-  console.log(`[BusGTFS] Active services (today+tomorrow): ${[...activeServices].join(', ')}`)
+  console.log(`[BusGTFS:${agencyId}] Active services (today+tomorrow): ${activeServices.size}`)
 
-  // Filter trips to active services only — reduces DB from ~400MB to ~50-100MB
+  // Filter trips to active services only
   const activeTripIds = new Set<string>()
   const filteredTrips = new Map<string, BusTrip>()
   for (const [tripId, trip] of parsedTrips) {
@@ -341,14 +427,34 @@ async function downloadAndParse(): Promise<void> {
       activeTripIds.add(tripId)
     }
   }
-  console.log(`[BusGTFS] Filtered trips: ${filteredTrips.size} of ${parsedTrips.size} (${activeServices.size} active services)`)
-  parsedTrips.clear()  // Free full set — no longer needed
+  console.log(`[BusGTFS:${agencyId}] Filtered trips: ${filteredTrips.size} of ${parsedTrips.size}`)
+  parsedTrips.clear()
 
-  // --- SQLite: create temp DB and insert trips + stop_times ---
-  console.log('[BusGTFS] Creating SQLite database...')
-  const newDb = createDatabase(DB_PATH_NEW)
+  return {
+    agencyId,
+    stops: newStops,
+    routes: newRoutes,
+    filteredTrips,
+    activeTripIds,
+    calendar: newCalendar,
+    calendarDates: newCalendarDates,
+    stopTimesFile,
+    tripCount: filteredTrips.size,
+  }
+}
 
-  // Insert filtered trips in a single transaction
+/**
+ * Insert a parsed feed's trips and stop_times into the shared SQLite database.
+ * stop_id in stop_times is namespaced with the agency prefix.
+ */
+async function insertFeedIntoDb(
+  newDb: Database.Database,
+  result: FeedParseResult,
+): Promise<{ tripCount: number; stopTimeCount: number }> {
+  const { agencyId, filteredTrips, activeTripIds, stopTimesFile } = result
+  const prefix = (id: string) => prefixId(agencyId, id)
+
+  // Insert filtered trips
   const insertTrip = newDb.prepare(
     'INSERT INTO trips (trip_id, route_id, direction_id, headsign, service_id) VALUES (?, ?, ?, ?, ?)'
   )
@@ -360,11 +466,17 @@ async function downloadAndParse(): Promise<void> {
   })
   insertTrips(filteredTrips)
   filteredTrips.clear()
-  console.log(`[BusGTFS] Inserted ${tripCount} trips into SQLite`)
 
-  // Stream stop_times.txt into SQLite — only for active trips
+  // Stream stop_times.txt into SQLite — only for active trips, namespace IDs
   let stopTimeCount = 0
   let skippedStopTimes = 0
+
+  // Build a set of raw (un-prefixed) active trip IDs for matching against CSV rows
+  const rawActiveTripIds = new Set<string>()
+  for (const id of activeTripIds) {
+    rawActiveTripIds.add(stripAgencyPrefix(id))
+  }
+
   if (stopTimesFile) {
     const insertStopTime = newDb.prepare(
       'INSERT INTO stop_times (trip_id, stop_id, seq, dep_sec) VALUES (?, ?, ?, ?)'
@@ -381,12 +493,12 @@ async function downloadAndParse(): Promise<void> {
       stopTimesFile.stream()
         .pipe(csv())
         .on('data', (row: StopTimeRow) => {
-          if (!activeTripIds.has(row.trip_id)) { skippedStopTimes++; return }
+          if (!rawActiveTripIds.has(row.trip_id)) { skippedStopTimes++; return }
           const seq = parseInt(row.stop_sequence)
           if (isNaN(seq)) return
           const depSec = parseTimeToSeconds(row.departure_time)
           if (depSec < 0) return
-          batch.push([row.trip_id, row.stop_id, seq, depSec])
+          batch.push([prefix(row.trip_id), prefix(row.stop_id), seq, depSec])
           stopTimeCount++
           if (batch.length >= INSERT_BATCH_SIZE) {
             insertBatch(batch)
@@ -400,15 +512,70 @@ async function downloadAndParse(): Promise<void> {
         .on('error', reject)
     })
   }
-  activeTripIds.clear()  // Free trip ID set
-  console.log(`[BusGTFS] Inserted ${stopTimeCount} stop_times into SQLite (skipped ${skippedStopTimes})`)
 
-  // Create indexes after bulk insert
+  activeTripIds.clear()
+  rawActiveTripIds.clear()
+  console.log(`[BusGTFS:${agencyId}] Inserted ${tripCount} trips, ${stopTimeCount} stop_times (skipped ${skippedStopTimes})`)
+
+  return { tripCount, stopTimeCount }
+}
+
+/**
+ * Download all agency feeds, merge into a single DB, and swap caches.
+ */
+async function downloadAndParseAll(): Promise<void> {
+  const feeds = getFeeds()
+  if (feeds.length === 0) {
+    console.warn('[BusGTFS] No feeds configured — bus features disabled')
+    return
+  }
+
+  // Download and parse each feed independently (error isolation)
+  const results: FeedParseResult[] = []
+  for (const feed of feeds) {
+    try {
+      const result = await downloadAndParseFeed(feed)
+      results.push(result)
+    } catch (err) {
+      console.error(`[BusGTFS:${feed.agencyId}] Feed failed — skipping:`, err)
+    }
+  }
+
+  if (results.length === 0) {
+    console.warn('[BusGTFS] All feeds failed — bus features disabled')
+    return
+  }
+
+  // --- Merge all feed data into unified caches ---
+  const mergedStops = new Map<string, BusStop>()
+  const mergedRoutes = new Map<string, BusRoute>()
+  const mergedCalendar = new Map<string, BusCalendarEntry>()
+  const mergedCalendarDates = new Map<string, BusCalendarException[]>()
+
+  for (const result of results) {
+    for (const [k, v] of result.stops) mergedStops.set(k, v)
+    for (const [k, v] of result.routes) mergedRoutes.set(k, v)
+    for (const [k, v] of result.calendar) mergedCalendar.set(k, v)
+    for (const [k, v] of result.calendarDates) mergedCalendarDates.set(k, v)
+  }
+
+  // --- SQLite: create temp DB and insert all feeds ---
+  console.log('[BusGTFS] Creating merged SQLite database...')
+  const newDb = createDatabase(DB_PATH_NEW)
+
+  let totalTrips = 0
+  let totalStopTimes = 0
+  for (const result of results) {
+    const { tripCount, stopTimeCount } = await insertFeedIntoDb(newDb, result)
+    totalTrips += tripCount
+    totalStopTimes += stopTimeCount
+  }
+
+  // Create indexes after all bulk inserts
   console.log('[BusGTFS] Creating indexes...')
   createIndexes(newDb)
 
   // Build routeStopSequences + stopRoutes from SQLite
-  // Use the longest trip per route+direction as the representative sequence
   const newRouteStopSequences = new Map<string, string[]>()
   const newStopRoutes = new Map<string, Set<string>>()
 
@@ -446,7 +613,7 @@ async function downloadAndParse(): Promise<void> {
     routes.add(row.route_id)
   }
 
-  // Checkpoint WAL into main DB file (eliminates 100MB+ WAL) and release cached pages
+  // Checkpoint WAL into main DB file and release cached pages
   newDb.pragma('wal_checkpoint(TRUNCATE)')
   newDb.pragma('shrink_memory')
 
@@ -456,14 +623,11 @@ async function downloadAndParse(): Promise<void> {
   if (oldDb) {
     try { oldDb.close(); } catch { /* ignore */ }
   }
-  // Rename temp DB files over live path
-  // Since we already assigned the new handle, the live path is just for cleanup on next run
   try {
     if (fs.existsSync(DB_PATH)) {
       fs.unlinkSync(DB_PATH)
     }
     fs.renameSync(DB_PATH_NEW, DB_PATH)
-    // Move WAL/SHM too if they exist
     try { if (fs.existsSync(DB_PATH_NEW + '-wal')) fs.renameSync(DB_PATH_NEW + '-wal', DB_PATH + '-wal'); } catch { /* ignore */ }
     try { if (fs.existsSync(DB_PATH_NEW + '-shm')) fs.renameSync(DB_PATH_NEW + '-shm', DB_PATH + '-shm'); } catch { /* ignore */ }
   } catch {
@@ -471,19 +635,20 @@ async function downloadAndParse(): Promise<void> {
   }
 
   // Swap in-memory caches
-  busStops = newStops
-  busRoutes = newRoutes
+  busStops = mergedStops
+  busRoutes = mergedRoutes
   routeStopSequences = newRouteStopSequences
   stopRoutes = newStopRoutes
-  busCalendar = newCalendar
-  busCalendarDates = newCalendarDates
+  busCalendar = mergedCalendar
+  busCalendarDates = mergedCalendarDates
   loaded = true
 
   // Invalidate caches that depend on the old data
   invalidateScheduleIndex()
   invalidateHeadsignCache()
 
-  console.log(`[BusGTFS] Loaded: ${newStops.size} stops, ${newRoutes.size} routes, ${tripCount} trips (SQLite), ${newRouteStopSequences.size} route sequences, ${newCalendar.size} calendar entries, ${stopTimeCount} stop_times (SQLite)`)
+  const agencyNames = results.map(r => r.agencyId).join(', ')
+  console.log(`[BusGTFS] Loaded [${agencyNames}]: ${mergedStops.size} stops, ${mergedRoutes.size} routes, ${totalTrips} trips, ${newRouteStopSequences.size} route sequences, ${totalStopTimes} stop_times`)
 }
 
 /**
@@ -491,13 +656,13 @@ async function downloadAndParse(): Promise<void> {
  */
 export async function loadBusGtfs(): Promise<void> {
   try {
-    await downloadAndParse()
+    await downloadAndParseAll()
 
     // Schedule 24h refresh
     if (refreshInterval) clearInterval(refreshInterval)
     refreshInterval = setInterval(async () => {
       try {
-        await downloadAndParse()
+        await downloadAndParseAll()
       } catch (err) {
         console.error('[BusGTFS] Refresh failed:', err)
       }

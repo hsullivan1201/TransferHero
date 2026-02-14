@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useState, useEffect } from 'react'
 import { Bus, Footprints, RefreshCw, ExternalLink, Rss, Loader2, Clock3, Train as TrainIcon, Check } from 'lucide-react'
-import type { HybridTrip, Train, CatchableTrain, PlaceContext, BusStop, BusPrediction } from '@transferhero/shared'
+import type { HybridTrip, Train, CatchableTrain, PlaceContext, BusStop, BusPrediction, BusAgencyId } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { WalkingCard } from './WalkingCard'
 import { buildMapsUrl, formatDistance } from '../utils/geo'
@@ -8,6 +8,15 @@ import { resolveExitLabel } from '../data/exitMapping'
 import { useTrip, useLeg2 } from '../hooks/useTrip'
 import { useBusPredictions } from '../hooks/useBusPredictions'
 import { deriveWaitMinutes, computeTotalMinutes, getTrainMinutes, minutesToClockTime } from '../utils/time'
+
+function agencyLabel(id: BusAgencyId): string {
+  switch (id) {
+    case 'art': return 'ART'
+    case 'wmata': return 'Metrobus'
+    case 'fairfax': return 'Ffx Connector'
+    default: return id
+  }
+}
 
 interface BusTripDetailProps {
   trip: HybridTrip
@@ -39,7 +48,7 @@ export function BusTripDetail({
     data: busPredictions,
     isLoading: predictionsLoading,
     refetch: refetchPredictions,
-  } = useBusPredictions(busLeg.boardStop.stopCode, busLeg.routeId, true, busLeg.boardStop.stopId, busLeg.alightStop.stopId)
+  } = useBusPredictions(busLeg.boardStop.stopCode, busLeg.routeId, true, busLeg.boardStop.stopId, busLeg.alightStop.stopId, busLeg.agencyId)
 
   // "Already on a train?" state for both metro legs
   const [showDeparted, setShowDeparted] = useState(false)
@@ -370,12 +379,12 @@ export function BusTripDetail({
               <span>{fromName} → {toName}</span>
               <span className="text-[var(--text-secondary)]">then</span>
               <BusIcon />
-              <span className="text-[#0f9b8e]">{busLeg.routeName}</span>
+              <span className="text-[#0f9b8e]">{agencyLabel(busLeg.agencyId)} {busLeg.routeName}</span>
             </>
           ) : (
             <>
               <BusIcon />
-              <span className="text-[#0f9b8e]">{busLeg.routeName}</span>
+              <span className="text-[#0f9b8e]">{agencyLabel(busLeg.agencyId)} {busLeg.routeName}</span>
               <span className="text-[var(--text-secondary)]">then</span>
               <MetroIcon />
               <span>{fromName} → {toName}</span>
@@ -691,7 +700,7 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
       <div className="px-5 py-4" style={{ backgroundColor: '#0f7b72' }}>
         <h3 className="text-white font-semibold text-lg flex items-center gap-2">
           <Bus className="w-5 h-5" />
-          Bus {busLeg.routeName}
+          {agencyLabel(busLeg.agencyId)} {busLeg.routeName}
           {busLeg.headsign && (
             <span className="text-white/70 font-normal text-base">→ {busLeg.headsign}</span>
           )}

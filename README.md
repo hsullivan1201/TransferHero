@@ -2,7 +2,7 @@
 
 [transferhero.app](https://transferhero.app)
 
-A DC Metro transfer assistant that helps you plan trips across all Metro lines (and buses) using real-time WMATA data and GTFS Realtime. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
+A DC Metro transfer assistant that helps you plan trips across all Metro lines and regional buses using real-time data. Inspired by [MetroHero](https://github.com/jamespizzurro/metrohero-server).
 
 ![demo](./transferhero-demo.gif)
 
@@ -17,7 +17,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 - Figures out the best transfer station for your route (and shows alternatives)
 - Tells you which car to board for the fastest transfer or exit
 - Select a train and see which connecting trains you can actually catch
-- Metro+Bus mode for last-mile bus connections with live predictions
+- Metro+Bus mode for last-mile bus connections (WMATA Metrobus + Arlington Transit) with live predictions
 - Walking directions to/from stations with Google Maps links
 - "Use current location" to route from wherever you are
 - Full journey breakdown: wait times, ride times, walks, transfers, estimated arrival
@@ -42,7 +42,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 
 **Backend**: Express, TypeScript, Protobuf.js (for GTFS-RT), better-sqlite3, Zod
 
-**APIs**: WMATA (trains + buses), Google Places (geocoding), Google Directions (walking)
+**APIs**: WMATA (trains + Metrobus), ART GTFS-RT (Arlington Transit), Google Places (geocoding), Google Directions (walking)
 
 **Architecture**: Monorepo with npm workspaces
 
@@ -139,8 +139,10 @@ cd packages/server && npm start
 | WMATA StationPrediction API | Real-time train arrivals (0-15 min) |
 | WMATA GTFS-RT | GPS-tracked train positions |
 | WMATA GTFS static (rail) | Travel times, station info |
-| WMATA GTFS static (bus) | Bus stops, routes, schedules (~8k stops, ~300 routes) |
-| WMATA NextBus API | Real-time bus predictions |
+| WMATA GTFS static (bus) | Metrobus stops, routes, schedules (~8k stops, ~300 routes) |
+| WMATA NextBus API | Real-time Metrobus predictions |
+| ART GTFS static | Arlington Transit stops, routes, schedules (~19 routes, 638 stops) |
+| ART GTFS-RT | Real-time Arlington Transit predictions |
 | Google Places API | Place/address geocoding |
 | Google Directions API | Walking routes and times |
 | DCMetroStationExits dataset | Car position recommendations (243 exits) |
@@ -151,7 +153,7 @@ The server refreshes GTFS data daily. Bus predictions are cached for 15s, train 
 
 Metro+Bus mode shows ~7 route options with time estimates. Hitting the WMATA API for each one would be too slow and eat through rate limits, so the server queries local GTFS schedules instead. Live predictions are only fetched when you tap into a specific trip. This also covers buses that aren't GPS-tracked.
 
-The GTFS feed has ~97k trips and 500k+ stop_times—way too much for memory (OOM'd the server at 1GB+ RSS). So trips and stop_times go into a SQLite database (`better-sqlite3`), streamed from the GTFS zip on startup. Only today's active services are indexed (~12k trips). Small stuff (stops, routes, calendar) stays in memory.
+The GTFS feeds have ~100k trips and 1M+ stop_times across all agencies—way too much for memory. So trips and stop_times go into a single merged SQLite database (`better-sqlite3`), streamed from GTFS zips on startup. Only today's active services are indexed (~25k trips). Small stuff (stops, routes, calendar) stays in memory. All IDs are namespaced by agency (`wmata:`, `art:`) to prevent collisions.
 
 The DB rebuilds every 24h and swaps atomically. WAL mode on, mmap off to keep RSS predictable (~300MB).
 

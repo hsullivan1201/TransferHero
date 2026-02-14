@@ -48,7 +48,7 @@ export async function fetchBusPredictions(
 
     const data = await response.json() as { Predictions?: WmataBusPrediction[] }
     const predictions: BusPrediction[] = (data.Predictions || []).map(p => ({
-      routeId: p.RouteID,
+      routeId: `wmata:${p.RouteID}`,
       directionText: p.DirectionText,
       minutes: p.Minutes,
       vehicleId: p.VehicleID,

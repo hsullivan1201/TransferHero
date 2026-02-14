@@ -1,4 +1,4 @@
-import type { HybridTrip, BusPrediction } from '@transferhero/shared'
+import type { HybridTrip, BusPrediction, BusAgencyId } from '@transferhero/shared'
 
 const API_BASE = '/api'
 
@@ -36,10 +36,12 @@ export async function fetchBusPredictions(
   routeId: string,
   boardStopId?: string,
   alightStopId?: string,
+  agencyId?: BusAgencyId,
 ): Promise<BusPrediction[]> {
   const params = new URLSearchParams({ stopCode, routeId })
   if (boardStopId) params.set('boardStopId', boardStopId)
   if (alightStopId) params.set('alightStopId', alightStopId)
+  if (agencyId) params.set('agencyId', agencyId)
   const res = await fetch(`${API_BASE}/buses/predictions?${params}`)
   if (!res.ok) return []
   const data = await res.json()

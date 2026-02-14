@@ -209,13 +209,16 @@ export interface ResolveResponse {
 
 // Bus integration types
 
+export type BusAgencyId = 'wmata' | 'art' | 'fairfax'
+
 export interface BusStop {
   stopId: string
-  /** 7-digit public stop code used by WMATA bus prediction API */
+  /** Public stop code used by prediction APIs (7-digit for WMATA, original stop_code for ART) */
   stopCode: string
   name: string
   lat: number
   lon: number
+  agencyId: BusAgencyId
 }
 
 export interface BusPrediction {
@@ -223,6 +226,7 @@ export interface BusPrediction {
   directionText: string
   minutes: number
   vehicleId?: string
+  agencyId?: BusAgencyId
 }
 
 export interface BusScheduledDeparture {
@@ -234,6 +238,7 @@ export interface BusLeg {
   routeId: string
   routeName: string
   headsign: string
+  agencyId: BusAgencyId
   boardStop: BusStop
   alightStop: BusStop
   boardWalkMinutes: number

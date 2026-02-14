@@ -447,6 +447,7 @@ function rankCandidates(
         routeId: c.routeId,
         routeName: c.routeName,
         headsign: c.headsign,
+        agencyId: c.boardStop.agencyId,
         boardStop: c.boardStop,
         alightStop: c.alightStop,
         boardWalkMinutes,
