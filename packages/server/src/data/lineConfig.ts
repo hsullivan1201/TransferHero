@@ -30,12 +30,12 @@ export const TERMINI: Record<Line, Termini> = {
     toward_b: ['Largo', 'New Carrollton']
   },
   'BL': {
-    toward_a: ['Franconia-Springfield'],
-    toward_b: ['Largo']
+    toward_a: ['Franconia-Springfield', 'Pentagon City'],
+    toward_b: ['Largo', 'Reagan National Airport']
   },
   'YL': {
-    toward_a: ['Huntington'],
-    toward_b: ['Mt Vernon Sq', 'Greenbelt']
+    toward_a: ['Huntington', 'Pentagon City'],
+    toward_b: ['Mt Vernon Sq', 'Greenbelt', 'Reagan National Airport']
   },
   'GR': {
     toward_a: ['Branch Ave'],

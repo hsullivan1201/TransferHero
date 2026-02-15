@@ -50,6 +50,16 @@ const DESTINATION_ALIASES: Record<string, string> = {
   'mtvernsq': 'mt vernon sq',
   'mount vernon square': 'mt vernon sq',
   'mount vernon sq': 'mt vernon sq',
+  'pentagon city': 'pentagon city',
+  'pentagon cty': 'pentagon city',
+  'pentagoncity': 'pentagon city',
+  'reagan national airport': 'reagan national airport',
+  'reagan natl airport': 'reagan national airport',
+  'reagan airport': 'reagan national airport',
+  'natl airport': 'reagan national airport',
+  'dca': 'reagan national airport',
+  'national airport': 'reagan national airport',
+  'reagan ntnl': 'reagan national airport',
 }
 
 /**
@@ -72,6 +82,7 @@ const DISPLAY_NAMES: Record<string, string> = {
   'mclean': 'McLean',
   'west falls church': 'West Falls Church',
   'reagan national airport': 'Reagan National Airport',
+  'pentagon city': 'Pentagon City',
   'hyattsville crossing': 'Hyattsville Crossing',
 }
 
