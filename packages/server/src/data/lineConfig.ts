@@ -27,11 +27,11 @@ export const TERMINI: Record<Line, Termini> = {
   },
   'SV': {
     toward_a: ['Ashburn'],
-    toward_b: ['Largo', 'New Carrollton']
+    toward_b: ['Downtown Largo', 'New Carrollton']
   },
   'BL': {
     toward_a: ['Franconia-Springfield', 'Pentagon City'],
-    toward_b: ['Largo', 'Reagan National Airport']
+    toward_b: ['Downtown Largo', 'Reagan National Airport']
   },
   'YL': {
     toward_a: ['Huntington', 'Pentagon City'],
