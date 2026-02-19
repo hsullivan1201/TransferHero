@@ -237,7 +237,6 @@ function AppContent() {
             />
           ) : hasTrip && tripData.trip ? (
             <TripView
-              transfer={activeTransfer ?? null}
               leg1Trains={tripData.trip.leg1.trains}
               leg2Trains={leg2Trains}
               leg1CarPosition={tripData.trip.leg1.carPosition}

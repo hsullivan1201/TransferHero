@@ -1,6 +1,6 @@
 import { useMemo, useCallback, useState, useEffect } from 'react'
 import { Bus, Footprints, RefreshCw, ExternalLink, Rss, Loader2, Clock3, Train as TrainIcon, Check } from 'lucide-react'
-import type { HybridTrip, Train, CatchableTrain, PlaceContext, BusStop, BusPrediction, BusAgencyId } from '@transferhero/shared'
+import type { HybridTrip, Train, CatchableTrain, PlaceContext, BusPrediction, BusAgencyId } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { WalkingCard } from './WalkingCard'
 import { buildMapsUrl, formatDistance } from '../utils/geo'
@@ -651,10 +651,14 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
   // Dedup against FILTERED predictions only — raw predictions that are before
   // the user's arrival shouldn't suppress scheduled departures.
   const scheduledAfterRT = useMemo(() => {
+    const CATCH_GRACE_MIN = 1
     const scheduled = busLeg.scheduledDepartures
     if (!scheduled || scheduled.length === 0) return []
+    const catchableScheduled = arrivalAtBusStopMin == null
+      ? scheduled
+      : scheduled.filter(s => s.minutesFromNow >= arrivalAtBusStopMin - CATCH_GRACE_MIN)
     const rtMinutes = filteredPredictions.map(p => p.minutes)
-    return scheduled
+    return catchableScheduled
       .filter(s => {
         // Skip if a catchable RT prediction is within 2 min (likely same bus)
         return !rtMinutes.some(rt => Math.abs(rt - s.minutesFromNow) <= 2)
@@ -696,7 +700,11 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
   }, [selectedDeparture, filteredPredictions, scheduledAfterRT, busLeg.headsign, busLeg.routeName, rideMin])
 
   return (
-    <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
+    <div
+      data-testid="bus-leg-panel"
+      data-route-id={busLeg.routeId}
+      className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md"
+    >
       <div className="px-5 py-4" style={{ backgroundColor: '#0f7b72' }}>
         <h3 className="text-white font-semibold text-lg flex items-center gap-2">
           <Bus className="w-5 h-5" />
@@ -753,7 +761,11 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
               </button>
             </div>
             {selectedCardData.type === 'rt' ? (
-              <div className="relative flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border-2 border-[#0f9b8e] scale-[1.02] shadow-lg pr-12">
+              <div
+                data-testid="bus-departure-selected"
+                data-source="realtime"
+                className="relative flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border-2 border-[#0f9b8e] scale-[1.02] shadow-lg pr-12"
+              >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-[#0f9b8e] flex items-center justify-center">
                     <span className="text-white text-xs font-bold">{busLeg.routeName}</span>
@@ -781,7 +793,11 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                 </div>
               </div>
             ) : (
-              <div className="relative flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border-2 border-[#0f9b8e] scale-[1.02] shadow-lg pr-12">
+              <div
+                data-testid="bus-departure-selected"
+                data-source="scheduled"
+                className="relative flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border-2 border-[#0f9b8e] scale-[1.02] shadow-lg pr-12"
+              >
                 <div className="flex items-center gap-3">
                   <div className="w-10 h-10 rounded-full bg-[#0f9b8e]/60 flex items-center justify-center">
                     <span className="text-white text-xs font-bold">{busLeg.routeName}</span>
@@ -869,6 +885,8 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                     .map((item, i) => item.type === 'rt' ? (
                     <div
                       key={`rt-${i}`}
+                      data-testid="bus-departure-option"
+                      data-source="realtime"
                       className={`flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all ${
                         isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg' : ''
                       }`}
@@ -905,6 +923,8 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                   ) : (
                     <div
                       key={`sched-${i}`}
+                      data-testid="bus-departure-option"
+                      data-source="scheduled"
                       className={`flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] opacity-75 transition-all ${
                         isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg hover:opacity-100' : ''
                       }`}

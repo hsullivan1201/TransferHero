@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { ArrowRight, Bookmark, BookmarkCheck } from 'lucide-react'
+import { ArrowRight, ArrowUpDown, Bookmark, BookmarkCheck } from 'lucide-react'
 import type { Station, TransferResult, TransferAlternative, PlaceContext, PlaceResult, ResolveResponse } from '@transferhero/shared'
 import { SmartSelector, type SmartSelection } from './SmartSelector'
 import { DestinationBanner } from './DestinationBanner'
@@ -165,6 +165,14 @@ export function TripSelector({
     setDestOverride(alt)
   }, [])
 
+  const handleSwap = useCallback(() => {
+    setFromSelection(toSelection)
+    setToSelection(fromSelection)
+    setOriginOverride(null)
+    setDestOverride(null)
+    onSelectAlternative?.(null)
+  }, [fromSelection, toSelection, onSelectAlternative])
+
   // build place contexts for banner display
   // prefer active contexts from tripState (kept in sync by WalkingCard alt selections)
   const localOriginPlaceContext: PlaceContext | null =
@@ -209,6 +217,20 @@ export function TripSelector({
               />
             </div>
           )}
+        </div>
+
+        {/* Swap */}
+        <div className="shrink-0 self-center lg:self-end lg:pb-2">
+          <button
+            type="button"
+            onClick={handleSwap}
+            disabled={!fromSelection && !toSelection}
+            className="w-11 h-11 rounded-full border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+            aria-label="Swap origin and destination"
+            data-testid="swap-trip-direction"
+          >
+            <ArrowUpDown className="w-4 h-4" />
+          </button>
         </div>
 
         {/* To */}

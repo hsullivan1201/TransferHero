@@ -1,11 +1,13 @@
 import type { Request, Response, NextFunction } from 'express'
 
 interface CacheEntry {
-  data: any
+  data: unknown
   timestamp: number
+  ttl: number
 }
 
 const cache = new Map<string, CacheEntry>()
+const CACHE_MAX_ENTRIES = 2000
 
 /**
  * Cache configuration (in milliseconds)
@@ -20,12 +22,12 @@ export const CACHE_CONFIG = {
 /**
  * Get cached value if not expired
  */
-export function getCache<T>(key: string, ttl: number): T | null {
+export function getCache<T>(key: string): T | null {
   const entry = cache.get(key)
   if (!entry) return null
 
   const now = Date.now()
-  if (now - entry.timestamp > ttl) {
+  if (now - entry.timestamp > entry.ttl) {
     cache.delete(key)
     return null
   }
@@ -36,11 +38,37 @@ export function getCache<T>(key: string, ttl: number): T | null {
 /**
  * Set cache value
  */
-export function setCache(key: string, data: any): void {
+function pruneExpiredEntries(now: number): void {
+  for (const [key, entry] of cache) {
+    if (now - entry.timestamp > entry.ttl) {
+      cache.delete(key)
+    }
+  }
+}
+
+function evictOverflowEntries(): void {
+  while (cache.size > CACHE_MAX_ENTRIES) {
+    const oldestKey = cache.keys().next().value
+    if (!oldestKey) break
+    cache.delete(oldestKey)
+  }
+}
+
+export function setCache(key: string, data: unknown, ttl: number): void {
+  const now = Date.now()
+  if (cache.has(key)) {
+    cache.delete(key)
+  }
   cache.set(key, {
     data,
-    timestamp: Date.now()
+    timestamp: now,
+    ttl
   })
+
+  if (cache.size > CACHE_MAX_ENTRIES) {
+    pruneExpiredEntries(now)
+    evictOverflowEntries()
+  }
 }
 
 /**
@@ -63,7 +91,7 @@ export function clearAllCache(): void {
 export function cacheMiddleware(ttl: number) {
   return (req: Request, res: Response, next: NextFunction) => {
     const cacheKey = `${req.method}:${req.originalUrl}`
-    const cached = getCache(cacheKey, ttl)
+    const cached = getCache(cacheKey)
 
     if (cached) {
       res.set('X-Cache', 'HIT')
@@ -72,8 +100,8 @@ export function cacheMiddleware(ttl: number) {
 
     // Override res.json to cache the response
     const originalJson = res.json.bind(res)
-    res.json = (data: any) => {
-      setCache(cacheKey, data)
+    res.json = (data: unknown) => {
+      setCache(cacheKey, data, ttl)
       res.set('X-Cache', 'MISS')
       return originalJson(data)
     }

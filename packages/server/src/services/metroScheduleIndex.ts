@@ -41,6 +41,37 @@ export interface ScheduledMetroTrain {
 let index: MetroScheduleIndex | null = null
 let dataLoaded = false
 
+function splitCsvLine(line: string): string[] {
+  const cols: string[] = []
+  let current = ''
+  let inQuotes = false
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i]
+
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') {
+        current += '"'
+        i++
+      } else {
+        inQuotes = !inQuotes
+      }
+      continue
+    }
+
+    if (ch === ',' && !inQuotes) {
+      cols.push(current.trim())
+      current = ''
+      continue
+    }
+
+    current += ch
+  }
+
+  cols.push(current.trim())
+  return cols
+}
+
 // ── Timezone helper (copied from busScheduleIndex.ts) ──────────────────
 
 function getEasternTime(): { date: Date; nowSec: number; dateStr: string } {
@@ -124,7 +155,7 @@ function parseCalendarDates(): Map<number, Set<string>> {
   const path = resolve(GTFS_DIR, 'calendar_dates.txt')
   const content = readFileSync(path, 'utf-8')
   const lines = content.split('\n')
-  const headers = lines[0].split(',').map(h => h.trim())
+  const headers = splitCsvLine(lines[0]).map(h => h.trim())
   const serviceIdx = headers.indexOf('service_id')
   const dateIdx = headers.indexOf('date')
   const typeIdx = headers.indexOf('exception_type')
@@ -134,7 +165,7 @@ function parseCalendarDates(): Map<number, Set<string>> {
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    const cols = line.split(',')
+    const cols = splitCsvLine(line)
     const exType = parseInt(cols[typeIdx])
     if (exType !== 1) continue // only "service added" entries
 
@@ -158,7 +189,7 @@ function parseTrips(): Map<string, MetroTrip> {
   const path = resolve(GTFS_DIR, 'trips.txt')
   const content = readFileSync(path, 'utf-8')
   const lines = content.split('\n')
-  const headers = lines[0].split(',').map(h => h.trim())
+  const headers = splitCsvLine(lines[0]).map(h => h.trim())
   const routeIdx = headers.indexOf('route_id')
   const serviceIdx = headers.indexOf('service_id')
   const tripIdx = headers.indexOf('trip_id')
@@ -169,11 +200,11 @@ function parseTrips(): Map<string, MetroTrip> {
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    const cols = line.split(',')
+    const cols = splitCsvLine(line)
     const tripId = cols[tripIdx]?.trim()
     const routeId = cols[routeIdx]?.trim()
     const serviceId = cols[serviceIdx]?.trim()
-    const headsign = cols[headsignIdx]?.replace(/"/g, '').trim() || 'Unknown'
+    const headsign = cols[headsignIdx]?.trim() || 'Unknown'
 
     if (!tripId || !routeId) continue
     const lineCode = ROUTE_TO_LINE[routeId] || ROUTE_TO_LINE[routeId.toUpperCase()]
@@ -197,7 +228,7 @@ function parseStopTimes(
   const path = resolve(GTFS_DIR, 'stop_times.txt')
   const content = readFileSync(path, 'utf-8')
   const lines = content.split('\n')
-  const headers = lines[0].split(',').map(h => h.trim())
+  const headers = splitCsvLine(lines[0]).map(h => h.trim())
   const tripIdx = headers.indexOf('trip_id')
   const depIdx = headers.indexOf('departure_time')
   const stopIdx = headers.indexOf('stop_id')
@@ -207,7 +238,7 @@ function parseStopTimes(
   for (let i = 1; i < lines.length; i++) {
     const line = lines[i].trim()
     if (!line) continue
-    const cols = line.split(',')
+    const cols = splitCsvLine(line)
     const tripId = cols[tripIdx]?.trim()
 
     const trip = tripId ? activeTrips.get(tripId) : undefined

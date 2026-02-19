@@ -18,12 +18,12 @@ import {
 } from '../services/wmata.js'
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js'
 import { asyncHandler, ValidationError, NotFoundError } from '../middleware/errorHandler.js'
+import { tripRateLimit } from '../middleware/rateLimit.js'
 
 // car position service with the real exit intel
 import {
   getTransferCarPosition,
-  getDirectTripCarPosition,
-  type CarPosition
+  getDirectTripCarPosition
 } from '../data/carPositionService.js'
 import { PLATFORM_CODES, normalizePlatformCode, getPlatformForLine } from '../data/platformCodes.js'
 import { LINE_STATIONS } from '../data/lineConfig.js'
@@ -116,7 +116,7 @@ function getTerminusString(terminus: string | string[]): string {
  * GET /api/trips
  * returns a full trip plan with trains
  */
-router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req: Request, res: Response) => {
+router.get('/', tripRateLimit, cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req: Request, res: Response) => {
   // validate request
   const result = tripQuerySchema.safeParse(req.query)
   if (!result.success) {
@@ -222,7 +222,6 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         const directTravelTime = calculateRouteTravelTime(from, to, line)
         const lineTermini = getTerminus(line, from, to)
         const departedTrains = findDepartedTrains(
-          from,
           to,
           line,
           directTravelTime,
@@ -366,7 +365,6 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
         currentTransfer.fromLine
       )
       const departedTrains = findDepartedTrains(
-        from,
         currentTransfer.fromPlatform,
         currentTransfer.fromLine,
         leg1TravelTime,
@@ -498,7 +496,7 @@ router.get('/', cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(async (req:
  * GET /api/trips/:tripId/leg2
  * Fetch catchable leg 2 trains based on selected leg 1 train
  */
-router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => {
+router.get('/:tripId/leg2', tripRateLimit, asyncHandler(async (req: Request, res: Response) => {
   // Validate request
   const result = leg2QuerySchema.safeParse(req.query)
   if (!result.success) {
@@ -544,8 +542,7 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
   }
 
   if (!transfer || transfer.direct) {
-    console.log('This trip does not require a transfer');
-    return;
+    throw new ValidationError('Trip does not require a transfer')
   }
 
   // figure out when the rider reaches the transfer station
@@ -657,7 +654,6 @@ router.get('/:tripId/leg2', asyncHandler(async (req: Request, res: Response) => 
       transfer.toLine
     )
     const departedTrains = findDepartedTrains(
-      transfer.toPlatform,
       to,
       transfer.toLine,
       leg2TravelTime,

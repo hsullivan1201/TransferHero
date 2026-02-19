@@ -77,6 +77,7 @@ function findDestinationExits(
 export function CarDiagram({ numCars, carPosition, type, destinationExitName, destinationExitLabel }: CarDiagramProps) {
   const highlightCar = type === 'board' ? carPosition.boardCar : carPosition.exitCar
   const title = type === 'board' ? 'Board car for best exit' : 'Exit options'
+  const carCount = numCars ?? 8
 
   const exits = carPosition.exits ?? []
 
@@ -104,7 +105,7 @@ export function CarDiagram({ numCars, carPosition, type, destinationExitName, de
 
       <div className="flex flex-col items-center">
         <div className="flex gap-1 h-6 mb-0.5">
-          {Array.from({ length: 8 }, (_, i) => {
+          {Array.from({ length: carCount }, (_, i) => {
             const carNum = i + 1
             const isHighlighted = highlightedCars.includes(carNum)
             const isDest = destCars.has(carNum)

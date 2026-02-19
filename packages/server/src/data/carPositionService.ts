@@ -598,7 +598,6 @@ export function getTransferCarPosition(
   }
 
   const inTrack = getTrackDirection(inPlatform, incomingDestination)
-  const outTrack = getTrackDirection(outPlatform, finalDestination)
 
   // Accessible mode: try to use an elevator-based egress even if an explicit transfer mapping exists
   const accessibleTransferEgress = accessible

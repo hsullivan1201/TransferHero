@@ -14,8 +14,8 @@ const GRID_FACTOR = 1.4
 const BUS_MIN_PER_STOP = 1 // DC urban average (~10-12mph, stops every 1-2 blocks)
 const MAX_RESULTS = 7
 const MAX_SEARCH_STOPS = 5 // check up to 5 Metro-connected stops per route direction
+const SCHEDULED_LOOKAHEAD_LIMIT = 20 // enough depth for long metro legs before bus boarding
 const AVG_METRO_WAIT = 3 // half of typical ~6 min headway
-const AVG_BUS_WAIT = 8 // fallback bus wait when no schedule data
 const DEFAULT_TRANSFER_WALK = 2 // minutes to walk between platforms
 
 // O(1) station lookup
@@ -112,7 +112,7 @@ function buildHeadsignLookup(): Map<string, string> {
   return lookup
 }
 
-interface BusRouteCandidate {
+export interface BusRouteCandidate {
   routeId: string
   directionId: number
   routeName: string
@@ -127,6 +127,24 @@ interface BusRouteCandidate {
   nearestExitName: string
   nearestExitLat: number
   nearestExitLon: number
+}
+
+interface RankCandidatesDeps {
+  getStopRoutes: typeof getStopRoutes
+  getRouteStopSequences: typeof getRouteStopSequences
+  getNextScheduledDepartures: typeof getNextScheduledDepartures
+  getNextDeparture: typeof getNextDeparture
+  getScheduledRideMinutes: typeof getScheduledRideMinutes
+  getMetroTimes: typeof getMetroTimes
+}
+
+const DEFAULT_RANK_DEPS: RankCandidatesDeps = {
+  getStopRoutes,
+  getRouteStopSequences,
+  getNextScheduledDepartures,
+  getNextDeparture,
+  getScheduledRideMinutes,
+  getMetroTimes,
 }
 
 /**
@@ -220,7 +238,13 @@ export function findMetroBusTrips(
   // the station first, which is the bus-metro pattern instead.
   if (outsideWalkMeters > 2000) return []
 
-  return rankCandidates(candidates, 'metro-bus', originStationCode, outsideWalkMeters)
+  return rankCandidates(
+    candidates,
+    'metro-bus',
+    originStationCode,
+    outsideWalkMeters,
+    { telemetryLabel: `metro-bus origin=${originStationCode}` }
+  )
 }
 
 /**
@@ -235,7 +259,6 @@ export function findBusMetroTrips(
   originLat: number,
   originLon: number,
   destStationCode: string,
-  originStationCode?: string,
   destLat?: number,
   destLon?: number
 ): HybridTrip[] {
@@ -328,34 +351,51 @@ export function findBusMetroTrips(
     ? haversineMeters(destCentroid.lat, destCentroid.lon, destLat, destLon)
     : 0
 
-  return rankCandidates(candidates, 'bus-metro', destStationCode, outsideWalkMeters)
+  return rankCandidates(
+    candidates,
+    'bus-metro',
+    destStationCode,
+    outsideWalkMeters,
+    { telemetryLabel: `bus-metro destination=${destStationCode}` }
+  )
 }
 
 /**
  * Rank candidates by estimated total time, deduplicate, and cap at MAX_RESULTS
  */
-function rankCandidates(
+interface RankCandidatesOptions {
+  deps?: RankCandidatesDeps
+  telemetryLabel?: string
+}
+
+export function rankCandidates(
   candidates: BusRouteCandidate[],
   pattern: 'metro-bus' | 'bus-metro',
   knownStationCode: string,
-  outsideWalkMeters: number = 0
+  outsideWalkMeters: number = 0,
+  options: RankCandidatesOptions = {}
 ): HybridTrip[] {
-  // Deduplicate by route + transfer station — keep the candidate with
-  // the least total walking. Within the same route, the bus ride between
-  // stops is essentially free (you're already on the bus), so only the
-  // walks to/from the bus matter. Real ride time comes from GTFS later.
+  const deps = options.deps ?? DEFAULT_RANK_DEPS
+
+  // Deduplicate by route + transfer station + direction — opposite directions
+  // can have very different service levels, and collapsing too early can keep
+  // a "dead" direction while dropping the viable one.
   const candidateScore = (c: BusRouteCandidate) =>
     c.boardWalkMeters + c.alightWalkMeters
 
   const best = new Map<string, BusRouteCandidate>()
   for (const c of candidates) {
-    const key = `${c.routeId}_${c.transferStationCode}`
+    const key = `${c.routeId}_${c.transferStationCode}_${c.directionId}`
     const existing = best.get(key)
     if (!existing || candidateScore(c) < candidateScore(existing)) {
       best.set(key, c)
     }
   }
 
+  const stopRoutesMap = deps.getStopRoutes()
+  const sequences = deps.getRouteStopSequences()
+
+  let droppedNoNextDeparture = 0
   const trips: HybridTrip[] = []
   for (const c of best.values()) {
     const boardWalkMinutes = estimateWalkMinutes(c.boardWalkMeters)
@@ -365,7 +405,7 @@ function rankCandidates(
     const metroFrom = pattern === 'metro-bus' ? knownStationCode : c.transferStationCode
     const metroTo = pattern === 'metro-bus' ? c.transferStationCode : knownStationCode
 
-    const metro = getMetroTimes(metroFrom, metroTo)
+    const metro = deps.getMetroTimes(metroFrom, metroTo)
     const metroTimeMinutes = metro.rideMinutes + metro.transferWalkMinutes
     const outsideWalkMinutes = estimateWalkMinutes(outsideWalkMeters)
 
@@ -384,30 +424,15 @@ function rankCandidates(
       arrivalAtBusStopMin = boardWalkMinutes
     }
 
-    // Find next bus after the user arrives at the stop
-    const nextBus = getNextDeparture(c.boardStop.stopId, c.routeId, c.directionId, arrivalAtBusStopMin)
-
-    let scheduledRideMinutes: number | undefined
-    let busWaitMinutes = AVG_BUS_WAIT // fallback if no schedule data
-    if (nextBus) {
-      busWaitMinutes = Math.max(0, nextBus.minutesFromNow - arrivalAtBusStopMin)
-      const rideMin = getScheduledRideMinutes(nextBus.tripId, c.boardStop.stopId, c.alightStop.stopId)
-      if (rideMin != null) scheduledRideMinutes = rideMin
-    }
-
-    const effectiveRideMinutes = scheduledRideMinutes ?? busRideMinutes
-
     // Find variant routes that also serve both board and alight stops
     // (e.g. D5X express variant of D50 at the same stops)
     const variantRoutes = new Set<string>()
-    const stopRoutesMap = getStopRoutes()
     const boardRoutes = stopRoutesMap.get(c.boardStop.stopId)
     const alightRoutes = stopRoutesMap.get(c.alightStop.stopId)
     if (boardRoutes && alightRoutes) {
       for (const candidateRoute of boardRoutes) {
         if (candidateRoute === c.routeId || !alightRoutes.has(candidateRoute)) continue
         // Verify stop order in GTFS sequence
-        const sequences = getRouteStopSequences()
         for (const dir of [0, 1]) {
           const seq = sequences.get(`${candidateRoute}_${dir}`)
           if (!seq) continue
@@ -423,11 +448,28 @@ function rankCandidates(
 
     // Build scheduled departures list starting from now (not arrival time)
     // so the client can show both trip-card badges and detail-view scheduled
-    // buses after RT predictions. We send 5 to ensure enough survive dedup.
-    const scheduledDepartures = getNextScheduledDepartures(
-      c.boardStop.stopId, c.routeId, c.directionId, 5, 0,
+    // buses after RT predictions. Use a deeper lookahead so long Metro legs
+    // still have catchable scheduled options once client-side filtering applies.
+    const scheduledDepartures = deps.getNextScheduledDepartures(
+      c.boardStop.stopId, c.routeId, c.directionId, SCHEDULED_LOOKAHEAD_LIMIT, 0,
       variantRoutes.size > 0 ? variantRoutes : undefined
     )
+
+    // Find next bus after the user arrives at the stop.
+    // If none exists, this option is not actually catchable, so drop it
+    // instead of showing a card that later says "No departures found."
+    const nextBus = deps.getNextDeparture(c.boardStop.stopId, c.routeId, c.directionId, arrivalAtBusStopMin)
+    if (!nextBus) {
+      droppedNoNextDeparture++
+      continue
+    }
+
+    let scheduledRideMinutes: number | undefined
+    const busWaitMinutes = Math.max(0, nextBus.minutesFromNow - arrivalAtBusStopMin)
+    const rideMin = deps.getScheduledRideMinutes(nextBus.tripId, c.boardStop.stopId, c.alightStop.stopId)
+    if (rideMin != null) scheduledRideMinutes = rideMin
+
+    const effectiveRideMinutes = scheduledRideMinutes ?? busRideMinutes
 
     let totalTimeMinutes: number
     if (pattern === 'metro-bus') {
@@ -461,14 +503,23 @@ function rankCandidates(
         nearestExitLon: c.nearestExitLon,
         scheduledDepartures: scheduledDepartures.length > 0 ? scheduledDepartures : undefined,
         scheduledRideMinutes,
-        scheduledWaitMinutes: nextBus ? busWaitMinutes : undefined,
+        scheduledWaitMinutes: busWaitMinutes,
       },
       totalTimeMinutes,
     })
   }
 
   trips.sort((a, b) => a.totalTimeMinutes - b.totalTimeMinutes)
-  return trips.slice(0, MAX_RESULTS)
+  const ranked = trips.slice(0, MAX_RESULTS)
+
+  if (droppedNoNextDeparture > 0) {
+    const label = options.telemetryLabel ?? pattern
+    console.log(
+      `[BusTrips] ${label} candidates=${candidates.length} deduped=${best.size} droppedNoNextDeparture=${droppedNoNextDeparture} returned=${ranked.length}`
+    )
+  }
+
+  return ranked
 }
 
 /**
@@ -485,7 +536,6 @@ export function findBusConnectedStation(lat: number, lon: number): {
   const sequences = getRouteStopSequences()
   const stopRoutesMap = getStopRoutes()
   const busStopStationsMap = getBusStopStations()
-  const allStops = getBusStops()
   const exitCache = getAllExits()
 
   const nearbyStops = queryNearbyStops(lat, lon, BUS_ONLY_RADIUS_M)

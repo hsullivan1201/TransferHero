@@ -24,6 +24,9 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
 
   return (
     <div
+      data-testid="bus-trip-card"
+      data-pattern={trip.pattern}
+      data-route-id={busLeg.routeId}
       className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg shadow-sm overflow-hidden hover:border-[#0f9b8e] transition-colors cursor-pointer"
       onClick={onSelect}
     >

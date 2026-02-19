@@ -1,7 +1,7 @@
 import protobuf from 'protobufjs'
-import fetch from 'node-fetch'
 import type { BusPrediction, BusAgencyId } from '@transferhero/shared'
 import { getBusDb, stripAgencyPrefix } from './busGtfsLoader.js'
+import { fetchWithTimeout } from '../utils/http.js'
 
 // GTFS-RT protobuf schema (same as wmata.ts, extended with vehicle)
 const GTFS_RT_SCHEMA = {
@@ -53,6 +53,7 @@ function initProto(): protobuf.Root {
 
 // Per-agency feed cache (30s TTL)
 const FEED_TTL = 30_000
+const GTFS_RT_TIMEOUT_MS = 8_000
 
 interface FeedCacheEntry {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -81,7 +82,10 @@ async function fetchFeed(agencyId: BusAgencyId, url: string, headers?: Record<st
   const root = initProto()
   const FeedMessage = root.lookupType('transit_realtime.FeedMessage')
 
-  const response = await fetch(url, { headers: headers || {} })
+  const response = await fetchWithTimeout(url, {
+    timeoutMs: GTFS_RT_TIMEOUT_MS,
+    headers: headers || {}
+  })
   if (!response.ok) {
     console.warn(`[GTFS-RT:${agencyId}] Feed fetch failed: ${response.status}`)
     return cached?.entities ?? []

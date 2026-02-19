@@ -17,6 +17,7 @@ import busesRouter from './routes/buses.js'
 
 // middleware roll call
 import { errorHandler } from './middleware/errorHandler.js'
+import { apiRateLimit } from './middleware/rateLimit.js'
 
 // background jobs
 import { initGtfsRefreshJob } from './jobs/gtfsRefresh.js'
@@ -34,6 +35,9 @@ const __dirname = path.dirname(__filename)
 const app = express()
 const PORT = process.env.PORT || 3001
 const isProduction = process.env.NODE_ENV === 'production'
+
+// Respect x-forwarded-for when running behind a single edge proxy in production.
+app.set('trust proxy', isProduction ? 1 : false)
 
 // helmet with strict CSP — no unsafe-inline for scripts (Vite bundles everything into files)
 app.use(helmet({
@@ -62,6 +66,7 @@ app.use(cors({
 
 // parse json bodies (10kb limit prevents memory-bomb DoS)
 app.use(express.json({ limit: '10kb' }))
+app.use('/api', apiRateLimit)
 
 // api routes
 app.use('/api/stations', stationsRouter)
@@ -78,7 +83,7 @@ if (isProduction) {
   app.use(express.static(clientDistPath))
 
   // handle client-side routing - serve index.html for all non-API routes
-  app.get('*', (req, res) => {
+  app.get('*', (_req, res) => {
     res.sendFile(path.join(clientDistPath, 'index.html'))
   })
 }

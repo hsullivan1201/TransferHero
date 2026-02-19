@@ -1,7 +1,7 @@
 import type { Line, Station, Transfer, EvaluatedRoute, TransferResult, TransferAlternative } from '@transferhero/shared'
 import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
 import { TRANSFERS } from '../data/transfers.js'
-import { LINE_STATIONS, TERMINI } from '../data/lineConfig.js'
+import { LINE_STATIONS } from '../data/lineConfig.js'
 import { PLATFORM_CODES, getPlatformForLine, normalizePlatformCode } from '../data/platformCodes.js'
 import { calculateRouteTravelTime, getTerminus } from './travelTime.js'
 
@@ -15,8 +15,7 @@ const DEFAULT_TRANSFER_WALK_TIME = 2
  */
 export function findAllPossibleTransfers(
   fromCode: string,
-  toCode: string,
-  transferWalkTime: number = DEFAULT_TRANSFER_WALK_TIME
+  toCode: string
 ): Transfer[] {
   const fromStation = findStationByCode(fromCode)
   const toStation = findStationByCode(toCode)
@@ -149,7 +148,7 @@ export function findTransfer(
   }
 
   // Find all possible transfers
-  const allTransfers = findAllPossibleTransfers(fromCode, toCode, transferWalkTime)
+  const allTransfers = findAllPossibleTransfers(fromCode, toCode)
 
   if (allTransfers.length === 0) {
     // Fallback to Metro Center

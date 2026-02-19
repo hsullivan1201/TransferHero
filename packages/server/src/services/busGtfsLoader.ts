@@ -1,4 +1,3 @@
-import fetch from 'node-fetch'
 import unzipper from 'unzipper'
 import csv from 'csv-parser'
 import fs from 'fs'
@@ -7,6 +6,7 @@ import Database from 'better-sqlite3'
 import type { BusStop, BusAgencyId } from '@transferhero/shared'
 import { invalidateScheduleIndex } from './busScheduleIndex.js'
 import { invalidateHeadsignCache } from './busRouteFinder.js'
+import { fetchWithTimeout } from '../utils/http.js'
 
 // Parsed GTFS data structures
 export interface BusRoute {
@@ -136,6 +136,7 @@ let refreshInterval: ReturnType<typeof setInterval> | null = null
 
 const REFRESH_INTERVAL_MS = 24 * 60 * 60 * 1000 // 24 hours
 const INSERT_BATCH_SIZE = 5000
+const FEED_DOWNLOAD_TIMEOUT_MS = 60_000
 
 /**
  * Get current date in Eastern Time as a Date object.
@@ -283,7 +284,8 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
   const prefix = (id: string) => prefixId(agencyId, id)
 
   console.log(`[BusGTFS:${agencyId}] Downloading GTFS feed...`)
-  const response = await fetch(feed.gtfsUrl, {
+  const response = await fetchWithTimeout(feed.gtfsUrl, {
+    timeoutMs: FEED_DOWNLOAD_TIMEOUT_MS,
     headers: feed.headers || {}
   })
 

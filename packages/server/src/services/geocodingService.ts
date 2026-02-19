@@ -1,4 +1,5 @@
 import type { PlaceResult } from '@transferhero/shared'
+import { fetchWithTimeout } from '../utils/http.js'
 
 // read lazily — dotenv.config() runs after ESM imports resolve
 function getApiKey(): string {
@@ -6,6 +7,7 @@ function getApiKey(): string {
 }
 const DC_CENTER = { lat: 38.9072, lng: -77.0369 }
 const BIAS_RADIUS_M = 30000 // 30km
+const GOOGLE_PLACES_TIMEOUT_MS = 6_000
 
 // simple cache with periodic cleanup (avoids O(n) scan on every write)
 const cache = new Map<string, { results: PlaceResult[]; ts: number }>()
@@ -45,7 +47,8 @@ export async function searchPlaces(query: string, sessionToken?: string): Promis
   }
 
   try {
-    const response = await fetch('https://places.googleapis.com/v1/places:searchText', {
+    const response = await fetchWithTimeout('https://places.googleapis.com/v1/places:searchText', {
+      timeoutMs: GOOGLE_PLACES_TIMEOUT_MS,
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -54,6 +57,7 @@ export async function searchPlaces(query: string, sessionToken?: string): Promis
       },
       body: JSON.stringify({
         textQuery: query,
+        ...(sessionToken ? { sessionToken } : {}),
         locationBias: {
           circle: {
             center: { latitude: DC_CENTER.lat, longitude: DC_CENTER.lng },

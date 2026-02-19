@@ -1,5 +1,6 @@
 // Google Directions API — walking mode
 // Follows the same patterns as geocodingService.ts: lazy API key, LRU cache, graceful fallback
+import { fetchWithTimeout } from '../utils/http.js'
 
 interface WalkingDirectionsResult {
   walkTimeMinutes: number
@@ -18,6 +19,7 @@ function getApiKey(): string {
 const cache = new Map<string, CacheEntry>()
 const CACHE_TTL_MS = 3_600_000 // 1 hour — walking routes between fixed points are stable
 const CACHE_MAX_SIZE = 1000
+const DIRECTIONS_TIMEOUT_MS = 6_000
 
 function roundCoord(n: number): number {
   return Math.round(n * 1e5) / 1e5
@@ -69,8 +71,9 @@ export async function getWalkingDirections(
       key: getApiKey(),
     })
 
-    const response = await fetch(
-      `https://maps.googleapis.com/maps/api/directions/json?${params}`
+    const response = await fetchWithTimeout(
+      `https://maps.googleapis.com/maps/api/directions/json?${params}`,
+      { timeoutMs: DIRECTIONS_TIMEOUT_MS }
     )
 
     if (!response.ok) {

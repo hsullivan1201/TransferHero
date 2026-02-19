@@ -1,8 +1,8 @@
 import type { Train, Line } from '@transferhero/shared'
 import { getTrainMinutes, ensureArray, normalizeDestination, getDisplayName, ROUTE_TO_LINE } from '@transferhero/shared'
 import protobuf from 'protobufjs'
-import fetch from 'node-fetch'
 import { findStationByCode } from '../data/stations.js'
+import { fetchWithTimeout } from '../utils/http.js'
 
 // cached protobuf root so we don't rebuild it every call
 let protoRoot: protobuf.Root | null = null
@@ -10,6 +10,8 @@ let protoRoot: protobuf.Root | null = null
 // wmata api cache layer — keeps us from spamming their servers every second
 const PREDICTION_TTL = 15_000  // 15 seconds
 const GTFS_TTL = 10_000        // 10 seconds
+const WMATA_REQUEST_TIMEOUT_MS = 8_000
+const GTFS_REQUEST_TIMEOUT_MS = 10_000
 
 interface CacheEntry<T> {
   data: T
@@ -92,7 +94,8 @@ export async function fetchStationPredictions(
   cacheStats.predictionMisses++
   const url = `https://api.wmata.com/StationPrediction.svc/json/GetPrediction/${stationCode}`
 
-  const response = await fetch(url, {
+  const response = await fetchWithTimeout(url, {
+    timeoutMs: WMATA_REQUEST_TIMEOUT_MS,
     headers: { 'api_key': apiKey }
   })
 
@@ -125,7 +128,8 @@ export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
 
   try {
     const root = await initProto()
-    const response = await fetch('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
+    const response = await fetchWithTimeout('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
+      timeoutMs: GTFS_REQUEST_TIMEOUT_MS,
       headers: { 'api_key': apiKey }
     })
 
@@ -451,7 +455,6 @@ function extractStationCode(stopId: string): string {
  * find trains that already left the origin by spotting them at the transfer station
  */
 export function findDepartedTrains(
-  originCode: string,
   transferCode: string,
   line: Line,
   leg1TravelTime: number,

@@ -10,3 +10,8 @@ packages/server/.env
 packages/client/dist
 packages/server/dist
 packages/shared/dist
+*.tsbuildinfo
+packages/server/temp/
+.playwright-mcp/
+test*.png
+test-*.png

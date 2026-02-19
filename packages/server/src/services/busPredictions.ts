@@ -1,9 +1,11 @@
-import fetch from 'node-fetch'
 import type { BusPrediction } from '@transferhero/shared'
 import { getRouteStopSequences, getBusDb } from './busGtfsLoader.js'
+import { fetchWithTimeout } from '../utils/http.js'
 
 const PREDICTION_TTL = 15_000 // 15 seconds, matches rail prediction TTL
 const FAILURE_TTL = 60_000   // 60 seconds — avoid hammering WMATA for known-bad stops
+const CACHE_MAX_SIZE = 4000
+const NEXTBUS_TIMEOUT_MS = 8_000
 
 interface CacheEntry {
   data: BusPrediction[]
@@ -11,6 +13,14 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>()
+
+function evictIfOverCapacity(): void {
+  while (cache.size > CACHE_MAX_SIZE) {
+    const oldestKey = cache.keys().next().value
+    if (!oldestKey) break
+    cache.delete(oldestKey)
+  }
+}
 
 interface WmataBusPrediction {
   RouteID: string
@@ -36,13 +46,17 @@ export async function fetchBusPredictions(
 
   try {
     const url = `https://api.wmata.com/NextBusService.svc/json/jPredictions?StopID=${encodeURIComponent(stopCode)}`
-    const response = await fetch(url, {
+    const response = await fetchWithTimeout(url, {
+      timeoutMs: NEXTBUS_TIMEOUT_MS,
       headers: { 'api_key': apiKey }
     })
 
     if (!response.ok) {
       console.warn(`[BusPredictions] API error for stop ${stopCode}: ${response.status}`)
-      if (!cached) cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
+      if (!cached) {
+        cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
+        evictIfOverCapacity()
+      }
       return cached?.data ?? []
     }
 
@@ -55,10 +69,14 @@ export async function fetchBusPredictions(
     }))
 
     cache.set(stopCode, { data: predictions, ts: now })
+    evictIfOverCapacity()
     return predictions
   } catch (err) {
     console.warn(`[BusPredictions] Fetch failed for stop ${stopCode}:`, err)
-    if (!cached) cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
+    if (!cached) {
+      cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
+      evictIfOverCapacity()
+    }
     return cached?.data ?? []
   }
 }

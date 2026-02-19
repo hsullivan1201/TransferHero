@@ -1,12 +1,13 @@
 import { Router } from 'express'
 import { z } from 'zod'
-import { asyncHandler, ValidationError } from '../middleware/errorHandler.js'
-import { isBusDataLoaded, getFeedConfigs, stripAgencyPrefix } from '../services/busGtfsLoader.js'
+import { asyncHandler } from '../middleware/errorHandler.js'
+import { isBusDataLoaded, getFeedConfigs } from '../services/busGtfsLoader.js'
 import { findMetroBusTrips, findBusMetroTrips, getStationCentroid } from '../services/busRouteFinder.js'
 import { fetchBusPredictions, filterPredictionsForRoute } from '../services/busPredictions.js'
 import { fetchGtfsRtBusPredictions } from '../services/gtfsRtPredictions.js'
 import { getWalkingDirections } from '../services/walkingDirectionsService.js'
-import type { HybridTrip, BusAgencyId } from '@transferhero/shared'
+import type { HybridTrip } from '@transferhero/shared'
+import { busTripsRateLimit, busPredictionsRateLimit, busWalkRateLimit } from '../middleware/rateLimit.js'
 
 const router = Router()
 
@@ -22,6 +23,19 @@ const tripsSchema = z.object({
 // Route-finding cache: 5 min TTL (bus routes don't change)
 const routeCache = new Map<string, { data: HybridTrip[]; ts: number }>()
 const ROUTE_CACHE_TTL = 5 * 60 * 1000
+const ROUTE_CACHE_MAX_SIZE = 1000
+
+function pruneRouteCache(now: number): void {
+  for (const [key, entry] of routeCache) {
+    if ((now - entry.ts) >= ROUTE_CACHE_TTL) routeCache.delete(key)
+  }
+
+  while (routeCache.size > ROUTE_CACHE_MAX_SIZE) {
+    const oldestKey = routeCache.keys().next().value
+    if (!oldestKey) break
+    routeCache.delete(oldestKey)
+  }
+}
 
 function getApiKey(): string {
   const key = process.env.WMATA_API_KEY
@@ -33,7 +47,7 @@ function getApiKey(): string {
  * GET /api/buses/trips
  * Find hybrid Metro+Bus trip options
  */
-router.get('/trips', asyncHandler(async (req, res) => {
+router.get('/trips', busTripsRateLimit, asyncHandler(async (req, res) => {
   if (!isBusDataLoaded()) {
     return res.json({ trips: [], busDataAvailable: false })
   }
@@ -57,6 +71,7 @@ router.get('/trips', asyncHandler(async (req, res) => {
   // Check route cache
   const cacheKey = `${originLat.toFixed(4)}_${originLon.toFixed(4)}_${destLat.toFixed(4)}_${destLon.toFixed(4)}_${originStation}_${destStation}`
   const now = Date.now()
+  pruneRouteCache(now)
   const cached = routeCache.get(cacheKey)
 
   let trips: HybridTrip[]
@@ -65,13 +80,21 @@ router.get('/trips', asyncHandler(async (req, res) => {
   } else {
     // Run both Metro→Bus and Bus→Metro finders
     const metroBus = findMetroBusTrips(destLat, destLon, originStation, originLat, originLon)
-    const busMetro = findBusMetroTrips(originLat, originLon, destStation, originStation, destLat, destLon)
+    const busMetro = findBusMetroTrips(originLat, originLon, destStation, destLat, destLon)
 
     trips = [...metroBus, ...busMetro]
       .sort((a, b) => a.totalTimeMinutes - b.totalTimeMinutes)
       .slice(0, 7)
 
+    // Lightweight telemetry so we can spot asymmetry/empty-pattern issues quickly.
+    if (metroBus.length === 0 || busMetro.length === 0) {
+      console.log(
+        `[BusTrips] ${originStation}->${destStation} metroBus=${metroBus.length} busMetro=${busMetro.length} returned=${trips.length}`
+      )
+    }
+
     routeCache.set(cacheKey, { data: trips, ts: now })
+    pruneRouteCache(now)
   }
 
   res.json({ trips, busDataAvailable: true, _v: 2 })
@@ -91,7 +114,7 @@ const predictionsSchema = z.object({
  * Dispatches to WMATA JSON API or GTFS-RT based on agencyId.
  * Called only when user selects a trip — 1 API call.
  */
-router.get('/predictions', asyncHandler(async (req, res) => {
+router.get('/predictions', busPredictionsRateLimit, asyncHandler(async (req, res) => {
   const { stopCode, routeId, boardStopId, alightStopId, agencyId } = predictionsSchema.parse(req.query)
 
   let all
@@ -132,7 +155,7 @@ const walkSchema = z.object({
  * Enrich a selected bus trip's walk segments with Google Directions.
  * Called only when user taps a bus trip card — max 2 Google API calls.
  */
-router.get('/walk', asyncHandler(async (req, res) => {
+router.get('/walk', busWalkRateLimit, asyncHandler(async (req, res) => {
   const params = walkSchema.parse(req.query)
 
   // Walk TO the boarding stop (from Metro exit or user location)

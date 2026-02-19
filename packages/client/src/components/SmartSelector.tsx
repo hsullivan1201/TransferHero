@@ -294,11 +294,6 @@ export function SmartSelector({
           {/* Place results */}
           {placeResults.map((place, i) => {
             const baseOffset = (showCurrentLocation && query.length === 0 ? 1 : 0) + stationMatches.length
-            const idx =
-              stationMatches.length > 0 && placeResults.length > 0
-                ? baseOffset + 1 + i // +1 for divider (not really an item but we skip it)
-                : baseOffset + i
-            // actually divider isn't an item in the items array, so:
             const realIdx = baseOffset + i
             return (
               <div

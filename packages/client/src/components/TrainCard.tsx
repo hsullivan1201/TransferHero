@@ -93,6 +93,9 @@ export const TrainCard = memo(function TrainCard({
 
   return (
     <div
+      data-testid={isSelected ? 'train-card-selected' : 'train-card'}
+      data-line={train.Line}
+      data-destination={getDisplayName(train.DestinationName)}
       className={`relative p-5 mb-3 rounded-lg border-l-4 cursor-pointer transition-all animate-slide-in ${lineClass} ${
         variant === 'selectable' ? 'hover:translate-x-1 hover:shadow-lg' : ''
       } ${

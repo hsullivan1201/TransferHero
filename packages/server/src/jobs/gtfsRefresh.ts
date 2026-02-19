@@ -1,9 +1,7 @@
 import cron from 'node-cron'
-import fetch from 'node-fetch'
 import { createWriteStream, createReadStream, unlinkSync, existsSync, mkdirSync } from 'fs'
 import { writeFile } from 'fs/promises'
 import { pipeline } from 'stream/promises'
-import { createGunzip } from 'zlib'
 import { Parse } from 'unzipper'
 import { resolve, dirname } from 'path'
 import { fileURLToPath } from 'url'
@@ -12,8 +10,10 @@ import { clearAllCache } from '../middleware/cache.js'
 import { loadStationExits } from '../services/stationService.js'
 import { invalidateMetroScheduleIndex, loadMetroScheduleData } from '../services/metroScheduleIndex.js'
 import { ROUTE_TO_LINE } from '@transferhero/shared'
+import { fetchWithTimeout } from '../utils/http.js'
 
 const __dirname = dirname(fileURLToPath(import.meta.url))
+const GTFS_STATIC_TIMEOUT_MS = 120_000
 
 interface TripInfo {
   headsign: string
@@ -30,7 +30,8 @@ async function downloadGtfsZip(destPath: string): Promise<void> {
   }
 
   console.log('[GTFS Refresh] downloading GTFS static data...')
-  const response = await fetch('https://api.wmata.com/gtfs/rail-gtfs-static.zip', {
+  const response = await fetchWithTimeout('https://api.wmata.com/gtfs/rail-gtfs-static.zip', {
+    timeoutMs: GTFS_STATIC_TIMEOUT_MS,
     headers: { 'api_key': apiKey }
   })
 

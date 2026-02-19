@@ -82,7 +82,11 @@ export function LegPanel({
   }, [trains, selectedTrain, isSelectable])
 
   return (
-    <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md">
+    <div
+      data-testid="leg-panel"
+      data-leg={leg}
+      className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg overflow-hidden shadow-md"
+    >
       <div className="bg-gray-800 px-5 py-4">
         <h3 className="text-white font-semibold text-lg">{title}</h3>
         {subtitle && (

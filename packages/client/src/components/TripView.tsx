@@ -1,6 +1,6 @@
-import { useCallback, useMemo } from 'react'
+import { useMemo } from 'react'
 import { RefreshCw } from 'lucide-react'
-import type { Train, CatchableTrain, TransferResult, CarPosition, PlaceContext } from '@transferhero/shared'
+import type { Train, CatchableTrain, CarPosition, PlaceContext } from '@transferhero/shared'
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
 import { WalkingCard } from './WalkingCard'
@@ -10,7 +10,6 @@ import { resolveExitLabel } from '../data/exitMapping'
 type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
 
 interface TripViewProps {
-  transfer: TransferResult | null
   leg1Trains: Train[]
   leg2Trains: CatchableTrain[]
   leg1CarPosition: CarPosition | null
@@ -38,7 +37,6 @@ interface TripViewProps {
 }
 
 export function TripView({
-  transfer,
   leg1Trains,
   leg2Trains,
   leg1CarPosition,

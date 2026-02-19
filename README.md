@@ -77,10 +77,10 @@ npm install
 Create `packages/server/.env`:
 ```bash
 WMATA_API_KEY=your_api_key_here
-GOOGLE_MAPS_API_KEY=your_google_api_key_here
+GOOGLE_PLACES_API_KEY=your_google_api_key_here
 PORT=3001
 NODE_ENV=development
-CORS_ORIGIN=*
+CORS_ORIGIN=http://localhost:3000
 ```
 
 You'll need a [WMATA API key](https://developer.wmata.com/) and a [Google Maps API key](https://console.cloud.google.com/) with Places and Directions APIs enabled.
