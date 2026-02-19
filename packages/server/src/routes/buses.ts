@@ -20,10 +20,10 @@ const tripsSchema = z.object({
   destStation: z.string().min(2).max(10),
 })
 
-// Route-finding cache: 5 min TTL (bus routes don't change)
+// Route-finding cache: short TTL because wait times are time-sensitive.
 const routeCache = new Map<string, { data: HybridTrip[]; ts: number }>()
-const ROUTE_CACHE_TTL = 5 * 60 * 1000
-const ROUTE_CACHE_MAX_SIZE = 1000
+const ROUTE_CACHE_TTL = 20 * 1000
+const ROUTE_CACHE_MAX_SIZE = 400
 
 function pruneRouteCache(now: number): void {
   for (const [key, entry] of routeCache) {

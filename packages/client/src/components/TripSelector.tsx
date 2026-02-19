@@ -80,6 +80,8 @@ export function TripSelector({
   const [fromSelection, setFromSelection] = useState<SmartSelection | null>(null)
   const [toSelection, setToSelection] = useState<SmartSelection | null>(null)
   const [walkTime, setWalkTime] = useState(2)
+  const [swapFxTick, setSwapFxTick] = useState(0)
+  const [showSwapFx, setShowSwapFx] = useState(false)
 
   // station override when user picks an alternative walking station
   const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
@@ -171,7 +173,19 @@ export function TripSelector({
     setOriginOverride(null)
     setDestOverride(null)
     onSelectAlternative?.(null)
+    setSwapFxTick((tick) => tick + 1)
   }, [fromSelection, toSelection, onSelectAlternative])
+
+  useEffect(() => {
+    if (swapFxTick === 0) return
+
+    setShowSwapFx(true)
+    const timer = setTimeout(() => {
+      setShowSwapFx(false)
+    }, 170)
+
+    return () => clearTimeout(timer)
+  }, [swapFxTick])
 
   // build place contexts for banner display
   // prefer active contexts from tripState (kept in sync by WalkingCard alt selections)
@@ -197,14 +211,18 @@ export function TripSelector({
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
             From
           </label>
-          <SmartSelector
-            field="from"
-            value={fromSelection}
-            onChange={setFromSelection}
-            stations={stations}
-            placeholder="Origin..."
-            showCurrentLocation
-          />
+          <div
+            className={`rounded-md transition-shadow duration-150 ${showSwapFx ? 'ring-2 ring-[#E31837]/30 ring-offset-1 ring-offset-transparent' : ''}`}
+          >
+            <SmartSelector
+              field="from"
+              value={fromSelection}
+              onChange={setFromSelection}
+              stations={stations}
+              placeholder="Origin..."
+              showCurrentLocation
+            />
+          </div>
           {fromResolveError && (
             <p className="mt-1.5 text-sm text-red-500">No stations within walking distance</p>
           )}
@@ -225,7 +243,7 @@ export function TripSelector({
             type="button"
             onClick={handleSwap}
             disabled={!fromSelection && !toSelection}
-            className="w-11 h-11 rounded-full border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+            className={`w-11 h-11 rounded-full border border-[var(--border-color)] bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--text-secondary)] disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-150 flex items-center justify-center ${showSwapFx ? 'bg-[#E31837]/10 border-[#E31837] text-[#E31837]' : ''}`}
             aria-label="Swap origin and destination"
             data-testid="swap-trip-direction"
           >
@@ -238,13 +256,17 @@ export function TripSelector({
           <label className="block text-sm font-medium text-[var(--text-secondary)] mb-1.5">
             To
           </label>
-          <SmartSelector
-            field="to"
-            value={toSelection}
-            onChange={setToSelection}
-            stations={stations}
-            placeholder="Destination..."
-          />
+          <div
+            className={`rounded-md transition-shadow duration-150 ${showSwapFx ? 'ring-2 ring-[#E31837]/30 ring-offset-1 ring-offset-transparent' : ''}`}
+          >
+            <SmartSelector
+              field="to"
+              value={toSelection}
+              onChange={setToSelection}
+              stations={stations}
+              placeholder="Destination..."
+            />
+          </div>
           {toResolveError && (
             <p className="mt-1.5 text-sm text-red-500">No stations within walking distance</p>
           )}

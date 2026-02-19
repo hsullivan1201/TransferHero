@@ -15,8 +15,26 @@ const CACHE_MAX_ENTRIES = 2000
 export const CACHE_CONFIG = {
   stations: 24 * 60 * 60 * 1000,     // 24 hours
   travelTimes: 24 * 60 * 60 * 1000,  // 24 hours
-  tripPlan: 30 * 1000,               // 30 seconds (real-time data)
+  tripPlan: 10 * 1000,               // 10 seconds (real-time data)
   gtfsRefresh: 6 * 60 * 60 * 1000    // 6 hours
+}
+
+/**
+ * Normalize URLs so query parameter order does not fragment cache keys.
+ */
+export function normalizeCacheUrl(originalUrl: string): string {
+  const [path, queryString] = originalUrl.split('?', 2)
+  if (!queryString) return path
+
+  const params = new URLSearchParams(queryString)
+  const entries = Array.from(params.entries())
+  entries.sort(([aKey, aValue], [bKey, bValue]) => {
+    if (aKey === bKey) return aValue.localeCompare(bValue)
+    return aKey.localeCompare(bKey)
+  })
+
+  const normalizedParams = new URLSearchParams(entries).toString()
+  return normalizedParams ? `${path}?${normalizedParams}` : path
 }
 
 /**
@@ -90,7 +108,7 @@ export function clearAllCache(): void {
  */
 export function cacheMiddleware(ttl: number) {
   return (req: Request, res: Response, next: NextFunction) => {
-    const cacheKey = `${req.method}:${req.originalUrl}`
+    const cacheKey = `${req.method}:${normalizeCacheUrl(req.originalUrl)}`
     const cached = getCache(cacheKey)
 
     if (cached) {
@@ -101,7 +119,9 @@ export function cacheMiddleware(ttl: number) {
     // Override res.json to cache the response
     const originalJson = res.json.bind(res)
     res.json = (data: unknown) => {
-      setCache(cacheKey, data, ttl)
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        setCache(cacheKey, data, ttl)
+      }
       res.set('X-Cache', 'MISS')
       return originalJson(data)
     }

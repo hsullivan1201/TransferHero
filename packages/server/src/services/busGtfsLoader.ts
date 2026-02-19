@@ -6,6 +6,7 @@ import Database from 'better-sqlite3'
 import type { BusStop, BusAgencyId } from '@transferhero/shared'
 import { invalidateScheduleIndex } from './busScheduleIndex.js'
 import { invalidateHeadsignCache } from './busRouteFinder.js'
+import { invalidateBusPredictionCaches } from './busPredictions.js'
 import { fetchWithTimeout } from '../utils/http.js'
 
 // Parsed GTFS data structures
@@ -197,16 +198,16 @@ function parseTimeToSeconds(timeStr: string): number {
 }
 
 /**
- * Parse a CSV file from a buffer into rows
+ * Parse a CSV file from a buffer and stream rows to a callback.
+ * Avoids materializing full CSVs in memory during GTFS refresh.
  */
-function parseCsv<T>(buffer: Buffer): Promise<T[]> {
+function parseCsvRows<T>(buffer: Buffer, onRow: (row: T) => void): Promise<void> {
   return new Promise((resolve, reject) => {
-    const rows: T[] = []
     const stream = Readable.from(buffer)
     stream
       .pipe(csv())
-      .on('data', (row: T) => rows.push(row))
-      .on('end', () => resolve(rows))
+      .on('data', (row: T) => onRow(row))
+      .on('end', () => resolve())
       .on('error', reject)
   })
 }
@@ -316,13 +317,12 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
   // Parse stops.txt — namespace stopId, keep stopCode un-prefixed
   const newStops = new Map<string, BusStop>()
   if (files.has('stops.txt')) {
-    const rows = await parseCsv<{ stop_id: string; stop_code: string; stop_name: string; stop_lat: string; stop_lon: string; location_type?: string }>(files.get('stops.txt')!)
-    for (const row of rows) {
+    await parseCsvRows<{ stop_id: string; stop_code: string; stop_name: string; stop_lat: string; stop_lon: string; location_type?: string }>(files.get('stops.txt')!, (row) => {
       const locType = row.location_type || '0'
-      if (locType !== '0' && locType !== '') continue
+      if (locType !== '0' && locType !== '') return
       const lat = parseFloat(row.stop_lat)
       const lon = parseFloat(row.stop_lon)
-      if (isNaN(lat) || isNaN(lon)) continue
+      if (isNaN(lat) || isNaN(lon)) return
       const namespacedId = prefix(row.stop_id)
       newStops.set(namespacedId, {
         stopId: namespacedId,
@@ -332,14 +332,13 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
         lon,
         agencyId,
       })
-    }
+    })
   }
 
   // Parse routes.txt — namespace routeId
   const newRoutes = new Map<string, BusRoute>()
   if (files.has('routes.txt')) {
-    const rows = await parseCsv<{ route_id: string; route_short_name: string; route_long_name: string }>(files.get('routes.txt')!)
-    for (const row of rows) {
+    await parseCsvRows<{ route_id: string; route_short_name: string; route_long_name: string }>(files.get('routes.txt')!, (row) => {
       const namespacedId = prefix(row.route_id)
       newRoutes.set(namespacedId, {
         routeId: namespacedId,
@@ -347,32 +346,30 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
         longName: row.route_long_name || '',
         agencyId,
       })
-    }
+    })
   }
 
   // Parse trips.txt — namespace tripId, routeId, serviceId
   const parsedTrips = new Map<string, BusTrip>()
   if (files.has('trips.txt')) {
-    const rows = await parseCsv<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string; service_id: string }>(files.get('trips.txt')!)
-    for (const row of rows) {
+    await parseCsvRows<{ trip_id: string; route_id: string; direction_id: string; trip_headsign: string; service_id: string }>(files.get('trips.txt')!, (row) => {
       parsedTrips.set(prefix(row.trip_id), {
         routeId: prefix(row.route_id),
         directionId: parseInt(row.direction_id) || 0,
         headsign: row.trip_headsign || '',
         serviceId: prefix(row.service_id),
       })
-    }
+    })
   }
 
   // Parse calendar.txt — namespace serviceId
   const newCalendar = new Map<string, BusCalendarEntry>()
   if (files.has('calendar.txt')) {
-    const rows = await parseCsv<{
+    await parseCsvRows<{
       service_id: string; monday: string; tuesday: string; wednesday: string;
       thursday: string; friday: string; saturday: string; sunday: string;
       start_date: string; end_date: string
-    }>(files.get('calendar.txt')!)
-    for (const row of rows) {
+    }>(files.get('calendar.txt')!, (row) => {
       newCalendar.set(prefix(row.service_id), {
         days: [
           row.monday === '1',
@@ -386,14 +383,13 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
         startDate: parseInt(row.start_date) || 0,
         endDate: parseInt(row.end_date) || 0,
       })
-    }
+    })
   }
 
   // Parse calendar_dates.txt — namespace serviceId
   const newCalendarDates = new Map<string, BusCalendarException[]>()
   if (files.has('calendar_dates.txt')) {
-    const rows = await parseCsv<{ service_id: string; date: string; exception_type: string }>(files.get('calendar_dates.txt')!)
-    for (const row of rows) {
+    await parseCsvRows<{ service_id: string; date: string; exception_type: string }>(files.get('calendar_dates.txt')!, (row) => {
       const exception: BusCalendarException = {
         date: parseInt(row.date) || 0,
         added: row.exception_type === '1',
@@ -405,7 +401,7 @@ async function downloadAndParseFeed(feed: AgencyFeedConfig): Promise<FeedParseRe
       } else {
         newCalendarDates.set(nsServiceId, [exception])
       }
-    }
+    })
   }
 
   // Free zip buffer + extracted file buffers — no longer needed
@@ -648,6 +644,7 @@ async function downloadAndParseAll(): Promise<void> {
   // Invalidate caches that depend on the old data
   invalidateScheduleIndex()
   invalidateHeadsignCache()
+  invalidateBusPredictionCaches()
 
   const agencyNames = results.map(r => r.agencyId).join(', ')
   console.log(`[BusGTFS] Loaded [${agencyNames}]: ${mergedStops.size} stops, ${mergedRoutes.size} routes, ${totalTrips} trips, ${newRouteStopSequences.size} route sequences, ${totalStopTimes} stop_times`)

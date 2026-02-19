@@ -1,6 +1,7 @@
 import type { HybridTrip, BusPrediction, BusAgencyId } from '@transferhero/shared'
 
 const API_BASE = '/api'
+const FETCH_INIT: RequestInit = { cache: 'no-store' }
 
 export interface BusTripsResponse {
   trips: HybridTrip[]
@@ -26,7 +27,7 @@ export async function fetchBusTrips(
   if (destLat != null) params.set('destLat', destLat.toString())
   if (destLon != null) params.set('destLon', destLon.toString())
 
-  const res = await fetch(`${API_BASE}/buses/trips?${params}`)
+  const res = await fetch(`${API_BASE}/buses/trips?${params}`, FETCH_INIT)
   if (!res.ok) return { trips: [], busDataAvailable: false }
   return res.json()
 }
@@ -42,7 +43,7 @@ export async function fetchBusPredictions(
   if (boardStopId) params.set('boardStopId', boardStopId)
   if (alightStopId) params.set('alightStopId', alightStopId)
   if (agencyId) params.set('agencyId', agencyId)
-  const res = await fetch(`${API_BASE}/buses/predictions?${params}`)
+  const res = await fetch(`${API_BASE}/buses/predictions?${params}`, FETCH_INIT)
   if (!res.ok) return []
   const data = await res.json()
   return data.predictions ?? []
@@ -65,7 +66,7 @@ export async function fetchBusWalkDirections(
     alightToLon: alightTo.lon.toString(),
   })
 
-  const res = await fetch(`${API_BASE}/buses/walk?${params}`)
+  const res = await fetch(`${API_BASE}/buses/walk?${params}`, FETCH_INIT)
   if (!res.ok) return { board: null, alight: null }
   return res.json()
 }

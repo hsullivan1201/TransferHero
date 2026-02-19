@@ -62,10 +62,18 @@ interface FeedCacheEntry {
 }
 
 const feedCache = new Map<string, FeedCacheEntry>()
+const pendingFeedRequests = new Map<string, Promise<any[]>>()
 
 interface TripInfo {
   routeId: string
   headsign: string
+}
+
+interface RawPrediction {
+  rawTripId: string
+  fallbackRouteId: string
+  minutes: number
+  vehicleId?: string
 }
 
 /**
@@ -79,26 +87,62 @@ async function fetchFeed(agencyId: BusAgencyId, url: string, headers?: Record<st
     return cached.entities
   }
 
-  const root = initProto()
-  const FeedMessage = root.lookupType('transit_realtime.FeedMessage')
+  const pending = pendingFeedRequests.get(agencyId)
+  if (pending) return pending
 
-  const response = await fetchWithTimeout(url, {
-    timeoutMs: GTFS_RT_TIMEOUT_MS,
-    headers: headers || {}
-  })
-  if (!response.ok) {
-    console.warn(`[GTFS-RT:${agencyId}] Feed fetch failed: ${response.status}`)
-    return cached?.entities ?? []
+  const request = (async () => {
+    try {
+      const root = initProto()
+      const FeedMessage = root.lookupType('transit_realtime.FeedMessage')
+
+      const response = await fetchWithTimeout(url, {
+        timeoutMs: GTFS_RT_TIMEOUT_MS,
+        headers: headers || {}
+      })
+      if (!response.ok) {
+        console.warn(`[GTFS-RT:${agencyId}] Feed fetch failed: ${response.status}`)
+        return cached?.entities ?? []
+      }
+
+      const arrayBuffer = await response.arrayBuffer()
+      const buffer = Buffer.from(arrayBuffer)
+      const message = FeedMessage.decode(new Uint8Array(buffer))
+      const obj = FeedMessage.toObject(message, { longs: Number })
+
+      const entities = obj.entity || []
+      feedCache.set(agencyId, { entities, ts: Date.now() })
+      return entities
+    } catch (err) {
+      console.warn(`[GTFS-RT:${agencyId}] Feed fetch failed:`, err)
+      return cached?.entities ?? []
+    } finally {
+      pendingFeedRequests.delete(agencyId)
+    }
+  })()
+
+  pendingFeedRequests.set(agencyId, request)
+  return request
+}
+
+function loadTripInfoMap(agencyId: BusAgencyId, rawTripIds: Set<string>): Map<string, TripInfo> {
+  const tripInfoByRawId = new Map<string, TripInfo>()
+  const busDb = getBusDb()
+  if (!busDb || rawTripIds.size === 0) return tripInfoByRawId
+
+  const namespacedTripIds = Array.from(rawTripIds).map(raw => `${agencyId}:${raw}`)
+  const placeholders = namespacedTripIds.map(() => '?').join(',')
+  const rows = busDb.prepare(
+    `SELECT trip_id, route_id, headsign FROM trips WHERE trip_id IN (${placeholders})`
+  ).all(...namespacedTripIds) as { trip_id: string; route_id: string; headsign: string }[]
+
+  for (const row of rows) {
+    tripInfoByRawId.set(stripAgencyPrefix(row.trip_id), {
+      routeId: row.route_id,
+      headsign: row.headsign,
+    })
   }
 
-  const arrayBuffer = await response.arrayBuffer()
-  const buffer = Buffer.from(arrayBuffer)
-  const message = FeedMessage.decode(new Uint8Array(buffer))
-  const obj = FeedMessage.toObject(message, { longs: Number })
-
-  const entities = obj.entity || []
-  feedCache.set(agencyId, { entities, ts: now })
-  return entities
+  return tripInfoByRawId
 }
 
 /**
@@ -118,29 +162,19 @@ export async function fetchGtfsRtBusPredictions(
   try {
     const entities = await fetchFeed(agencyId, url, headers)
     const rawStopId = stripAgencyPrefix(stopId)
+    if (!rawStopId) return []
+
     const nowSec = Math.floor(Date.now() / 1000)
-
-    // Lookup trip info from SQLite for route_id and headsign
-    const busDb = getBusDb()
-    const tripInfoCache = new Map<string, TripInfo | null>()
-
-    function getTripInfo(rawTripId: string): TripInfo | null {
-      if (tripInfoCache.has(rawTripId)) return tripInfoCache.get(rawTripId)!
-      if (!busDb) { tripInfoCache.set(rawTripId, null); return null }
-      const namespacedTripId = `${agencyId}:${rawTripId}`
-      const row = busDb.prepare(
-        'SELECT route_id, headsign FROM trips WHERE trip_id = ?'
-      ).get(namespacedTripId) as { route_id: string; headsign: string } | undefined
-      const info = row ? { routeId: row.route_id, headsign: row.headsign } : null
-      tripInfoCache.set(rawTripId, info)
-      return info
-    }
-
-    const predictions: BusPrediction[] = []
+    const rawPredictions: RawPrediction[] = []
+    const rawTripIds = new Set<string>()
 
     for (const entity of entities) {
       const tu = entity.tripUpdate
       if (!tu?.stopTimeUpdate) continue
+
+      const rawTripId = String(tu.trip?.tripId || '')
+      const fallbackRouteId = tu.trip?.routeId ? `${agencyId}:${tu.trip.routeId}` : ''
+      const vehicleId = tu.vehicle?.id || tu.vehicle?.label || undefined
 
       for (const stu of tu.stopTimeUpdate) {
         if (stu.stopId !== rawStopId) continue
@@ -151,19 +185,29 @@ export async function fetchGtfsRtBusPredictions(
         const minutes = Math.round((Number(arrivalTime) - nowSec) / 60)
         if (minutes < -1 || minutes > 120) continue // skip past/far-future
 
-        const rawTripId = tu.trip?.tripId || ''
-        const tripInfo = getTripInfo(rawTripId)
-        const vehicleId = tu.vehicle?.id || tu.vehicle?.label || undefined
-
-        predictions.push({
-          routeId: tripInfo?.routeId || (tu.trip?.routeId ? `${agencyId}:${tu.trip.routeId}` : ''),
-          directionText: tripInfo?.headsign || '',
+        rawPredictions.push({
+          rawTripId,
+          fallbackRouteId,
           minutes: Math.max(0, minutes),
           vehicleId,
-          agencyId,
         })
+
+        if (rawTripId) rawTripIds.add(rawTripId)
       }
     }
+
+    const tripInfoByRawId = loadTripInfoMap(agencyId, rawTripIds)
+
+    const predictions: BusPrediction[] = rawPredictions.map(row => {
+      const tripInfo = row.rawTripId ? tripInfoByRawId.get(row.rawTripId) : undefined
+      return {
+        routeId: tripInfo?.routeId || row.fallbackRouteId,
+        directionText: tripInfo?.headsign || '',
+        minutes: row.minutes,
+        vehicleId: row.vehicleId,
+        agencyId,
+      }
+    })
 
     predictions.sort((a, b) => a.minutes - b.minutes)
     return predictions

@@ -8,7 +8,7 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
     "build": "tsc --build --force && cp src/data/*.json dist/data/",
     "start": "node dist/index.js",
-    "test": "node --loader ts-node/esm src/services/trainMerger.test.ts && node --loader ts-node/esm src/data/carPositionService.test.ts && node --loader ts-node/esm src/services/busRouteFinder.test.ts"
+    "test": "node --loader ts-node/esm src/services/trainMerger.test.ts && node --loader ts-node/esm src/data/carPositionService.test.ts && node --loader ts-node/esm src/services/busRouteFinder.test.ts && node --loader ts-node/esm src/services/wmata.test.ts && node --loader ts-node/esm src/middleware/cache.test.ts"
   },
   "dependencies": {
     "@transferhero/shared": "*",

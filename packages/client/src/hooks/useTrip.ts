@@ -27,8 +27,8 @@ export function useTrip(
     queryKey: ['trip', from, to, walkTime, transferStation, accessible, showDeparted],
     queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible, showDeparted),
     enabled: !!from && !!to,
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
     placeholderData: keepPreviousData,
   })
 }
@@ -65,8 +65,8 @@ export function useLeg2({ tripId, departureTimestamp, walkTime, transferStation,
       return fetchLeg2(tripId, currentDepartureMin, walkTime, transferStation || undefined, transferArrivalMin, accessible, showDeparted)
     },
     enabled,
-    staleTime: 30 * 1000,
-    refetchInterval: 30 * 1000,
+    staleTime: 10 * 1000,
+    refetchInterval: 15 * 1000,
   })
 }
 

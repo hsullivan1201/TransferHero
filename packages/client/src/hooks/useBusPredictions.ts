@@ -15,7 +15,7 @@ export function useBusPredictions(
     queryFn: () => fetchBusPredictions(stopCode!, routeId!, boardStopId, alightStopId, agencyId),
     enabled: enabled && stopCode !== null && routeId !== null,
     staleTime: 15_000,
-    refetchInterval: 30_000,
+    refetchInterval: 15_000,
     gcTime: 60_000,
   })
 }

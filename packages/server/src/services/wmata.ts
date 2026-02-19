@@ -21,6 +21,10 @@ interface CacheEntry<T> {
 const predictionCache = new Map<string, CacheEntry<Train[]>>()
 let gtfsCache: CacheEntry<any[]> | null = null
 
+// In-flight request coalescing so concurrent misses do not stampede upstream.
+const pendingPredictionRequests = new Map<string, Promise<Train[]>>()
+let pendingGtfsRequest: Promise<any[]> | null = null
+
 // cache stats for logging and bragging
 let cacheStats = { predictionHits: 0, predictionMisses: 0, gtfsHits: 0, gtfsMisses: 0 }
 
@@ -65,6 +69,32 @@ const GTFS_RT_SCHEMA = {
   }
 }
 
+interface ArrivalData {
+  minutes: number
+  timestamp: number  // unix timestamp in ms because dates are hard
+}
+
+interface GtfsStopEvent {
+  stopCode: string
+  timeSec: number
+  sequence: number
+}
+
+interface IndexedTripUpdate {
+  tripId: string
+  routeId: string
+  stopEvents: GtfsStopEvent[]
+  stopByCode: Map<string, GtfsStopEvent>
+}
+
+interface GtfsIndex {
+  byTripId: Map<string, IndexedTripUpdate>
+  byStation: Map<string, IndexedTripUpdate[]>
+}
+
+// Per-entity-array memoized index. WeakMap avoids leaks across cache rotations.
+const gtfsIndexCache = new WeakMap<any[], GtfsIndex>()
+
 /**
  * Initialize protobuf schema
  */
@@ -72,6 +102,99 @@ async function initProto(): Promise<protobuf.Root> {
   if (protoRoot) return protoRoot
   protoRoot = protobuf.Root.fromJSON(GTFS_RT_SCHEMA)
   return protoRoot
+}
+
+/**
+ * Extract station code from GTFS stop ID (handles pf_x_y format)
+ */
+function extractStationCode(stopId: string): string {
+  const parts = stopId.split('_')
+  return (parts[0] === 'PF') ? parts[1] : parts[0]
+}
+
+function normalizeTermini(terminus: string | string[]): string[] {
+  return ensureArray(terminus).map(t => normalizeDestination(t))
+}
+
+function matchesTerminusDestination(normalizedDestination: string, normalizedTermini: string[]): boolean {
+  return normalizedTermini.some(term => {
+    if (normalizedDestination === term) return true
+    if (normalizedDestination.includes(term) || term.includes(normalizedDestination)) return true
+    const destFirst = normalizedDestination.split(/[\s\-\/]/)[0]
+    const termFirst = term.split(/[\s\-\/]/)[0]
+    return destFirst === termFirst
+  })
+}
+
+function getGtfsIndex(entities: any[]): GtfsIndex {
+  const cached = gtfsIndexCache.get(entities)
+  if (cached) return cached
+
+  const byTripId = new Map<string, IndexedTripUpdate>()
+  const byStation = new Map<string, IndexedTripUpdate[]>()
+
+  for (const entity of entities) {
+    const tripUpdate = entity?.tripUpdate
+    const trip = tripUpdate?.trip
+    const tripId = trip?.tripId
+    if (!tripId) continue
+
+    const updates = Array.isArray(tripUpdate?.stopTimeUpdate) ? tripUpdate.stopTimeUpdate : []
+    if (updates.length === 0) continue
+
+    const stopEvents: GtfsStopEvent[] = []
+    const stopByCode = new Map<string, GtfsStopEvent>()
+
+    for (const update of updates) {
+      const stopId = update?.stopId
+      if (!stopId) continue
+
+      const event = update.departure ?? update.arrival
+      const timeSec = Number.parseInt(String(event?.time ?? ''), 10)
+      if (!Number.isFinite(timeSec)) continue
+
+      const stopCode = extractStationCode(String(stopId)).trim().toUpperCase()
+      if (!stopCode) continue
+
+      const sequenceRaw = Number.parseInt(String(update?.stopSequence ?? ''), 10)
+      const sequence = Number.isFinite(sequenceRaw) ? sequenceRaw : stopEvents.length
+
+      const stopEvent: GtfsStopEvent = { stopCode, timeSec, sequence }
+      stopEvents.push(stopEvent)
+
+      // Keep earliest sequence for each stop code to mirror "first match" behavior.
+      const existing = stopByCode.get(stopCode)
+      if (!existing || stopEvent.sequence < existing.sequence) {
+        stopByCode.set(stopCode, stopEvent)
+      }
+    }
+
+    if (stopEvents.length === 0) continue
+
+    stopEvents.sort((a, b) => {
+      if (a.sequence !== b.sequence) return a.sequence - b.sequence
+      return a.timeSec - b.timeSec
+    })
+
+    const indexedTrip: IndexedTripUpdate = {
+      tripId,
+      routeId: String(trip?.routeId ?? ''),
+      stopEvents,
+      stopByCode
+    }
+
+    byTripId.set(tripId, indexedTrip)
+
+    for (const stopCode of stopByCode.keys()) {
+      const list = byStation.get(stopCode)
+      if (list) list.push(indexedTrip)
+      else byStation.set(stopCode, [indexedTrip])
+    }
+  }
+
+  const index: GtfsIndex = { byTripId, byStation }
+  gtfsIndexCache.set(entities, index)
+  return index
 }
 
 /**
@@ -91,25 +214,44 @@ export async function fetchStationPredictions(
     return cached.data
   }
 
+  const pending = pendingPredictionRequests.get(key)
+  if (pending) {
+    return pending
+  }
+
   cacheStats.predictionMisses++
   const url = `https://api.wmata.com/StationPrediction.svc/json/GetPrediction/${stationCode}`
 
-  const response = await fetchWithTimeout(url, {
-    timeoutMs: WMATA_REQUEST_TIMEOUT_MS,
-    headers: { 'api_key': apiKey }
-  })
+  const request = (async () => {
+    try {
+      const response = await fetchWithTimeout(url, {
+        timeoutMs: WMATA_REQUEST_TIMEOUT_MS,
+        headers: { 'api_key': apiKey }
+      })
 
-  if (!response.ok) {
-    throw new Error(`WMATA API error: ${response.status}`)
-  }
+      if (!response.ok) {
+        throw new Error(`WMATA API error: ${response.status}`)
+      }
 
-  const data = await response.json() as { Trains?: Train[] }
-  const trains = data.Trains || []
+      const data = await response.json() as { Trains?: Train[] }
+      const trains = data.Trains || []
 
-  // stash in cache
-  predictionCache.set(key, { data: trains, ts: now })
+      // stash in cache
+      predictionCache.set(key, { data: trains, ts: Date.now() })
+      return trains
+    } catch (error) {
+      if (cached) {
+        console.warn(`[WMATA] prediction fetch failed for ${key}, serving stale cache`, error)
+        return cached.data
+      }
+      throw error
+    } finally {
+      pendingPredictionRequests.delete(key)
+    }
+  })()
 
-  return trains
+  pendingPredictionRequests.set(key, request)
+  return request
 }
 
 /**
@@ -124,34 +266,45 @@ export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
     return gtfsCache.data
   }
 
+  if (pendingGtfsRequest) {
+    return pendingGtfsRequest
+  }
+
   cacheStats.gtfsMisses++
 
-  try {
-    const root = await initProto()
-    const response = await fetchWithTimeout('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
-      timeoutMs: GTFS_REQUEST_TIMEOUT_MS,
-      headers: { 'api_key': apiKey }
-    })
+  pendingGtfsRequest = (async () => {
+    try {
+      const root = await initProto()
+      const response = await fetchWithTimeout('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
+        timeoutMs: GTFS_REQUEST_TIMEOUT_MS,
+        headers: { 'api_key': apiKey }
+      })
 
-    if (!response.ok) {
-      throw new Error(`GTFS-RT fetch error: ${response.status}`)
+      if (!response.ok) {
+        throw new Error(`GTFS-RT fetch error: ${response.status}`)
+      }
+
+      const buffer = await response.arrayBuffer()
+      const FeedMessage = root.lookupType('transit_realtime.FeedMessage')
+      const message = FeedMessage.decode(new Uint8Array(buffer))
+      const object = FeedMessage.toObject(message, { longs: String })
+
+      const entities = object.entity || []
+
+      // stash in cache
+      gtfsCache = { data: entities, ts: Date.now() }
+
+      return entities
+    } catch (e) {
+      console.error('[GTFS] Fetch Error:', e)
+      // Stale GTFS is better than nothing when upstream blips.
+      return gtfsCache?.data ?? []
+    } finally {
+      pendingGtfsRequest = null
     }
+  })()
 
-    const buffer = await response.arrayBuffer()
-    const FeedMessage = root.lookupType('transit_realtime.FeedMessage')
-    const message = FeedMessage.decode(new Uint8Array(buffer))
-    const object = FeedMessage.toObject(message, { longs: String })
-
-    const entities = object.entity || []
-
-    // stash in cache
-    gtfsCache = { data: entities, ts: now }
-
-    return entities
-  } catch (e) {
-    console.error('[GTFS] Fetch Error:', e)
-    return []
-  }
+  return pendingGtfsRequest
 }
 
 /**
@@ -167,31 +320,20 @@ export function parseUpdatesToTrains(
   const relevantTrains: Train[] = []
   const now = Date.now() / 1000
   const target = stationCode.trim().toUpperCase()
+  const normalizedTermini = normalizeTermini(terminusList)
+  const allowedSet = allowedLines && allowedLines.length > 0 ? new Set(allowedLines) : null
 
-  entities.forEach(entity => {
-    if (!entity.tripUpdate || !entity.tripUpdate.stopTimeUpdate) return
+  const index = getGtfsIndex(entities)
+  const tripsAtStation = index.byStation.get(target) ?? []
 
-    const trip = entity.tripUpdate.trip
-    const updates = entity.tripUpdate.stopTimeUpdate
+  for (const trip of tripsAtStation) {
+    const stopEvent = trip.stopByCode.get(target)
+    if (!stopEvent) continue
 
-    // find the stop update (pf_x_y friendly)
-    const stopUpdate = updates.find((u: any) => {
-      if (!u.stopId) return false
-      const parts = u.stopId.split('_')
-      const extractedCode = (parts[0] === 'PF') ? parts[1] : parts[0]
-      return extractedCode === target
-    })
-
-    if (!stopUpdate) return
-
-    const event = stopUpdate.departure || stopUpdate.arrival
-    if (!event || !event.time) return
-
-    const time = parseInt(event.time)
-    const minutesUntil = Math.floor((time - now) / 60)
+    const minutesUntil = Math.floor((stopEvent.timeSec - now) / 60)
 
     // skip trains that already ghosted
-    if (minutesUntil < -1) return
+    if (minutesUntil < -1) continue
 
     // pull static trip info if we have it
     const staticInfo = staticTrips[trip.tripId]
@@ -201,23 +343,11 @@ export function parseUpdatesToTrains(
     const destName = staticInfo ? staticInfo.headsign : 'Check Board'
 
     // filter by allowed lines if provided
-    if (allowedLines && allowedLines.length > 0) {
-      if (!allowedLines.includes(line)) return
-    }
+    if (allowedSet && !allowedSet.has(line)) continue
 
     // filter by terminus/destination
     const normalizedDest = normalizeDestination(destName)
-    const normalizedTermini = ensureArray(terminusList).map(t => normalizeDestination(t))
-
-    const matchesTerminus = normalizedTermini.some(term => {
-      if (normalizedDest === term) return true
-      if (normalizedDest.includes(term) || term.includes(normalizedDest)) return true
-      const destFirst = normalizedDest.split(/[\s\-\/]/)[0]
-      const termFirst = term.split(/[\s\-\/]/)[0]
-      return destFirst === termFirst
-    })
-
-    if (!matchesTerminus) return
+    if (!matchesTerminusDestination(normalizedDest, normalizedTermini)) continue
 
     relevantTrains.push({
       Line: line as Line,
@@ -228,25 +358,19 @@ export function parseUpdatesToTrains(
       _scheduled: false,
       _tripId: trip.tripId
     })
-  })
+  }
 
   // dedupe the pile
   const uniqueTrains: Train[] = []
   const seen = new Set<string>()
-  relevantTrains.forEach(t => {
+  for (const t of relevantTrains) {
     const key = `${t.Line}_${t.Min}_${t.DestinationName}`
-    if (!seen.has(key)) {
-      seen.add(key)
-      uniqueTrains.push(t)
-    }
-  })
+    if (seen.has(key)) continue
+    seen.add(key)
+    uniqueTrains.push(t)
+  }
 
   return uniqueTrains
-}
-
-interface ArrivalData {
-  minutes: number
-  timestamp: number  // unix timestamp in ms because dates are hard
 }
 
 /**
@@ -258,33 +382,22 @@ export function getArrivalAtStation(
   tripId: string,
   destinationCode: string
 ): ArrivalData | undefined {
+  if (!tripId) return undefined
+
   const now = Date.now() / 1000
   const target = destinationCode.trim().toUpperCase()
+  const index = getGtfsIndex(entities)
 
-  for (const entity of entities) {
-    if (!entity.tripUpdate || !entity.tripUpdate.trip) continue
-    if (entity.tripUpdate.trip.tripId !== tripId) continue
+  const trip = index.byTripId.get(tripId)
+  if (!trip) return undefined
 
-    const updates = entity.tripUpdate.stopTimeUpdate || []
-    for (const update of updates) {
-      if (!update.stopId) continue
-      // pf_x_y safe parsing
-      const parts = update.stopId.split('_')
-      const extractedCode = (parts[0] === 'PF') ? parts[1] : parts[0]
+  const stopEvent = trip.stopByCode.get(target)
+  if (!stopEvent) return undefined
 
-      if (extractedCode === target) {
-        const event = update.arrival || update.departure
-        if (event?.time) {
-          const time = parseInt(event.time)
-          return {
-            minutes: Math.floor((time - now) / 60),
-                timestamp: time * 1000  // convert to milliseconds
-          }
-        }
-      }
-    }
+  return {
+    minutes: Math.floor((stopEvent.timeSec - now) / 60),
+    timestamp: stopEvent.timeSec * 1000  // convert to milliseconds
   }
-  return undefined
 }
 
 /**
@@ -299,17 +412,16 @@ export function enrichTrainsWithDestinationArrival(
     if (!train._tripId) return train
 
     const arrivalData = getArrivalAtStation(entities, train._tripId, destinationCode)
-    if (arrivalData) {
-      // prefer the exact GTFS-RT timestamp for clock time
-      const arrivalDate = new Date(arrivalData.timestamp)
-      return {
-        ...train,
-        _destArrivalMin: arrivalData.minutes,
-        _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
-        _destArrivalTimestamp: arrivalData.timestamp
-      }
+    if (!arrivalData) return train
+
+    // prefer the exact GTFS-RT timestamp for clock time
+    const arrivalDate = new Date(arrivalData.timestamp)
+    return {
+      ...train,
+      _destArrivalMin: arrivalData.minutes,
+      _destArrivalTime: arrivalDate.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/New_York' }),
+      _destArrivalTimestamp: arrivalData.timestamp
     }
-    return train
   })
 }
 
@@ -331,6 +443,16 @@ export async function fetchDestinationArrivals(
 ): Promise<Train[]> {
   // reuse prefetched predictions if we have them; otherwise fetch (cache helps)
   const destPredictions = prefetchedPredictions ?? await fetchStationPredictions(destinationCode, apiKey)
+
+  // Pre-bucket destination predictions to avoid O(origin * destination) filter+sort churn.
+  const bucketedDestinations = new Map<string, { train: Train; min: number }[]>()
+  for (const destTrain of destPredictions) {
+    const key = `${destTrain.Line}|${normalizeDestination(destTrain.DestinationName)}`
+    const list = bucketedDestinations.get(key)
+    const entry = { train: destTrain, min: getTrainMinutes(destTrain.Min) }
+    if (list) list.push(entry)
+    else bucketedDestinations.set(key, [entry])
+  }
 
   return originTrains.map(train => {
     const originMin = getTrainMinutes(train.Min)
@@ -355,34 +477,28 @@ export async function fetchDestinationArrivals(
     const minTravelTime = expectedTravelTime ? Math.max(2, expectedTravelTime - 5) : 2
     const maxTravelTime = expectedTravelTime ? expectedTravelTime + 10 : 45
 
-    const matchingTrains = destPredictions.filter(destTrain => {
-      if (destTrain.Line !== train.Line) return false
-      // must share the same destination name/direction
-      if (normalizeDestination(destTrain.DestinationName) !== normalizeDestination(train.DestinationName)) return false
+    const key = `${train.Line}|${normalizeDestination(train.DestinationName)}`
+    const candidates = bucketedDestinations.get(key) ?? []
 
-      const destMin = getTrainMinutes(destTrain.Min)
-      const impliedTravelTime = destMin - originMin
+    let bestMatch: { min: number } | null = null
+    let bestScore = Number.POSITIVE_INFINITY
 
-      // arrival must be after departure with a reasonable travel time
-      return impliedTravelTime >= minTravelTime && impliedTravelTime <= maxTravelTime
-    })
+    for (const candidate of candidates) {
+      const impliedTravelTime = candidate.min - originMin
+      if (impliedTravelTime < minTravelTime || impliedTravelTime > maxTravelTime) continue
 
-    if (matchingTrains.length > 0) {
-      if (expectedTravelTime) {
-        // sort by proximity to expected travel time (closest match first)
-        matchingTrains.sort((a, b) => {
-          const aTravelTime = getTrainMinutes(a.Min) - originMin
-          const bTravelTime = getTrainMinutes(b.Min) - originMin
-          return Math.abs(aTravelTime - expectedTravelTime) - Math.abs(bTravelTime - expectedTravelTime)
-        })
-      } else {
-        // no expected time: sort by earliest arrival (original behavior)
-        matchingTrains.sort((a, b) => getTrainMinutes(a.Min) - getTrainMinutes(b.Min))
+      const score = expectedTravelTime
+        ? Math.abs(impliedTravelTime - expectedTravelTime)
+        : candidate.min
+
+      if (score < bestScore) {
+        bestScore = score
+        bestMatch = candidate
       }
+    }
 
-      const matched = matchingTrains[0]
-      const destArrivalMin = getTrainMinutes(matched.Min)
-
+    if (bestMatch) {
+      const destArrivalMin = bestMatch.min
       const arrivalTimestamp = Date.now() + (destArrivalMin * 60 * 1000)
       const arrivalDate = new Date(arrivalTimestamp)
 
@@ -410,8 +526,7 @@ export function filterApiResponse(
 ): Train[] {
   if (!trains || trains.length === 0) return []
 
-  const terminusList = ensureArray(terminus)
-  const normalizedTermini = terminusList.map(t => normalizeDestination(t))
+  const normalizedTermini = normalizeTermini(terminus)
 
   return trains
     .filter(train => {
@@ -444,14 +559,6 @@ export function filterApiResponse(
 }
 
 /**
- * Extract station code from GTFS stop ID (handles pf_x_y format)
- */
-function extractStationCode(stopId: string): string {
-  const parts = stopId.split('_')
-  return (parts[0] === 'PF') ? parts[1] : parts[0]
-}
-
-/**
  * find trains that already left the origin by spotting them at the transfer station
  */
 export function findDepartedTrains(
@@ -465,15 +572,12 @@ export function findDepartedTrains(
   const departedTrains: Train[] = []
   const now = Date.now() / 1000
   const targetTransfer = transferCode.trim().toUpperCase()
-  const terminusList = ensureArray(terminus)
-  const normalizedTermini = terminusList.map(t => normalizeDestination(t))
+  const normalizedTermini = normalizeTermini(terminus)
 
-  for (const entity of gtfsEntities) {
-    if (!entity.tripUpdate || !entity.tripUpdate.stopTimeUpdate) continue
+  const index = getGtfsIndex(gtfsEntities)
+  const candidates = index.byStation.get(targetTransfer) ?? []
 
-    const trip = entity.tripUpdate.trip
-    const updates = entity.tripUpdate.stopTimeUpdate
-
+  for (const trip of candidates) {
     // grab static trip info if available
     const staticInfo = staticTrips[trip.tripId]
 
@@ -487,28 +591,13 @@ export function findDepartedTrains(
     const tripDestination = staticInfo ? staticInfo.headsign : ''
     if (tripDestination && normalizedTermini.length > 0) {
       const normalizedDest = normalizeDestination(tripDestination)
-      const matchesTerminus = normalizedTermini.some(term => {
-        if (normalizedDest === term) return true
-        if (normalizedDest.includes(term) || term.includes(normalizedDest)) return true
-        const destFirst = normalizedDest.split(/[\s\-\/]/)[0]
-        const termFirst = term.split(/[\s\-\/]/)[0]
-        return destFirst === termFirst
-      })
-      if (!matchesTerminus) continue
+      if (!matchesTerminusDestination(normalizedDest, normalizedTermini)) continue
     }
 
-    // find stop update for the transfer station
-    const transferUpdate = updates.find((u: any) => {
-      if (!u.stopId) return false
-      return extractStationCode(u.stopId) === targetTransfer
-    })
+    const transferStop = trip.stopByCode.get(targetTransfer)
+    if (!transferStop) continue
 
-    if (!transferUpdate) continue
-
-    const event = transferUpdate.arrival || transferUpdate.departure
-    if (!event?.time) continue
-
-    const arrivalAtTransferSec = parseInt(event.time)
+    const arrivalAtTransferSec = transferStop.timeSec
     const arrivalAtTransferMin = Math.floor((arrivalAtTransferSec - now) / 60)
 
     // back into departure time: arrival at transfer minus travel time
@@ -520,19 +609,11 @@ export function findDepartedTrains(
 
     // find the next stop with an arrival time in the future
     let nextStopName: string | undefined
-    for (const update of updates) {
-      if (!update.stopId) continue
-      const stopEvent = update.arrival || update.departure
-      if (!stopEvent?.time) continue
-      
-      const stopTime = parseInt(stopEvent.time)
-      // first stop in the future wins
-      if (stopTime > now) {
-        const nextStopCode = extractStationCode(update.stopId)
-        const nextStation = findStationByCode(nextStopCode)
-        nextStopName = nextStation?.name
-        break
-      }
+    for (const stopEvent of trip.stopEvents) {
+      if (stopEvent.timeSec <= now) continue
+      const nextStation = findStationByCode(stopEvent.stopCode)
+      nextStopName = nextStation?.name
+      break
     }
 
     // destination name
@@ -570,8 +651,8 @@ export function findDepartedTrains(
 
   // sort by most recently departed first (least negative Min)
   uniqueTrains.sort((a, b) => {
-    const aMin = typeof a.Min === 'number' ? a.Min : parseInt(String(a.Min))
-    const bMin = typeof b.Min === 'number' ? b.Min : parseInt(String(b.Min))
+    const aMin = typeof a.Min === 'number' ? a.Min : parseInt(String(a.Min), 10)
+    const bMin = typeof b.Min === 'number' ? b.Min : parseInt(String(b.Min), 10)
     return bMin - aMin
   })
 

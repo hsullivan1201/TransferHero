@@ -13,6 +13,12 @@ interface CacheEntry {
 }
 
 const cache = new Map<string, CacheEntry>()
+const pendingPredictionRequests = new Map<string, Promise<BusPrediction[]>>()
+
+// routeId_directionId -> headsign set (rebuilt after GTFS refresh)
+const routeDirHeadsignsCache = new Map<string, Set<string>>()
+// routeId_directionId -> stopId -> position index
+const sequencePositionCache = new Map<string, Map<string, number>>()
 
 function evictIfOverCapacity(): void {
   while (cache.size > CACHE_MAX_SIZE) {
@@ -27,6 +33,11 @@ interface WmataBusPrediction {
   DirectionText: string
   Minutes: number
   VehicleID?: string
+}
+
+export function invalidateBusPredictionCaches(): void {
+  routeDirHeadsignsCache.clear()
+  sequencePositionCache.clear()
 }
 
 /**
@@ -44,41 +55,104 @@ export async function fetchBusPredictions(
     return cached.data
   }
 
-  try {
-    const url = `https://api.wmata.com/NextBusService.svc/json/jPredictions?StopID=${encodeURIComponent(stopCode)}`
-    const response = await fetchWithTimeout(url, {
-      timeoutMs: NEXTBUS_TIMEOUT_MS,
-      headers: { 'api_key': apiKey }
-    })
+  const pending = pendingPredictionRequests.get(stopCode)
+  if (pending) return pending
 
-    if (!response.ok) {
-      console.warn(`[BusPredictions] API error for stop ${stopCode}: ${response.status}`)
+  const request = (async () => {
+    try {
+      const url = `https://api.wmata.com/NextBusService.svc/json/jPredictions?StopID=${encodeURIComponent(stopCode)}`
+      const response = await fetchWithTimeout(url, {
+        timeoutMs: NEXTBUS_TIMEOUT_MS,
+        headers: { 'api_key': apiKey }
+      })
+
+      if (!response.ok) {
+        console.warn(`[BusPredictions] API error for stop ${stopCode}: ${response.status}`)
+        if (!cached) {
+          cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
+          evictIfOverCapacity()
+        }
+        return cached?.data ?? []
+      }
+
+      const data = await response.json() as { Predictions?: WmataBusPrediction[] }
+      const predictions: BusPrediction[] = (data.Predictions || []).map(p => ({
+        routeId: `wmata:${p.RouteID}`,
+        directionText: p.DirectionText,
+        minutes: p.Minutes,
+        vehicleId: p.VehicleID,
+      }))
+
+      cache.set(stopCode, { data: predictions, ts: Date.now() })
+      evictIfOverCapacity()
+      return predictions
+    } catch (err) {
+      console.warn(`[BusPredictions] Fetch failed for stop ${stopCode}:`, err)
       if (!cached) {
         cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
         evictIfOverCapacity()
       }
       return cached?.data ?? []
+    } finally {
+      pendingPredictionRequests.delete(stopCode)
     }
+  })()
 
-    const data = await response.json() as { Predictions?: WmataBusPrediction[] }
-    const predictions: BusPrediction[] = (data.Predictions || []).map(p => ({
-      routeId: `wmata:${p.RouteID}`,
-      directionText: p.DirectionText,
-      minutes: p.Minutes,
-      vehicleId: p.VehicleID,
-    }))
+  pendingPredictionRequests.set(stopCode, request)
+  return request
+}
 
-    cache.set(stopCode, { data: predictions, ts: now })
-    evictIfOverCapacity()
-    return predictions
-  } catch (err) {
-    console.warn(`[BusPredictions] Fetch failed for stop ${stopCode}:`, err)
-    if (!cached) {
-      cache.set(stopCode, { data: [], ts: now - PREDICTION_TTL + FAILURE_TTL })
-      evictIfOverCapacity()
+function getStopPositionMap(seqKey: string, sequence: string[]): Map<string, number> {
+  const cached = sequencePositionCache.get(seqKey)
+  if (cached) return cached
+
+  const positions = new Map<string, number>()
+  for (let i = 0; i < sequence.length; i++) {
+    if (!positions.has(sequence[i])) {
+      positions.set(sequence[i], i)
     }
-    return cached?.data ?? []
   }
+
+  sequencePositionCache.set(seqKey, positions)
+  return positions
+}
+
+function routeDirectionCanServeLeg(
+  routeId: string,
+  directionId: number,
+  boardStopId: string,
+  alightStopId: string,
+  sequences: Map<string, string[]>
+): boolean {
+  const seqKey = `${routeId}_${directionId}`
+  const sequence = sequences.get(seqKey)
+  if (!sequence) return false
+
+  const positions = getStopPositionMap(seqKey, sequence)
+  const boardIdx = positions.get(boardStopId)
+  const alightIdx = positions.get(alightStopId)
+  return boardIdx !== undefined && alightIdx !== undefined && boardIdx < alightIdx
+}
+
+function getHeadsignsForRouteDirection(routeId: string, directionId: number): Set<string> {
+  const key = `${routeId}_${directionId}`
+  const cached = routeDirHeadsignsCache.get(key)
+  if (cached) return cached
+
+  const busDb = getBusDb()
+  if (!busDb) return new Set<string>()
+
+  const rows = busDb.prepare(
+    'SELECT DISTINCT headsign FROM trips WHERE route_id = ? AND direction_id = ?'
+  ).all(routeId, directionId) as { headsign: string }[]
+
+  const headsigns = new Set<string>()
+  for (const row of rows) {
+    if (row.headsign) headsigns.add(row.headsign)
+  }
+
+  routeDirHeadsignsCache.set(key, headsigns)
+  return headsigns
 }
 
 /**
@@ -91,33 +165,23 @@ function getValidHeadsigns(
   routeId: string,
   boardStopId: string,
   alightStopId: string,
+  sequences: Map<string, string[]>
 ): Set<string> | null {
-  const sequences = getRouteStopSequences()
   const validDirs: number[] = []
 
   for (const dir of [0, 1]) {
-    const seq = sequences.get(`${routeId}_${dir}`)
-    if (!seq) continue
-    const boardIdx = seq.indexOf(boardStopId)
-    const alightIdx = seq.indexOf(alightStopId)
-    if (boardIdx !== -1 && alightIdx !== -1 && boardIdx < alightIdx) {
+    if (routeDirectionCanServeLeg(routeId, dir, boardStopId, alightStopId, sequences)) {
       validDirs.push(dir)
     }
   }
 
   if (validDirs.length === 0) return null
 
-  // Get all distinct headsigns for these directions from SQLite
-  const busDb = getBusDb()
-  if (!busDb) return null
-
   const headsigns = new Set<string>()
   for (const dir of validDirs) {
-    const rows = busDb.prepare(
-      'SELECT DISTINCT headsign FROM trips WHERE route_id = ? AND direction_id = ?'
-    ).all(routeId, dir) as { headsign: string }[]
-    for (const row of rows) {
-      if (row.headsign) headsigns.add(row.headsign)
+    const byDir = getHeadsignsForRouteDirection(routeId, dir)
+    for (const headsign of byDir) {
+      headsigns.add(headsign)
     }
   }
 
@@ -144,30 +208,32 @@ export function filterPredictionsForRoute(
   const validHeadsignsByRoute = new Map<string, Set<string>>()
 
   if (alightStopId && boardStopId) {
+    const sequences = getRouteStopSequences()
+
     // Get valid headsigns for primary route
-    const primaryHeadsigns = getValidHeadsigns(routeId, boardStopId, alightStopId)
+    const primaryHeadsigns = getValidHeadsigns(routeId, boardStopId, alightStopId, sequences)
     if (primaryHeadsigns) {
       validHeadsignsByRoute.set(routeId, primaryHeadsigns)
     }
 
     // Check variant routes
-    const sequences = getRouteStopSequences()
     const otherRouteIds = new Set(predictions.map(p => p.routeId).filter(r => r !== routeId))
 
     for (const candidateRoute of otherRouteIds) {
+      let canServe = false
       for (const dir of [0, 1]) {
-        const seq = sequences.get(`${candidateRoute}_${dir}`)
-        if (!seq) continue
-        const boardIdx = seq.indexOf(boardStopId)
-        const alightIdx = seq.indexOf(alightStopId)
-        if (boardIdx !== -1 && alightIdx !== -1 && boardIdx < alightIdx) {
-          validRoutes.add(candidateRoute)
-          const variantHeadsigns = getValidHeadsigns(candidateRoute, boardStopId, alightStopId)
-          if (variantHeadsigns) {
-            validHeadsignsByRoute.set(candidateRoute, variantHeadsigns)
-          }
+        if (routeDirectionCanServeLeg(candidateRoute, dir, boardStopId, alightStopId, sequences)) {
+          canServe = true
           break
         }
+      }
+
+      if (!canServe) continue
+
+      validRoutes.add(candidateRoute)
+      const variantHeadsigns = getValidHeadsigns(candidateRoute, boardStopId, alightStopId, sequences)
+      if (variantHeadsigns) {
+        validHeadsignsByRoute.set(candidateRoute, variantHeadsigns)
       }
     }
   }

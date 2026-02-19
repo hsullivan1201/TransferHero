@@ -1,6 +1,7 @@
 import type { Station, Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
 
 const API_BASE = '/api'
+const FETCH_INIT: RequestInit = { cache: 'no-store' }
 
 export interface TripResponse {
   trip: {
@@ -34,7 +35,7 @@ export interface Leg2Response {
 }
 
 export async function fetchStations(): Promise<Station[]> {
-  const res = await fetch(`${API_BASE}/stations`)
+  const res = await fetch(`${API_BASE}/stations`, FETCH_INIT)
   if (!res.ok) throw new Error('Failed to fetch stations')
   const data: StationsResponse = await res.json()
   return data.stations
@@ -58,7 +59,7 @@ export async function fetchTrip(
   if (transferStation) {
     params.set('transferStation', transferStation)
   }
-  const res = await fetch(`${API_BASE}/trips?${params}`)
+  const res = await fetch(`${API_BASE}/trips?${params}`, FETCH_INIT)
   if (!res.ok) throw new Error('Failed to fetch trip')
   return res.json()
 }
@@ -85,7 +86,7 @@ export async function fetchLeg2(
   if (transferArrivalMin !== undefined) {
     params.set('transferArrivalMin', transferArrivalMin.toString())
   }
-  const res = await fetch(`${API_BASE}/trips/${tripId}/leg2?${params}`)
+  const res = await fetch(`${API_BASE}/trips/${tripId}/leg2?${params}`, FETCH_INIT)
   if (!res.ok) throw new Error('Failed to fetch leg 2 trains')
   return res.json()
 }

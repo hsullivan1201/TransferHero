@@ -21,7 +21,8 @@ export function useBusTrips(
       destStation!
     ),
     enabled: enabled && originStation !== null && destStation !== null,
-    staleTime: 60_000, // 60s — bus routes are static, no need for frequent refetches
+    staleTime: 20_000, // keep rankings fresh as wait times change
+    refetchInterval: enabled ? 20_000 : false,
     gcTime: 5 * 60_000,
   })
 }
