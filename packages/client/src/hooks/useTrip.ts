@@ -121,10 +121,6 @@ export function useTripState() {
     }))
   }, [])
 
-  const setWalkTime = useCallback((walkTime: number) => {
-    setState(prev => ({ ...prev, walkTime }))
-  }, [])
-
   const selectLeg1Train = useCallback((train: Train, index: number) => {
     const min = getTrainMinutes(train.Min)
     const departureTimestamp = Date.now() + (min * 60 * 1000)
@@ -187,22 +183,6 @@ export function useTripState() {
     }))
   }, [])
 
-  const reset = useCallback(() => {
-    setState(prev => ({
-      from: null,
-      to: null,
-      walkTime: 3,
-      selectedLeg1Train: null,
-      selectedLeg1Index: undefined,
-      selectedAlternative: null,
-      departureTimestamp: null,
-      accessible: prev.accessible, // keep accessibility preference
-      showDeparted: false, // but drop the departed toggle on a full reset
-      originPlaceContext: null,
-      destPlaceContext: null,
-    }))
-  }, [])
-
   const setOriginPlaceContext = useCallback((ctx: PlaceContext | null) => {
     setState(prev => ({ ...prev, originPlaceContext: ctx }))
   }, [])
@@ -221,14 +201,12 @@ export function useTripState() {
     tripId,
     setFrom,
     setTo,
-    setWalkTime,
     selectLeg1Train,
     clearLeg1Selection,
     selectAlternative,
     toggleAccessible,
     toggleShowDeparted,
     startTrip,
-    reset,
     setOriginPlaceContext,
     setDestPlaceContext,
   }
