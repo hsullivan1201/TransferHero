@@ -18,8 +18,10 @@ export const LINE_STATIONS: Record<Line, string[]> = {
  */
 export const TERMINI: Record<Line, Termini> = {
   'RD': {
-    toward_a: ['Shady Grove', 'Silver Spring', 'Grosvenor-Strathmore', 'Farragut North'],
-    toward_b: ['Glenmont', 'NoMa-Gallaudet U', 'Fort Totten', 'Farragut North']
+    // Friendship Heights / North Bethesda: summer 2026 shutdown short turns
+    // (line severed between A08 and A12 thru Sept 6)
+    toward_a: ['Shady Grove', 'Silver Spring', 'Grosvenor-Strathmore', 'Farragut North', 'Friendship Heights'],
+    toward_b: ['Glenmont', 'NoMa-Gallaudet U', 'Fort Totten', 'Farragut North', 'North Bethesda']
   },
   'OR': {
     toward_a: ['Vienna'],

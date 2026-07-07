@@ -60,6 +60,11 @@ const DESTINATION_ALIASES: Record<string, string> = {
   'dca': 'reagan national airport',
   'national airport': 'reagan national airport',
   'reagan ntnl': 'reagan national airport',
+  'frndshp h': 'friendship heights',
+  'frndshp hts': 'friendship heights',
+  'friendship heights': 'friendship heights',
+  'n bethesda': 'north bethesda',
+  'north bethesda': 'north bethesda',
 }
 
 /**
@@ -84,6 +89,8 @@ const DISPLAY_NAMES: Record<string, string> = {
   'reagan national airport': 'Reagan National Airport',
   'pentagon city': 'Pentagon City',
   'hyattsville crossing': 'Hyattsville Crossing',
+  'friendship heights': 'Friendship Heights',
+  'north bethesda': 'North Bethesda',
 }
 
 /**
