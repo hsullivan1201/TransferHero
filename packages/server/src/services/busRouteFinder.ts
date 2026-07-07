@@ -63,7 +63,10 @@ function getMetroTimes(fromStation: string, toStation: string): {
   }
 
   if (transfer.direct && transfer.line) {
-    const ride = calculateRouteTravelTime(fromStation, toStation, transfer.line)
+    const fromLines = STATION_BY_CODE.get(fromStation)?.lines ?? []
+    const toLines = STATION_BY_CODE.get(toStation)?.lines ?? []
+    const directLines = fromLines.filter(line => toLines.includes(line))
+    const ride = Math.min(...directLines.map(line => calculateRouteTravelTime(fromStation, toStation, line)))
     return { rideMinutes: ride, transferWalkMinutes: 0, isTransfer: false }
   }
 

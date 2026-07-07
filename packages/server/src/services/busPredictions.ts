@@ -20,6 +20,16 @@ const routeDirHeadsignsCache = new Map<string, Set<string>>()
 // routeId_directionId -> stopId -> position index
 const sequencePositionCache = new Map<string, Map<string, number>>()
 
+const cacheCleanupTimer = setInterval(() => {
+  const now = Date.now()
+  for (const [key, entry] of cache) {
+    if (now - entry.ts > FAILURE_TTL) {
+      cache.delete(key)
+    }
+  }
+}, 60_000)
+cacheCleanupTimer.unref?.()
+
 function evictIfOverCapacity(): void {
   while (cache.size > CACHE_MAX_SIZE) {
     const oldestKey = cache.keys().next().value
@@ -200,6 +210,8 @@ export function filterPredictionsForRoute(
   alightStopId?: string,
   limit: number = 5
 ): BusPrediction[] {
+  if (predictions.length === 0) return []
+
   // Build set of acceptable route IDs: the requested route + any variant that
   // also serves the alight stop (checked via GTFS stop sequences)
   const validRoutes = new Set([routeId])

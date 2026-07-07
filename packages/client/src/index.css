@@ -52,16 +52,17 @@ body {
   color: white;
 }
 
+/* Orange and silver are too light for white text — use dark text like yellow */
 .train-card-or {
   background: linear-gradient(135deg, #F7941E 0%, #e08419 100%);
   border-left-color: #c77616;
-  color: white;
+  color: #333;
 }
 
 .train-card-sv {
-  background: linear-gradient(135deg, #A1A2A1 0%, #8a8b8a 100%);
+  background: linear-gradient(135deg, #ababab 0%, #9c9d9c 100%);
   border-left-color: #6e6f6e;
-  color: white;
+  color: #1a1a1a;
 }
 
 .train-card-bl {
@@ -115,4 +116,15 @@ body {
 
 .animate-fade-in {
   animation: fadeIn 0.5s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-slide-in {
+    animation: none;
+    opacity: 1;
+  }
+  .animate-pulse-slow,
+  .animate-fade-in {
+    animation: none;
+  }
 }

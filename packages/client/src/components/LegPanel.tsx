@@ -208,6 +208,12 @@ export function LegPanel({
                 destinationExitLabel={destinationExitLabel}
               />
             )}
+
+            {!carPosition && isDirect && isSelectable && (
+              <div className="mt-4 text-sm text-center text-[var(--text-secondary)]">
+                Select a train to see line-specific exit guidance.
+              </div>
+            )}
           </>
         )}
       </div>

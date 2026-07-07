@@ -1,5 +1,5 @@
 // react/packages/client/src/components/TrainCard.tsx
-import { memo } from 'react'
+import { memo, type ElementType } from 'react'
 import { Satellite, Rss, Check } from 'lucide-react'
 import type { Train, CatchableTrain, Line } from '@transferhero/shared'
 import { getLineClass } from '../utils/lineColors'
@@ -88,16 +88,20 @@ export const TrainCard = memo(function TrainCard({
   const sourceTitle = train._gtfs ? 'Tracked via GPS' : train._scheduled ? 'Scheduled' : 'Live at Station'
 
   const lineClass = getLineClass(train.Line as Line)
-  const isYellow = train.Line === 'YL'
+  // lines whose card background is light enough to need dark text
+  const isLightLine = train.Line === 'YL' || train.Line === 'SV' || train.Line === 'OR'
   const trainNumber = train.TrainNumber ?? train.TrainId
 
+  const CardTag: ElementType = variant === 'selectable' ? 'button' : 'div'
+
   return (
-    <div
+    <CardTag
+      type={variant === 'selectable' ? 'button' : undefined}
       data-testid={isSelected ? 'train-card-selected' : 'train-card'}
       data-line={train.Line}
       data-destination={getDisplayName(train.DestinationName)}
-      className={`relative p-5 mb-3 rounded-lg border-l-4 cursor-pointer transition-all animate-slide-in ${lineClass} ${
-        variant === 'selectable' ? 'hover:translate-x-1 hover:shadow-lg' : ''
+      className={`relative block w-full text-left p-5 mb-3 rounded-lg border-l-4 cursor-pointer transition-all animate-slide-in ${lineClass} ${
+        variant === 'selectable' ? 'hover:translate-x-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-500' : ''
       } ${
         isSelected ? 'border-l-[6px] scale-[1.02] shadow-lg pr-12' : ''
       } ${
@@ -107,13 +111,11 @@ export const TrainCard = memo(function TrainCard({
       }`}
       style={{ animationDelay: `${index * 0.05}s` }}
       onClick={onClick}
-      role={variant === 'selectable' ? 'button' : undefined}
-      tabIndex={variant === 'selectable' ? 0 : undefined}
     >
       <div className="flex items-center gap-3">
         {/* Line badge */}
         <div className={`w-12 h-12 rounded-full flex items-center justify-center font-bold text-sm flex-shrink-0 ${
-          isYellow ? 'bg-black/20 text-[#333]' : 'bg-white/30 text-white'
+          isLightLine ? 'bg-black/20 text-[#333]' : 'bg-white/30 text-white'
         }`}>
           {train.Line || '—'}
         </div>
@@ -123,34 +125,34 @@ export const TrainCard = memo(function TrainCard({
           <div className="text-base font-semibold flex items-center gap-1.5">
             {getDisplayName(train.DestinationName)}
             {trainNumber && (
-              <span className={`text-[10px] font-medium leading-none ${isYellow ? 'text-black/60' : 'text-white/70'}`}>
+              <span className={`text-[10px] font-medium leading-none ${isLightLine ? 'text-black/60' : 'text-white/70'}`}>
                 #{trainNumber}
               </span>
             )}
             {SourceIcon && (
               <span title={sourceTitle}>
                 <SourceIcon
-                  className={`w-3.5 h-3.5 ${isYellow ? 'text-black/50' : 'text-white/70'}`}
+                  className={`w-3.5 h-3.5 ${isLightLine ? 'text-black/50' : 'text-white/70'}`}
                   aria-label={sourceTitle}
                 />
               </span>
             )}
             {train._scheduled && (
               <span className={`text-xs px-1.5 py-0.5 rounded ${
-                isYellow ? 'bg-black/15 text-[#333]' : 'bg-black/30 text-white'
+                isLightLine ? 'bg-black/15 text-[#333]' : 'bg-black/30 text-white'
               }`}>
                 Sched
               </span>
             )}
             {isDeparted && (
               <span className={`text-xs px-1.5 py-0.5 rounded ${
-                isYellow ? 'bg-black/20 text-[#333]' : 'bg-black/40 text-white'
+                isLightLine ? 'bg-black/20 text-[#333]' : 'bg-black/40 text-white'
               }`}>
                 En Route
               </span>
             )}
           </div>
-          <div className={`text-sm mt-0.5 ${isYellow ? 'text-black/70' : 'text-white/90'}`}>
+          <div className={`text-sm mt-0.5 ${isLightLine ? 'text-black/70' : 'text-white/90'}`}>
             {statusText}
           </div>
         </div>
@@ -158,7 +160,7 @@ export const TrainCard = memo(function TrainCard({
         {/* Time display */}
         <div className={`text-right font-bold ${isArriving ? 'animate-pulse-slow' : ''}`}>
           <div className="text-xl whitespace-nowrap">{minDisplay}</div>
-          <div className={`text-xs font-normal mt-0.5 ${isYellow ? 'text-black/70' : 'text-white/80'}`}>
+          <div className={`text-xs font-normal mt-0.5 ${isLightLine ? 'text-black/70' : 'text-white/80'}`}>
             {clockTime}
           </div>
         </div>
@@ -170,7 +172,7 @@ export const TrainCard = memo(function TrainCard({
           <Check className="w-5 h-5 text-green-600" />
         </div>
       )}
-    </div>
+    </CardTag>
   )
 }, (prev, next) => {
   return prev.train._tripId === next.train._tripId

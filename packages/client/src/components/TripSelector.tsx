@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react'
-import { ArrowRight, ArrowUpDown, Bookmark, BookmarkCheck } from 'lucide-react'
+import { ArrowRight, ArrowUpDown, Bookmark, BookmarkCheck, Clock } from 'lucide-react'
 import type { Station, TransferResult, TransferAlternative, PlaceContext, PlaceResult, ResolveResponse } from '@transferhero/shared'
 import { SmartSelector, type SmartSelection } from './SmartSelector'
 import { DestinationBanner } from './DestinationBanner'
@@ -44,9 +44,18 @@ function buildPlaceContext(
   }
 }
 
+/** format a Date for a datetime-local input (local time, minute precision) */
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+/** scheduling is limited to the current service day on the server */
+const MAX_DEPART_HOURS = 10
+
 interface TripSelectorProps {
   stations: Station[]
-  onGo: (from: Station, to: Station, walkTime: number) => void
+  onGo: (from: Station, to: Station, walkTime: number, departAt: number | null) => void
   isLoading?: boolean
   transfer?: TransferResult | null
   onSelectAlternative?: (alternative: TransferAlternative | null) => void
@@ -82,6 +91,25 @@ export function TripSelector({
   const [walkTime, setWalkTime] = useState(2)
   const [swapFxTick, setSwapFxTick] = useState(0)
   const [showSwapFx, setShowSwapFx] = useState(false)
+  const [justSaved, setJustSaved] = useState(false)
+
+  // "Leave now" vs "Leave at <time>"
+  const [departMode, setDepartMode] = useState<'now' | 'later'>('now')
+  const [departAtValue, setDepartAtValue] = useState('')
+
+  useEffect(() => {
+    if (!justSaved) return
+    const timer = setTimeout(() => setJustSaved(false), 2000)
+    return () => clearTimeout(timer)
+  }, [justSaved])
+
+  const handleDepartModeChange = useCallback((mode: 'now' | 'later') => {
+    setDepartMode(mode)
+    if (mode === 'later' && !departAtValue) {
+      // sensible default: half an hour from now
+      setDepartAtValue(toLocalInputValue(new Date(Date.now() + 30 * 60_000)))
+    }
+  }, [departAtValue])
 
   // station override when user picks an alternative walking station
   const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
@@ -152,12 +180,16 @@ export function TripSelector({
       : destOverride?.station ?? toResolved?.station ?? null
 
   const canGo = fromStation && toStation && fromStation.code !== toStation.code
+    && (departMode === 'now' || !!departAtValue)
 
   const handleGo = useCallback(() => {
     if (fromStation && toStation) {
-      onGo(fromStation, toStation, walkTime)
+      const departAt = departMode === 'later' && departAtValue
+        ? Math.floor(new Date(departAtValue).getTime() / 60_000) * 60_000 // minute-rounded for stable cache keys
+        : null
+      onGo(fromStation, toStation, walkTime, departAt)
     }
-  }, [fromStation, toStation, walkTime, onGo])
+  }, [fromStation, toStation, walkTime, onGo, departMode, departAtValue])
 
   const handleOriginAlt = useCallback((alt: WalkingAlt) => {
     setOriginOverride(alt)
@@ -309,19 +341,85 @@ export function TripSelector({
             {isLoading ? 'Loading...' : 'Go'}
           </button>
           {onSaveTrip && (
-            <button
-              onClick={() => fromSelection && toSelection && onSaveTrip(fromSelection, toSelection, walkTime)}
-              disabled={!canGo}
-              className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded border border-[var(--border-color)] text-[var(--text-secondary)] active:text-[#E31837] active:border-[#E31837] hover:text-[#E31837] hover:border-[#E31837] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-              aria-label={checkTripSaved?.(fromSelection, toSelection) ? 'Trip saved' : 'Save trip'}
-            >
-              {checkTripSaved?.(fromSelection, toSelection)
-                ? <BookmarkCheck className="w-5 h-5 text-[#E31837]" />
-                : <Bookmark className="w-5 h-5" />
-              }
-            </button>
+            <div className="relative">
+              <button
+                onClick={() => {
+                  if (fromSelection && toSelection) {
+                    onSaveTrip(fromSelection, toSelection, walkTime)
+                    setJustSaved(true)
+                  }
+                }}
+                disabled={!canGo}
+                className="min-w-[44px] min-h-[44px] flex items-center justify-center rounded border border-[var(--border-color)] text-[var(--text-secondary)] active:text-[#E31837] active:border-[#E31837] hover:text-[#E31837] hover:border-[#E31837] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                aria-label={checkTripSaved?.(fromSelection, toSelection) ? 'Trip saved' : 'Save trip'}
+              >
+                {checkTripSaved?.(fromSelection, toSelection)
+                  ? <BookmarkCheck className="w-5 h-5 text-[#E31837]" />
+                  : <Bookmark className="w-5 h-5" />
+                }
+              </button>
+              {justSaved && (
+                <span
+                  role="status"
+                  className="absolute -top-8 right-0 px-2 py-1 rounded bg-[var(--text-primary)] text-[var(--card-bg)] text-xs font-medium whitespace-nowrap shadow"
+                >
+                  Saved!
+                </span>
+              )}
+            </div>
           )}
         </div>
+      </div>
+
+      {/* Departure time: leave now vs leave at */}
+      <div className="mt-3 flex flex-wrap items-center gap-2">
+        <div
+          className="inline-flex rounded-md border border-[var(--border-color)] overflow-hidden text-sm"
+          role="group"
+          aria-label="Departure time"
+        >
+          <button
+            type="button"
+            onClick={() => handleDepartModeChange('now')}
+            aria-pressed={departMode === 'now'}
+            className={`px-3 py-1.5 font-medium transition-colors ${
+              departMode === 'now'
+                ? 'bg-[#E31837] text-white'
+                : 'bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            Now
+          </button>
+          <button
+            type="button"
+            onClick={() => handleDepartModeChange('later')}
+            aria-pressed={departMode === 'later'}
+            className={`px-3 py-1.5 font-medium transition-colors border-l border-[var(--border-color)] flex items-center gap-1.5 ${
+              departMode === 'later'
+                ? 'bg-[#E31837] text-white'
+                : 'bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            Leave at
+          </button>
+        </div>
+        {departMode === 'later' && (
+          <>
+            <input
+              type="datetime-local"
+              value={departAtValue}
+              min={toLocalInputValue(new Date())}
+              max={toLocalInputValue(new Date(Date.now() + MAX_DEPART_HOURS * 3_600_000))}
+              onChange={(e) => setDepartAtValue(e.target.value)}
+              aria-label="Departure date and time"
+              className="px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <span className="text-xs text-[var(--text-secondary)]">
+              Today's schedule only — trains shown from the timetable
+            </span>
+          </>
+        )}
       </div>
 
       {/* Transfer Display - shows transfer station with alternatives */}

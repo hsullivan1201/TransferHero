@@ -1,5 +1,5 @@
 import { Router } from 'express'
-import { getWmataCacheStats } from '../services/wmata.js'
+import { getWmataCacheStats, getWmataUpstreamStats } from '../services/wmata.js'
 
 const router = Router()
 
@@ -23,6 +23,7 @@ export function setGtfsLastUpdated(date: Date): void {
 router.get('/', (_req, res) => {
   const uptime = Math.floor((Date.now() - startTime) / 1000)
   const cacheStats = getWmataCacheStats()
+  const upstreamStats = getWmataUpstreamStats()
 
   res.json({
     status: 'ok',
@@ -45,6 +46,21 @@ router.get('/', (_req, res) => {
         hitRate: cacheStats.gtfsHits + cacheStats.gtfsMisses > 0
           ? Math.round((cacheStats.gtfsHits / (cacheStats.gtfsHits + cacheStats.gtfsMisses)) * 100)
           : 0
+      }
+    },
+    wmataUpstream: {
+      startedAt: upstreamStats.startedAt,
+      predictions: {
+        callsTotal: upstreamStats.predictions.callsTotal,
+        callsLastMinute: upstreamStats.predictions.callsLastMinute,
+        callsLastFiveMinutes: upstreamStats.predictions.callsLastFiveMinutes,
+        failures: upstreamStats.predictions.failures
+      },
+      gtfs: {
+        callsTotal: upstreamStats.gtfs.callsTotal,
+        callsLastMinute: upstreamStats.gtfs.callsLastMinute,
+        callsLastFiveMinutes: upstreamStats.gtfs.callsLastFiveMinutes,
+        failures: upstreamStats.gtfs.failures
       }
     }
   })

@@ -1,7 +1,15 @@
 import { useEffect, useState, useMemo, useCallback } from 'react'
 import { QueryClient, QueryClientProvider, focusManager } from '@tanstack/react-query'
 import { Header, Footer, EmptyState, TripSelector, TripView, ModeToggle, BusTripList, SavedTripsList } from './components'
+import { ErrorBoundary } from './components/ErrorBoundary'
+import { TripSkeleton } from './components/TripSkeleton'
 import { useStations, useTrip, useLeg2, useTripState } from './hooks/useTrip'
+import { usePersistedState } from './hooks/usePersistedState'
+import { useAlerts } from './hooks/useAlerts'
+import { AlertsBanner } from './components/AlertsBanner'
+import { useOnlineStatus } from './hooks/useOnlineStatus'
+import { OfflineBanner } from './components/OfflineBanner'
+import type { Line } from '@transferhero/shared'
 import { useBusTrips } from './hooks/useBusTrips'
 import { useSavedTrips, type SavedTrip } from './hooks/useSavedTrips'
 import type { Station, PlaceContext } from '@transferhero/shared'
@@ -28,7 +36,8 @@ const queryClient = new QueryClient({
 })
 
 function AppContent() {
-  const { data: stations = [], isLoading: stationsLoading, error: stationsError } = useStations()
+  const { data: stations = [], isLoading: stationsLoading, error: stationsError, refetch: refetchStations } = useStations()
+  const isOnline = useOnlineStatus()
   const tripState = useTripState()
   const { savedTrips, saveTrip, deleteTrip, isSaved } = useSavedTrips()
   const [loadTrip, setLoadTrip] = useState<SavedTrip | null>(null)
@@ -37,6 +46,7 @@ function AppContent() {
   const {
     data: tripData,
     isLoading: tripLoading,
+    isFetching: tripFetching,
     error: tripError,
     refetch: refetchTrip,
   } = useTrip(
@@ -45,8 +55,11 @@ function AppContent() {
     tripState.walkTime,
     tripState.selectedAlternative?.station ?? null,
     tripState.accessible,
-    tripState.showDeparted
+    tripState.showDeparted,
+    tripState.departAt
   )
+
+  const isScheduledTrip = !!tripState.departAt && tripData?.meta?.scheduleOnly === true
 
   // grab a fresh copy of the selected train for timing math
   // only trust exact tripId; line+destination matching was chaos
@@ -60,22 +73,31 @@ function AppContent() {
   const {
     data: leg2Data,
     isLoading: leg2Loading,
+    isFetching: leg2Fetching,
     refetch: refetchLeg2,
   } = useLeg2({
     tripId: tripState.tripId ?? '',
     departureTimestamp: tripState.departureTimestamp,
     walkTime: tripState.walkTime,
     transferStation: tripState.selectedAlternative?.station,
-    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null && tripData?.trip?.isDirect !== true,
+    // scheduled trips carry leg2 inline — no realtime leg2 endpoint to poll
+    enabled: !!tripState.tripId && tripState.selectedLeg1Train !== null && tripData?.trip?.isDirect !== true && !isScheduledTrip,
     // pass along realtime transfer arrival, recalculated so it's not stale
     transferArrivalMin: liveLeg1Train?._transferArrivalTimestamp
       ? Math.round((liveLeg1Train._transferArrivalTimestamp - Date.now()) / 60000)
       : undefined,
     accessible: tripState.accessible,
+    showDeparted: tripState.showDeparted,
   })
 
-  // Mode toggle state
-  const [tripMode, setTripMode] = useState<'metro' | 'metro-bus'>('metro')
+  const leg1CarPosition = tripData?.trip?.isDirect
+    ? (liveLeg1Train?.Line
+        ? tripData.trip.leg1.lineCarPositions?.[liveLeg1Train.Line] ?? tripData.trip.leg1.carPosition
+        : tripData.trip.leg1.carPosition)
+    : tripData?.trip?.leg1?.carPosition ?? null
+
+  // Mode toggle state (sticky across sessions)
+  const [tripMode, setTripMode] = usePersistedState<'metro' | 'metro-bus'>('transferhero-trip-mode', 'metro')
 
   // Auto-lock to Metro+Bus when either endpoint is bus-only
   const busOnlyLock = !!(tripState.originPlaceContext?.busOnly || tripState.destPlaceContext?.busOnly)
@@ -106,8 +128,8 @@ function AppContent() {
     return map
   }, [stations])
 
-  const handleGo = (from: Station, to: Station, walkTime: number) => {
-    tripState.startTrip(from, to, walkTime)
+  const handleGo = (from: Station, to: Station, walkTime: number, departAt: number | null) => {
+    tripState.startTrip(from, to, walkTime, departAt)
   }
 
   // Handle walking station alt selection from WalkingCard (after trip is loaded)
@@ -153,6 +175,9 @@ function AppContent() {
 
   const hasTrip = tripState.from && tripState.to && tripData
 
+  // Service alerts — only polled while a trip is active
+  const { data: alertsData } = useAlerts(!!(tripState.from && tripState.to))
+
   const activeTransfer = tripData?.trip?.isDirect
     ? null
     : tripState.selectedAlternative
@@ -160,6 +185,31 @@ function AppContent() {
       : tripData?.trip?.transfer
 
   const leg2Trains = leg2Data?.trains ?? tripData?.trip?.leg2?.trains ?? []
+
+  // Lines + station codes involved in the current trip, for alert relevance
+  const tripLines = useMemo(() => {
+    const lines = new Set<Line>()
+    for (const t of tripData?.trip?.leg1?.trains ?? []) {
+      if (t.Line) lines.add(t.Line as Line)
+    }
+    for (const t of leg2Trains) {
+      if (t.Line) lines.add(t.Line as Line)
+    }
+    if (activeTransfer?.fromLine) lines.add(activeTransfer.fromLine)
+    if (activeTransfer?.toLine) lines.add(activeTransfer.toLine)
+    return [...lines]
+  }, [tripData, leg2Trains, activeTransfer])
+
+  const tripStationCodes = useMemo(() => {
+    const codes = new Set<string>()
+    if (tripState.from?.code) codes.add(tripState.from.code)
+    if (tripState.to?.code) codes.add(tripState.to.code)
+    // transfer stations can have multiple platform codes — elevator incidents may carry either
+    if (activeTransfer?.station) codes.add(activeTransfer.station)
+    if (activeTransfer?.fromPlatform) codes.add(activeTransfer.fromPlatform)
+    if (activeTransfer?.toPlatform) codes.add(activeTransfer.toPlatform)
+    return [...codes]
+  }, [tripState.from?.code, tripState.to?.code, activeTransfer])
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -169,6 +219,8 @@ function AppContent() {
       />
 
       <main className="flex-1 max-w-6xl mx-auto w-full px-4 py-8">
+        {!isOnline && <OfflineBanner />}
+
         {stationsLoading && (
           <div className="text-center py-8">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#E31837] mx-auto" />
@@ -176,9 +228,16 @@ function AppContent() {
           </div>
         )}
 
-        {stationsError && (
-          <div className="text-center py-8 text-red-500">
-            Failed to load stations. Please refresh the page.
+        {stationsError && isOnline && (
+          <div className="text-center py-8">
+            <p className="text-red-500">Failed to load stations.</p>
+            <button
+              type="button"
+              onClick={() => refetchStations()}
+              className="mt-3 px-5 py-2 bg-[#E31837] text-white font-semibold rounded hover:bg-[#c41430] transition-colors"
+            >
+              Retry
+            </button>
           </div>
         )}
 
@@ -208,9 +267,25 @@ function AppContent() {
         )}
 
         {tripError && (
-          <div className="mt-6 text-center py-8 text-red-500">
-            Failed to load trip data. Please try again.
+          <div className="mt-6 text-center py-8">
+            <p className="text-red-500">Failed to load trip data.</p>
+            <button
+              type="button"
+              onClick={() => refetchTrip()}
+              className="mt-3 px-5 py-2 bg-[#E31837] text-white font-semibold rounded hover:bg-[#c41430] transition-colors"
+            >
+              Retry
+            </button>
           </div>
+        )}
+
+        {hasTrip && (
+          <AlertsBanner
+            alerts={alertsData}
+            tripLines={tripLines}
+            stationCodes={tripStationCodes}
+            accessible={tripState.accessible}
+          />
         )}
 
         {hasTrip && (
@@ -239,7 +314,7 @@ function AppContent() {
             <TripView
               leg1Trains={tripData.trip.leg1.trains}
               leg2Trains={leg2Trains}
-              leg1CarPosition={tripData.trip.leg1.carPosition}
+              leg1CarPosition={leg1CarPosition}
               leg2CarPosition={tripData.trip.leg2?.carPosition ?? null}
               leg1Time={activeTransfer?.leg1Time ?? tripData.trip.transfer?.leg1Time ?? 0}
               leg2Time={activeTransfer?.leg2Time ?? tripData.trip.transfer?.leg2Time ?? 0}
@@ -256,7 +331,13 @@ function AppContent() {
                 refetchTrip()
                 refetchLeg2()
               }}
-              isRefreshing={tripLoading || leg2Loading}
+              isRefreshing={tripFetching || leg2Fetching}
+              fetchedAt={tripData?.meta?.fetchedAt}
+              scheduledLabel={
+                isScheduledTrip && tripData?.meta?.plannedFor
+                  ? `Planned for ${new Date(tripData.meta.plannedFor).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                  : undefined
+              }
               isDirect={tripData.trip.isDirect}
               showDeparted={tripState.showDeparted}
               onToggleShowDeparted={tripState.toggleShowDeparted}
@@ -269,6 +350,8 @@ function AppContent() {
                 handleWalkingAlt(tripState.destPlaceContext, alt, tripState.setDestPlaceContext, tripState.setTo)
               }
           />
+          ) : tripLoading && !tripError ? (
+            <TripSkeleton />
           ) : !tripLoading && !tripError && (
             savedTrips.length > 0
               ? <SavedTripsList trips={savedTrips} onLoad={setLoadTrip} onDelete={deleteTrip} />
@@ -284,8 +367,10 @@ function AppContent() {
 
 export default function App() {
   return (
-    <QueryClientProvider client={queryClient}>
-      <AppContent />
-    </QueryClientProvider>
+    <ErrorBoundary>
+      <QueryClientProvider client={queryClient}>
+        <AppContent />
+      </QueryClientProvider>
+    </ErrorBoundary>
   )
 }

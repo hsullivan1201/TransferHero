@@ -15,12 +15,13 @@ const CACHE_TTL_MS = 120_000 // 2 minutes
 const CACHE_MAX_SIZE = 500
 
 // Periodic stale-entry cleanup instead of per-write iteration
-setInterval(() => {
+const geocodingCleanupTimer = setInterval(() => {
   const now = Date.now()
   for (const [key, entry] of cache) {
     if (now - entry.ts > CACHE_TTL_MS) cache.delete(key)
   }
 }, 60_000)
+geocodingCleanupTimer.unref?.()
 
 function evictIfOverCapacity() {
   if (cache.size > CACHE_MAX_SIZE) {

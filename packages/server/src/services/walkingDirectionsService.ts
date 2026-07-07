@@ -33,12 +33,13 @@ function makeCacheKey(
 }
 
 // Periodic stale-entry cleanup instead of per-write iteration
-setInterval(() => {
+const directionsCleanupTimer = setInterval(() => {
   const now = Date.now()
   for (const [key, entry] of cache) {
     if (now - entry.ts > CACHE_TTL_MS) cache.delete(key)
   }
 }, 60_000)
+directionsCleanupTimer.unref?.()
 
 function evictIfOverCapacity() {
   if (cache.size > CACHE_MAX_SIZE) {

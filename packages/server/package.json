@@ -8,7 +8,10 @@
     "typecheck": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
     "build": "tsc --build --force && cp src/data/*.json dist/data/",
     "start": "node dist/index.js",
-    "test": "node --loader ts-node/esm src/services/trainMerger.test.ts && node --loader ts-node/esm src/data/carPositionService.test.ts && node --loader ts-node/esm src/services/busRouteFinder.test.ts && node --loader ts-node/esm src/services/wmata.test.ts && node --loader ts-node/esm src/middleware/cache.test.ts"
+    "test": "node --loader ts-node/esm src/services/trainMerger.test.ts && node --loader ts-node/esm src/data/carPositionService.test.ts && node --loader ts-node/esm src/services/busRouteFinder.test.ts && node --loader ts-node/esm src/services/wmata.test.ts && node --loader ts-node/esm src/middleware/cache.test.ts && node --loader ts-node/esm src/services/incidents.test.ts && node --loader ts-node/esm src/services/scheduledTripPlanner.test.ts && node --loader ts-node/esm src/bench/perfBench.test.ts && node --loader ts-node/esm src/routes/trips.integration.test.ts",
+    "quality:check": "node scripts/qualityGate.mjs",
+    "perf:bench": "node --expose-gc --loader ts-node/esm src/bench/perfBench.ts",
+    "perf:gate": "node --expose-gc --loader ts-node/esm src/bench/perfBench.ts --gate"
   },
   "dependencies": {
     "@transferhero/shared": "*",

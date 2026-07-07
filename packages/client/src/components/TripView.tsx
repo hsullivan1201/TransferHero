@@ -4,6 +4,8 @@ import type { Train, CatchableTrain, CarPosition, PlaceContext } from '@transfer
 import { LegPanel } from './LegPanel'
 import { JourneyInfo } from './JourneyInfo'
 import { WalkingCard } from './WalkingCard'
+import { UpdatedAgo } from './UpdatedAgo'
+import { useNow } from '../hooks/useNow'
 import { deriveWaitMinutes, computeTotalMinutes, resolveArrivalClock } from '../utils/time'
 import { resolveExitLabel } from '../data/exitMapping'
 
@@ -27,6 +29,9 @@ interface TripViewProps {
   departureTimestamp?: number | null
   onRefresh?: () => void
   isRefreshing?: boolean
+  fetchedAt?: string
+  /** replaces the staleness indicator for schedule-only (future) trips */
+  scheduledLabel?: string
   isDirect?: boolean
   showDeparted?: boolean
   onToggleShowDeparted?: () => void
@@ -54,6 +59,8 @@ export function TripView({
   departureTimestamp,
   onRefresh,
   isRefreshing,
+  fetchedAt,
+  scheduledLabel,
   isDirect = false,
   showDeparted = false,
   onToggleShowDeparted,
@@ -63,8 +70,11 @@ export function TripView({
   onSelectDestWalkingAlt,
 }: TripViewProps) {
 
+  // once-a-minute tick so countdown text self-corrects between refetches
+  const nowMinute = useNow(60_000)
+
   // memoize the heavy display-train computation — re-evaluates when
-  // train data, selection, or timing deps change (including 30s refetch)
+  // train data, selection, timing deps, or the minute change
   const { displayTrain, customStatus, selectedNumCars } = useMemo(() => {
     // pick a live copy of the selected train
     // match only by exact tripId—line+destination roulette gave us ghost trains
@@ -187,7 +197,7 @@ export function TripView({
     const _selectedNumCars = selectedLeg1Train ? parseInt(selectedLeg1Train.Car || '8', 10) : undefined
 
     return { displayTrain: _displayTrain, customStatus: _customStatus, selectedNumCars: _selectedNumCars }
-  }, [selectedLeg1Train, leg1Trains, departureTimestamp, isDirect, originName, destinationName, transferName, leg1Time])
+  }, [selectedLeg1Train, leg1Trains, departureTimestamp, isDirect, originName, destinationName, transferName, leg1Time, nowMinute])
 
   const arrivalTime = selectedLeg1Train && leg2Trains.length > 0 && leg2Trains[0]._canCatch
     ? leg2Trains[0]._arrivalClock
@@ -214,7 +224,8 @@ export function TripView({
 
       {/* refresh button, aka the "did it change yet?" switch */}
       {onRefresh && (
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex items-center justify-end gap-3">
+          <UpdatedAgo fetchedAt={fetchedAt} isFetching={isRefreshing} label={scheduledLabel} />
           <button
             onClick={onRefresh}
             disabled={isRefreshing}
@@ -275,6 +286,8 @@ export function TripView({
               carPosition={leg2CarPosition}
               selectedNumCars={selectedNumCars}
               isLoading={isLoadingLeg2}
+              showDeparted={showDeparted}
+              onToggleShowDeparted={onToggleShowDeparted}
               destinationExitName={destPlaceContext?.exit.name}
               destinationExitLabel={destExitLabel}
             />

@@ -1,4 +1,4 @@
-import type { Station, Train, CatchableTrain, TransferResult, CarPosition } from '@transferhero/shared'
+import type { Station, Train, CatchableTrain, TransferResult, CarPosition, Line } from '@transferhero/shared'
 
 const API_BASE = '/api'
 const FETCH_INIT: RequestInit = { cache: 'no-store' }
@@ -12,6 +12,7 @@ export interface TripResponse {
     leg1: {
       trains: Train[]
       carPosition: CarPosition | null
+      lineCarPositions?: Partial<Record<Line, CarPosition>>
     }
     leg2?: {
       trains: CatchableTrain[]
@@ -21,6 +22,8 @@ export interface TripResponse {
   meta: {
     fetchedAt: string
     sources: string[]
+    scheduleOnly?: boolean
+    plannedFor?: string
   }
 }
 
@@ -32,6 +35,10 @@ export interface Leg2Response {
   trains: CatchableTrain[]
   arrivalAtTransfer: number
   arrivalTime: string
+  meta?: {
+    fetchedAt: string
+    sources?: string[]
+  }
 }
 
 export async function fetchStations(): Promise<Station[]> {
@@ -44,10 +51,11 @@ export async function fetchStations(): Promise<Station[]> {
 export async function fetchTrip(
   from: string,
   to: string,
-  walkTime: number = 3,
+  walkTime: number = 2,
   transferStation?: string,
   accessible: boolean = false,
-  includeDeparted: boolean = false
+  includeDeparted: boolean = false,
+  departAt?: number | null
 ): Promise<TripResponse> {
   const params = new URLSearchParams({
     from,
@@ -59,6 +67,9 @@ export async function fetchTrip(
   if (transferStation) {
     params.set('transferStation', transferStation)
   }
+  if (departAt) {
+    params.set('departAt', departAt.toString())
+  }
   const res = await fetch(`${API_BASE}/trips?${params}`, FETCH_INIT)
   if (!res.ok) throw new Error('Failed to fetch trip')
   return res.json()
@@ -67,7 +78,7 @@ export async function fetchTrip(
 export async function fetchLeg2(
   tripId: string,
   departureMin: number,
-  walkTime: number = 3,
+  walkTime: number = 2,
   transferStation?: string,
   transferArrivalMin?: number,
   accessible: boolean = false,

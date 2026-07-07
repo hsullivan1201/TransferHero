@@ -6,7 +6,8 @@ export function useTheme() {
   const [theme, setTheme] = useState<Theme>(() => {
     if (typeof window === 'undefined') return 'light'
     const saved = localStorage.getItem('theme') as Theme | null
-    return saved || 'light'
+    if (saved) return saved
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
   })
 
   useEffect(() => {
@@ -16,11 +17,23 @@ export function useTheme() {
     } else {
       root.classList.remove('dark')
     }
-    localStorage.setItem('theme', theme)
   }, [theme])
 
+  // Follow OS theme changes until the user makes an explicit choice
+  useEffect(() => {
+    if (localStorage.getItem('theme')) return
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const onChange = (e: MediaQueryListEvent) => setTheme(e.matches ? 'dark' : 'light')
+    media.addEventListener('change', onChange)
+    return () => media.removeEventListener('change', onChange)
+  }, [])
+
   const toggleTheme = useCallback(() => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light')
+    setTheme(prev => {
+      const next = prev === 'light' ? 'dark' : 'light'
+      localStorage.setItem('theme', next)
+      return next
+    })
   }, [])
 
   return { theme, toggleTheme, isDark: theme === 'dark' }

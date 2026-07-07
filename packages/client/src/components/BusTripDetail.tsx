@@ -7,6 +7,7 @@ import { buildMapsUrl, formatDistance } from '../utils/geo'
 import { resolveExitLabel } from '../data/exitMapping'
 import { useTrip, useLeg2 } from '../hooks/useTrip'
 import { useBusPredictions } from '../hooks/useBusPredictions'
+import { UpdatedAgo } from './UpdatedAgo'
 import { deriveWaitMinutes, computeTotalMinutes, getTrainMinutes, minutesToClockTime } from '../utils/time'
 
 function agencyLabel(id: BusAgencyId): string {
@@ -78,7 +79,7 @@ export function BusTripDetail({
   // Fetch real Metro trip data for the metro portion
   const {
     data: metroTripData,
-    isLoading: metroLoading,
+    isFetching: metroFetching,
     refetch: refetchMetro,
   } = useTrip(trip.metroFrom, trip.metroTo, walkTime, null, accessible, showDeparted)
 
@@ -144,6 +145,7 @@ export function BusTripDetail({
   const {
     data: leg2Data,
     isLoading: leg2Loading,
+    isFetching: leg2Fetching,
     refetch: refetchLeg2,
   } = useLeg2({
     tripId,
@@ -156,7 +158,11 @@ export function BusTripDetail({
   })
 
   const rawMetroTrains = metroTripData?.trip?.leg1?.trains ?? []
-  const leg1CarPosition = metroTripData?.trip?.leg1?.carPosition ?? null
+  const leg1CarPosition = isDirect
+    ? (displayTrain?.Line
+        ? metroTripData?.trip?.leg1?.lineCarPositions?.[displayTrain.Line] ?? metroTripData?.trip?.leg1?.carPosition ?? null
+        : metroTripData?.trip?.leg1?.carPosition ?? null)
+    : metroTripData?.trip?.leg1?.carPosition ?? null
   const leg2Trains = leg2Data?.trains ?? metroTripData?.trip?.leg2?.trains ?? []
   const leg2CarPosition = metroTripData?.trip?.leg2?.carPosition ?? null
 
@@ -435,14 +441,15 @@ export function BusTripDetail({
       )}
 
       {/* Refresh button */}
-      <div className="flex items-center gap-2 mb-1">
+      <div className="flex items-center justify-end gap-3 mb-1">
+        <UpdatedAgo fetchedAt={metroTripData?.meta?.fetchedAt} isFetching={metroFetching || leg2Fetching} />
         <button
           onClick={() => { refetchMetro(); refetchPredictions(); if (!isDirect) refetchLeg2() }}
-          disabled={metroLoading || leg2Loading || predictionsLoading}
-          className="ml-auto flex items-center gap-2 px-3 py-1.5 bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm cursor-pointer"
+          disabled={metroFetching || leg2Fetching || predictionsLoading}
+          className="flex items-center gap-2 px-3 py-1.5 bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] hover:bg-gray-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-sm cursor-pointer"
         >
-          <RefreshCw className={`w-3.5 h-3.5 ${metroLoading || leg2Loading ? 'animate-spin' : ''}`} />
-          {metroLoading || leg2Loading ? 'Refreshing...' : 'Refresh'}
+          <RefreshCw className={`w-3.5 h-3.5 ${metroFetching || leg2Fetching ? 'animate-spin' : ''}`} />
+          {metroFetching || leg2Fetching ? 'Refreshing...' : 'Refresh'}
         </button>
       </div>
 
@@ -883,12 +890,14 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                     .sort((a, b) => a.min - b.min)
                     .slice(0, selectedDeparture ? undefined : 3)
                     .map((item, i) => item.type === 'rt' ? (
-                    <div
+                    <button
+                      type="button"
                       key={`rt-${i}`}
                       data-testid="bus-departure-option"
                       data-source="realtime"
-                      className={`flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all ${
-                        isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg' : ''
+                      disabled={!isSelectable}
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] transition-all ${
+                        isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f9b8e]' : 'cursor-default'
                       }`}
                       onClick={isSelectable ? () => onSelectDeparture!({ minutesFromNow: item.data.minutes, isRealTime: true, vehicleId: item.data.vehicleId }) : undefined}
                     >
@@ -919,14 +928,16 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                           {item.data.minutes === 0 ? 'now' : item.data.clockTime}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ) : (
-                    <div
+                    <button
+                      type="button"
                       key={`sched-${i}`}
                       data-testid="bus-departure-option"
                       data-source="scheduled"
-                      className={`flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] opacity-75 transition-all ${
-                        isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg hover:opacity-100' : ''
+                      disabled={!isSelectable}
+                      className={`w-full text-left flex items-center justify-between p-3 rounded-lg bg-[var(--bg-secondary)] border border-[var(--border-color)] opacity-75 transition-all ${
+                        isSelectable ? 'cursor-pointer hover:border-[#0f9b8e] hover:translate-x-1 hover:shadow-lg hover:opacity-100 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f9b8e]' : 'cursor-default'
                       }`}
                       onClick={isSelectable ? () => onSelectDeparture!({ minutesFromNow: item.data.minutesFromNow, isRealTime: false }) : undefined}
                     >
@@ -952,7 +963,7 @@ function BusLegPanel({ busLeg, isFirst, arrivalAtBusStopMin, predictions, predic
                           {item.data.departureTime}
                         </div>
                       </div>
-                    </div>
+                    </button>
                   ))}
                 </div>
 

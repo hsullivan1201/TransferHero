@@ -5,6 +5,8 @@ import {
   getArrivalAtStation,
   fetchDestinationArrivals,
   findDepartedTrains,
+  getWmataUpstreamStats,
+  resetWmataUpstreamStats,
 } from './wmata.js'
 
 function makeEntity(tripId: string, routeId: string, stops: Array<{ stopId: string; timeSec: number; seq: number }>) {
@@ -111,8 +113,25 @@ function findDepartedTrainsUsesIndexedStationLookup() {
   console.log('✓ findDepartedTrains returns departed trains with next-stop metadata from indexed GTFS data')
 }
 
+function upstreamStatsExposeRollingCallCounters() {
+  resetWmataUpstreamStats()
+  const stats = getWmataUpstreamStats()
+
+  assert.ok(Number.isFinite(Date.parse(stats.startedAt)))
+  assert.equal(stats.predictions.callsTotal, 0)
+  assert.equal(stats.predictions.callsLastMinute, 0)
+  assert.equal(stats.predictions.callsLastFiveMinutes, 0)
+  assert.equal(stats.predictions.failures, 0)
+  assert.equal(stats.gtfs.callsTotal, 0)
+  assert.equal(stats.gtfs.callsLastMinute, 0)
+  assert.equal(stats.gtfs.callsLastFiveMinutes, 0)
+  assert.equal(stats.gtfs.failures, 0)
+  console.log('✓ WMATA upstream stats expose rolling counters with zeroed baseline')
+}
+
 parseUpdatesUsesStationIndexAndFiltersCorrectly()
 await destinationArrivalPrefersGtfsTripMatch()
 findDepartedTrainsUsesIndexedStationLookup()
+upstreamStatsExposeRollingCallCounters()
 
 console.log('wmata tests passed')

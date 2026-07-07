@@ -27,6 +27,70 @@ let pendingGtfsRequest: Promise<any[]> | null = null
 
 // cache stats for logging and bragging
 let cacheStats = { predictionHits: 0, predictionMisses: 0, gtfsHits: 0, gtfsMisses: 0 }
+const ONE_MINUTE_MS = 60_000
+const FIVE_MINUTES_MS = 5 * ONE_MINUTE_MS
+
+interface RollingRequestCounter {
+  total: number
+  failures: number
+  recentTimestamps: number[]
+}
+
+interface WmataUpstreamMutableStats {
+  startedAt: number
+  predictions: RollingRequestCounter
+  gtfs: RollingRequestCounter
+}
+
+export interface WmataUpstreamStats {
+  startedAt: string
+  predictions: {
+    callsTotal: number
+    callsLastMinute: number
+    callsLastFiveMinutes: number
+    failures: number
+  }
+  gtfs: {
+    callsTotal: number
+    callsLastMinute: number
+    callsLastFiveMinutes: number
+    failures: number
+  }
+}
+
+let upstreamStats: WmataUpstreamMutableStats = {
+  startedAt: Date.now(),
+  predictions: { total: 0, failures: 0, recentTimestamps: [] },
+  gtfs: { total: 0, failures: 0, recentTimestamps: [] }
+}
+
+function pruneOldTimestamps(counter: RollingRequestCounter, now: number): void {
+  const cutoff = now - FIVE_MINUTES_MS
+  while (counter.recentTimestamps.length > 0 && counter.recentTimestamps[0] < cutoff) {
+    counter.recentTimestamps.shift()
+  }
+}
+
+function countCallsInWindow(counter: RollingRequestCounter, now: number, windowMs: number): number {
+  const cutoff = now - windowMs
+  let index = 0
+  while (index < counter.recentTimestamps.length && counter.recentTimestamps[index] < cutoff) {
+    index++
+  }
+  return counter.recentTimestamps.length - index
+}
+
+function recordUpstreamCall(kind: 'predictions' | 'gtfs'): void {
+  const now = Date.now()
+  const counter = upstreamStats[kind]
+  counter.total++
+  counter.recentTimestamps.push(now)
+  pruneOldTimestamps(counter, now)
+}
+
+function recordUpstreamFailure(kind: 'predictions' | 'gtfs'): void {
+  upstreamStats[kind].failures++
+}
 
 export function getWmataCacheStats() {
   return { ...cacheStats }
@@ -34,6 +98,36 @@ export function getWmataCacheStats() {
 
 export function resetWmataCacheStats() {
   cacheStats = { predictionHits: 0, predictionMisses: 0, gtfsHits: 0, gtfsMisses: 0 }
+}
+
+export function getWmataUpstreamStats(): WmataUpstreamStats {
+  const now = Date.now()
+  pruneOldTimestamps(upstreamStats.predictions, now)
+  pruneOldTimestamps(upstreamStats.gtfs, now)
+
+  return {
+    startedAt: new Date(upstreamStats.startedAt).toISOString(),
+    predictions: {
+      callsTotal: upstreamStats.predictions.total,
+      callsLastMinute: countCallsInWindow(upstreamStats.predictions, now, ONE_MINUTE_MS),
+      callsLastFiveMinutes: countCallsInWindow(upstreamStats.predictions, now, FIVE_MINUTES_MS),
+      failures: upstreamStats.predictions.failures
+    },
+    gtfs: {
+      callsTotal: upstreamStats.gtfs.total,
+      callsLastMinute: countCallsInWindow(upstreamStats.gtfs, now, ONE_MINUTE_MS),
+      callsLastFiveMinutes: countCallsInWindow(upstreamStats.gtfs, now, FIVE_MINUTES_MS),
+      failures: upstreamStats.gtfs.failures
+    }
+  }
+}
+
+export function resetWmataUpstreamStats(): void {
+  upstreamStats = {
+    startedAt: Date.now(),
+    predictions: { total: 0, failures: 0, recentTimestamps: [] },
+    gtfs: { total: 0, failures: 0, recentTimestamps: [] }
+  }
 }
 
 // GTFS-RT protobuf schema definition
@@ -224,6 +318,7 @@ export async function fetchStationPredictions(
 
   const request = (async () => {
     try {
+      recordUpstreamCall('predictions')
       const response = await fetchWithTimeout(url, {
         timeoutMs: WMATA_REQUEST_TIMEOUT_MS,
         headers: { 'api_key': apiKey }
@@ -240,6 +335,7 @@ export async function fetchStationPredictions(
       predictionCache.set(key, { data: trains, ts: Date.now() })
       return trains
     } catch (error) {
+      recordUpstreamFailure('predictions')
       if (cached) {
         console.warn(`[WMATA] prediction fetch failed for ${key}, serving stale cache`, error)
         return cached.data
@@ -275,6 +371,7 @@ export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
   pendingGtfsRequest = (async () => {
     try {
       const root = await initProto()
+      recordUpstreamCall('gtfs')
       const response = await fetchWithTimeout('https://api.wmata.com/gtfs/rail-gtfsrt-tripupdates.pb', {
         timeoutMs: GTFS_REQUEST_TIMEOUT_MS,
         headers: { 'api_key': apiKey }
@@ -296,6 +393,7 @@ export async function fetchGTFSTripUpdates(apiKey: string): Promise<any[]> {
 
       return entities
     } catch (e) {
+      recordUpstreamFailure('gtfs')
       console.error('[GTFS] Fetch Error:', e)
       // Stale GTFS is better than nothing when upstream blips.
       return gtfsCache?.data ?? []

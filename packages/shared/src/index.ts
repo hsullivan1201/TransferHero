@@ -269,5 +269,32 @@ export interface HybridTrip {
   totalTimeMinutes: number
 }
 
+// ===== Service alerts (WMATA incidents) =====
+
+export interface RailIncident {
+  incidentId: string
+  description: string
+  incidentType: string
+  linesAffected: Line[]
+  dateUpdated: string
+}
+
+export interface ElevatorIncident {
+  unitType: 'ELEVATOR' | 'ESCALATOR'
+  stationCode: string
+  stationName: string
+  locationDescription: string
+  symptomDescription: string
+  dateOutOfServ: string
+}
+
+export interface AlertsResponse {
+  railIncidents: RailIncident[]
+  elevatorIncidents: ElevatorIncident[]
+  meta: {
+    fetchedAt: string
+  }
+}
+
 // Re-export utilities
 export * from './utils/index.js'

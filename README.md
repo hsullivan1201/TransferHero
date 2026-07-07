@@ -31,7 +31,7 @@ Car position data comes from [eable2's DCMetroStationExits](https://github.com/e
 ### Other features
 - Save frequently-used trips for quick access (stored locally in your browser, never sent to a server)
 - Car position diagrams based on real platform exit data (243 exits)
-- "Already on a train?" mode -select a departed train to see what you can still catch
+- "Already on a train?" mode - select a departed train to see what you can still catch
 - Accessibility mode (prioritizes elevator exits)
 - Dark mode
 - Shows alternatives within 10 min of the fastest route
@@ -106,31 +106,47 @@ npm run build
 cd packages/server && npm start
 ```
 
+### Quality + perf checks
+
+```bash
+npm run quality:check
+npm run test
+npm run perf:bench
+npm run perf:gate
+npm run ci
+```
+
 ## API
 
 ### Trips
-- **GET /api/stations** -all Metro stations
-- **GET /api/trips** -trip plan with Leg 1 & Leg 2 trains
+- **GET /api/stations** - all Metro stations
+- **GET /api/trips** - trip plan with Leg 1 & Leg 2 trains
   - `from`, `to` (required): station codes
-  - `walkTime`: transfer walk time in minutes (1-15, default 3)
+  - `walkTime`: transfer walk time in minutes (1-5, default 2)
   - `transferStation`: specific transfer station
   - `accessible`: prioritize elevator exits
   - `includeDeparted`: show already-departed trains
-- **GET /api/trips/:tripId/leg2** -catchable Leg 2 trains for a selected first-leg train
+- **GET /api/trips/:tripId/leg2** - catchable Leg 2 trains for a selected first-leg train
+  - `departureMin`: selected leg-1 train departure minute offset
+  - `walkTime`: transfer walk time in minutes (1-5, default 2)
+  - `transferStation`: specific transfer station (optional)
+  - `transferArrivalMin`: realtime transfer arrival override (optional)
+  - `accessible`: prioritize elevator exits
+  - `includeDeparted`: show already-departed trains
 
 ### Destinations
-- **GET /api/destinations/search** -place search via Google Places
-- **GET /api/destinations/resolve** -resolve lat/lon to best station + exit
+- **GET /api/destinations/search** - place search via Google Places
+- **GET /api/destinations/resolve** - resolve lat/lon to best station + exit
 
 ### Buses
-- **GET /api/buses/trips** -hybrid Metro+Bus trip options
+- **GET /api/buses/trips** - hybrid Metro+Bus trip options
   - `originLat`, `originLon`, `destLat`, `destLon`: coordinates
   - `originStation`, `destStation`: Metro station codes
-- **GET /api/buses/predictions** -real-time bus arrival predictions
-- **GET /api/buses/walk** -walking directions for bus segments
+- **GET /api/buses/predictions** - real-time bus arrival predictions
+- **GET /api/buses/walk** - walking directions for bus segments
 
 ### Other
-- **GET /api/health** -health check
+- **GET /api/health** - health check + WMATA cache hit/miss stats + upstream call counters
 
 ## Data sources
 
@@ -147,7 +163,7 @@ cd packages/server && npm start
 | Google Directions API | Walking routes and times |
 | DCMetroStationExits dataset | Car position recommendations (243 exits) |
 
-The server refreshes GTFS data daily. Bus predictions are cached for 15s, train data for 30s.
+The server refreshes GTFS data daily. Trip API responses are cached for 10s. Rail predictions are cached for 15s, rail GTFS-RT for 10s, and bus predictions for 15s. The backend also coalesces in-flight WMATA requests and serves stale data on upstream blips when possible.
 
 ## Bus schedule storage
 
@@ -163,6 +179,7 @@ The DB rebuilds every 24h and swaps atomically. WAL mode on, mmap off to keep RS
 - Backend: `packages/server/src/services/`
 - Frontend: `packages/client/src/components/`
 - API routes: `packages/server/src/routes/`
+- Detailed engineering notes: `docs/2026-02-19-performance-and-clean-code-sweep.md`
 
 ## License
 

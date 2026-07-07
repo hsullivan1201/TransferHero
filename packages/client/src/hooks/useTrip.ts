@@ -3,6 +3,7 @@ import { useState, useCallback, useMemo } from 'react'
 import { fetchStations, fetchTrip, fetchLeg2 } from '../api/trips'
 import type { Station, Train, TransferAlternative, PlaceContext } from '@transferhero/shared'
 import { getTrainMinutes } from '../utils/time'
+import { readPersisted, writePersisted } from './usePersistedState'
 
 // please don't touch these hooks—they've earned their keep.
 
@@ -21,14 +22,16 @@ export function useTrip(
   walkTime: number,
   transferStation?: string | null,
   accessible: boolean = false,
-  showDeparted: boolean = false
+  showDeparted: boolean = false,
+  departAt: number | null = null
 ) {
   return useQuery({
-    queryKey: ['trip', from, to, walkTime, transferStation, accessible, showDeparted],
-    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible, showDeparted),
+    queryKey: ['trip', from, to, walkTime, transferStation, accessible, showDeparted, departAt],
+    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible, showDeparted, departAt),
     enabled: !!from && !!to,
-    staleTime: 10 * 1000,
-    refetchInterval: 15 * 1000,
+    // scheduled (future) trips don't change every 15s — skip the realtime polling
+    staleTime: departAt ? Infinity : 10 * 1000,
+    refetchInterval: departAt ? false : 15 * 1000,
     placeholderData: keepPreviousData,
   })
 }
@@ -82,22 +85,25 @@ interface TripState {
   showDeparted: boolean
   originPlaceContext: PlaceContext | null
   destPlaceContext: PlaceContext | null
+  /** epoch ms for "leave at" trips; null = leave now */
+  departAt: number | null
 }
 
 export function useTripState() {
-  const [state, setState] = useState<TripState>({
+  const [state, setState] = useState<TripState>(() => ({
     from: null,
     to: null,
-    walkTime: 3,
+    walkTime: 2,
     selectedLeg1Train: null,
     selectedLeg1Index: undefined,
     selectedAlternative: null,
     departureTimestamp: null,
-    accessible: false,
+    accessible: readPersisted('transferhero-accessible', false),
     showDeparted: false,
     originPlaceContext: null,
     destPlaceContext: null,
-  })
+    departAt: null,
+  }))
 
   const setFrom = useCallback((station: Station | null) => {
     setState(prev => ({
@@ -107,6 +113,7 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
+      departAt: null,
     }))
   }, [])
 
@@ -118,6 +125,7 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
+      departAt: null,
     }))
   }, [])
 
@@ -154,10 +162,13 @@ export function useTripState() {
   }, [])
 
   const toggleAccessible = useCallback(() => {
-    setState(prev => ({
-      ...prev,
-      accessible: !prev.accessible,
-    }))
+    setState(prev => {
+      writePersisted('transferhero-accessible', !prev.accessible)
+      return {
+        ...prev,
+        accessible: !prev.accessible,
+      }
+    })
   }, [])
 
   const toggleShowDeparted = useCallback(() => {
@@ -167,7 +178,7 @@ export function useTripState() {
     }))
   }, [])
 
-  const startTrip = useCallback((from: Station, to: Station, walkTime: number) => {
+  const startTrip = useCallback((from: Station, to: Station, walkTime: number, departAt: number | null = null) => {
     setState(prev => ({
       from,
       to,
@@ -180,6 +191,7 @@ export function useTripState() {
       showDeparted: prev.showDeparted, // keep the departed toggle as-is
       originPlaceContext: prev.originPlaceContext, // keep place contexts through trip start
       destPlaceContext: prev.destPlaceContext,
+      departAt,
     }))
   }, [])
 

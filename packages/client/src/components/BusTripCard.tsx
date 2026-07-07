@@ -23,11 +23,12 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
   const { busLeg } = trip
 
   return (
-    <div
+    <button
+      type="button"
       data-testid="bus-trip-card"
       data-pattern={trip.pattern}
       data-route-id={busLeg.routeId}
-      className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg shadow-sm overflow-hidden hover:border-[#0f9b8e] transition-colors cursor-pointer"
+      className="block w-full text-left bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg shadow-sm overflow-hidden hover:border-[#0f9b8e] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0f9b8e] transition-colors cursor-pointer"
       onClick={onSelect}
     >
       {/* Header */}
@@ -99,7 +100,7 @@ export function BusTripCard({ trip, stationNames, onSelect }: BusTripCardProps) 
           </span>
         </div>
       </div>
-    </div>
+    </button>
   )
 }
 

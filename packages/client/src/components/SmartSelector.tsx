@@ -30,6 +30,7 @@ export function SmartSelector({
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [locating, setLocating] = useState(false)
+  const [geoError, setGeoError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
 
@@ -99,8 +100,12 @@ export function SmartSelector({
   )
 
   const handleUseLocation = useCallback(() => {
-    if (!navigator.geolocation) return
+    if (!navigator.geolocation) {
+      setGeoError('Location is not supported by this browser')
+      return
+    }
     setLocating(true)
+    setGeoError(null)
     navigator.geolocation.getCurrentPosition(
       (pos) => {
         setLocating(false)
@@ -121,6 +126,11 @@ export function SmartSelector({
       (err) => {
         setLocating(false)
         console.error('Geolocation error:', err)
+        setGeoError(
+          err.code === err.PERMISSION_DENIED
+            ? 'Location access denied — check browser permissions'
+            : 'Could not get your location — try again'
+        )
       },
       { enableHighAccuracy: true, timeout: 10000 }
     )
@@ -322,6 +332,10 @@ export function SmartSelector({
             <div className="px-4 py-3 text-sm text-[var(--text-secondary)]">Searching places...</div>
           )}
         </div>
+      )}
+
+      {geoError && (
+        <p role="alert" className="mt-1.5 text-sm text-red-500">{geoError}</p>
       )}
     </div>
   )
