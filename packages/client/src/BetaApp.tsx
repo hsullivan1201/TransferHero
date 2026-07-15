@@ -15,7 +15,6 @@ import { OfflineBanner } from './components/OfflineBanner'
 import { useAlerts } from './hooks/useAlerts'
 import { useBusTrips } from './hooks/useBusTrips'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
-import { usePersistedState } from './hooks/usePersistedState'
 import { useSavedTrips, type SavedTrip } from './hooks/useSavedTrips'
 import { useTheme } from './hooks/useTheme'
 import { useLeg2, useStations, useTrip, useTripState } from './hooks/useTrip'
@@ -191,7 +190,10 @@ function BetaContent() {
         : tripData.trip.leg1.carPosition)
     : tripData?.trip?.leg1?.carPosition ?? null
 
-  const [tripMode, setTripMode] = usePersistedState<'metro' | 'metro-bus'>('transferhero-trip-mode', 'metro')
+  // Not persisted on purpose: every trip starts on Metro only. The single
+  // auto-switch to Metro + bus is when an endpoint has no station in walking
+  // distance (busOnly) — never because of a previous trip's mode.
+  const [tripMode, setTripMode] = useState<'metro' | 'metro-bus'>('metro')
   const busOnlyLock = !!(tripState.originPlaceContext?.busOnly || tripState.destPlaceContext?.busOnly)
 
   useEffect(() => {
@@ -218,6 +220,8 @@ function BetaContent() {
   }, [stations])
 
   const handleGo = (from: Station, to: Station, walkTime: number, departAt: number | null) => {
+    // each plan starts fresh on Metro unless an endpoint truly needs the bus
+    setTripMode(busOnlyLock ? 'metro-bus' : 'metro')
     tripState.startTrip(from, to, walkTime, departAt)
   }
 
