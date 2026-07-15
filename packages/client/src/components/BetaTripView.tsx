@@ -94,6 +94,13 @@ interface BetaTripViewProps {
   destPlaceContext: PlaceContext | null
   onSelectOriginWalkingAlt: (alt: WalkingAlt) => void
   onSelectDestWalkingAlt: (alt: WalkingAlt) => void
+  embedded?: boolean
+  stepOffset?: number
+  overviewTitle?: string
+  selectedLeg2Train?: Train | null
+  onSelectLeg2Train?: (train: Train, index: number) => void
+  onClearLeg2Selection?: () => void
+  preferredLeg1Train?: Train | null
 }
 
 function isCatchable(train: Train | CatchableTrain): train is CatchableTrain {
@@ -309,7 +316,7 @@ function getTransferExitGroups(markers: ExitOption[] | undefined): Array<{ lette
   return [...grouped.entries()].slice(0, 2).map(([text, letters]) => ({ letters, text }))
 }
 
-function Step({ number, title, children, trailing }: {
+export function BetaStep({ number, title, children, trailing }: {
   number: number
   title: string
   children: ReactNode
@@ -365,16 +372,17 @@ function TrainRow({
     ? `${reportedCarCount}-car train`
     : 'train length unavailable'
   const rowClass = `beta-train-row ${selected ? 'is-selected' : ''} ${departed ? 'is-muted' : ''}`
+  const effectiveConnectionWait = connectionWait ?? (isCatchable(train) ? train._waitTime : null)
   const status = selected
     ? departed
       ? train.Min === 'ARR'
         ? 'Your train · arriving'
         : 'Your train · en route'
       : 'Your train'
-    : connection && connectionWait != null
-      ? connectionWait < 0
-        ? `Tight connection · ${connectionWait} min wait`
-        : `${bestConnection ? 'Best connection · ' : ''}${connectionWait} min wait`
+    : (connection || isCatchable(train)) && effectiveConnectionWait != null
+      ? effectiveConnectionWait < 0
+        ? `Tight connection · ${effectiveConnectionWait} min wait`
+        : `${bestConnection ? 'Best connection · ' : ''}${effectiveConnectionWait} min wait`
       : null
 
   const content = (
@@ -540,7 +548,14 @@ function WalkingWayfindingStep({
   const fromLon = isOrigin ? context.place.lon : context.exit.lon
   const toLat = isOrigin ? context.exit.lat : context.place.lat
   const toLon = isOrigin ? context.exit.lon : context.place.lon
-  const mapsUrl = buildMapsUrl(fromLat, fromLon, toLat, toLon)
+  const duplicateFallbackCoordinates = context.walkDistanceMeters > 30
+    && Math.abs(fromLat - toLat) < 0.00001
+    && Math.abs(fromLon - toLon) < 0.00001
+  const stationExitQuery = encodeURIComponent(`${context.station.name} ${context.exit.name}`)
+  const placeCoordinates = `${context.place.lat},${context.place.lon}`
+  const mapsUrl = duplicateFallbackCoordinates
+    ? `https://www.google.com/maps/dir/?api=1&origin=${isOrigin ? placeCoordinates : stationExitQuery}&destination=${isOrigin ? stationExitQuery : placeCoordinates}&travelmode=walking`
+    : buildMapsUrl(fromLat, fromLon, toLat, toLon)
   const alternatives = context.alternatives ?? []
 
   return (
@@ -664,6 +679,13 @@ export function BetaTripView({
   destPlaceContext,
   onSelectOriginWalkingAlt,
   onSelectDestWalkingAlt,
+  embedded = false,
+  stepOffset = 0,
+  overviewTitle = 'Your leg at a glance',
+  selectedLeg2Train = null,
+  onSelectLeg2Train,
+  onClearLeg2Selection,
+  preferredLeg1Train = null,
 }: BetaTripViewProps) {
   const [showAllTrains, setShowAllTrains] = useState(false)
   const nowMinute = useNow(60_000)
@@ -684,6 +706,16 @@ export function BetaTripView({
     // line and destination.
     return selectedLeg1Train
   }, [selectedLeg1Train, leg1Trains])
+
+  const liveSelectedLeg2Train = useMemo(() => {
+    if (!selectedLeg2Train) return null
+    return leg2Trains.find((train) => sameTrain(train, selectedLeg2Train)) ?? selectedLeg2Train
+  }, [selectedLeg2Train, leg2Trains])
+
+  const livePreferredLeg1Train = useMemo(() => {
+    if (!preferredLeg1Train) return null
+    return leg1Trains.find((train) => sameTrain(train, preferredLeg1Train)) ?? preferredLeg1Train
+  }, [preferredLeg1Train, leg1Trains])
 
   const indexedTrains = leg1Trains.map((train, index) => ({ train, index }))
   const matchesSelection = (train: Train) => sameTrain(
@@ -706,7 +738,7 @@ export function BetaTripView({
     const departure = getTrainMinutes(train.Min)
     return !Number.isFinite(departure) || departure >= firstWalk
   })?.train
-  const summaryTrain = liveSelectedTrain ?? reachableTrain ?? null
+  const summaryTrain = liveSelectedTrain ?? livePreferredLeg1Train ?? reachableTrain ?? null
   const primaryLine = summaryTrain?.Line ?? transfer?.fromLine ?? origin.lines[0]
   const activeLeg1CarPosition = primaryLine
     ? leg1LineCarPositions?.[primaryLine] ?? leg1CarPosition
@@ -738,14 +770,17 @@ export function BetaTripView({
     return wait == null ? [] : [{ train, wait }]
   })
   const bestConnection = connectionRows.find((item) => item.wait >= 0) ?? null
-  const catchableTrain = bestConnection?.train ?? null
+  const selectedConnection = liveSelectedLeg2Train
+    ? connectionRows.find(({ train }) => sameTrain(train, liveSelectedLeg2Train)) ?? null
+    : null
+  const catchableTrain = selectedConnection?.train ?? bestConnection?.train ?? null
   const routeLeg2Train = catchableTrain
     ?? connectionRows[0]?.train
     ?? leg2Trains.find((train) => !isDeparted(train))
     ?? leg2Trains[0]
     ?? null
   const representativeLeg2Train = catchableTrain
-  const secondWait = bestConnection?.wait ?? 0
+  const secondWait = Math.max(0, selectedConnection?.wait ?? bestConnection?.wait ?? 0)
   const finalLine = representativeLeg2Train?.Line ?? routeLeg2Train?.Line ?? transfer?.toLine ?? primaryLine
   const targetPlatformLines = transfer?.toPlatformLines?.length
     ? transfer.toPlatformLines
@@ -843,7 +878,7 @@ export function BetaTripView({
         _departed: alreadyOnTrain,
       }
     : null
-  let step = 1
+  let step = 1 + stepOffset
   const originWalkStep = originPlaceContext ? step++ : null
   const originStationStep = step++
   const firstBoardingStep = activeLeg1CarPosition ? step++ : null
@@ -854,33 +889,37 @@ export function BetaTripView({
   const destinationWalkStep = destPlaceContext ? step++ : null
 
   return (
-    <div className="beta-trip-view">
-      <div className="beta-summary" aria-live="polite">
-        <span className="beta-total">{hasKnownRideTime ? totalMinutes : '—'}<small> min</small></span>
-        <span className="beta-via">
-          {isDirect
-            ? `${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line direct`
-            : `via ${transferName}`}
-          {(firstWalk || lastWalk) ? ' + walk' : ''}
-        </span>
-        {arrivalClock && <span className="beta-arrival">Arr {arrivalClock}</span>}
-      </div>
+    <div className={`beta-trip-view ${embedded ? 'is-embedded' : ''}`}>
+      {!embedded && (
+        <>
+          <div className="beta-summary" aria-live="polite">
+            <span className="beta-total">{hasKnownRideTime ? totalMinutes : '—'}<small> min</small></span>
+            <span className="beta-via">
+              {isDirect
+                ? `${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line direct`
+                : `via ${transferName}`}
+              {(firstWalk || lastWalk) ? ' + walk' : ''}
+            </span>
+            {arrivalClock && <span className="beta-arrival">Arr {arrivalClock}</span>}
+          </div>
 
-      <div className="beta-refresh-row">
-        <UpdatedAgo fetchedAt={fetchedAt} isFetching={isRefreshing} label={scheduledLabel} />
-        <button type="button" onClick={onRefresh} disabled={isRefreshing}>
-          <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
-          {isRefreshing ? 'Refreshing' : 'Refresh'}
-        </button>
-      </div>
-
-      {originPlaceContext && originWalkStep && (
-        <Step number={originWalkStep} title={`Start at ${originPlaceContext.place.name} — walk to Metro`}>
-          <WalkingWayfindingStep context={originPlaceContext} onSelectAlternative={onSelectOriginWalkingAlt} />
-        </Step>
+          <div className="beta-refresh-row">
+            <UpdatedAgo fetchedAt={fetchedAt} isFetching={isRefreshing} label={scheduledLabel} />
+            <button type="button" onClick={onRefresh} disabled={isRefreshing}>
+              <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
+              {isRefreshing ? 'Refreshing' : 'Refresh'}
+            </button>
+          </div>
+        </>
       )}
 
-      <Step
+      {originPlaceContext && originWalkStep && (
+        <BetaStep number={originWalkStep} title={`Start at ${originPlaceContext.place.name} — walk to Metro`}>
+          <WalkingWayfindingStep context={originPlaceContext} onSelectAlternative={onSelectOriginWalkingAlt} />
+        </BetaStep>
+      )}
+
+      <BetaStep
         number={originStationStep}
         title={`${origin.name} — ${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line toward ${firstHeadsign}`}
         trailing={liveSelectedTrain ? (
@@ -905,6 +944,7 @@ export function BetaTripView({
                   key={train._tripId ?? train.TrainId ?? train.TrainNumber ?? `${train.Line}-${train.DestinationName}-${index}`}
                   train={selected && selectedDisplayTrain ? selectedDisplayTrain : train}
                   selected={selected}
+                  bestConnection={isCatchable(train) && train === currentTrains[0]?.train}
                   onClick={index >= 0 && !selected ? () => onSelectLeg1Train(train, index) : undefined}
                 />
               )
@@ -933,10 +973,10 @@ export function BetaTripView({
             </div>
           )}
         </div>
-      </Step>
+      </BetaStep>
 
       {activeLeg1CarPosition && firstBoardingStep && primaryLine && (
-        <Step number={firstBoardingStep} title="On the platform — stand here">
+        <BetaStep number={firstBoardingStep} title="On the platform — stand here">
           <BoardingSign
             line={primaryLine}
             carPosition={activeLeg1CarPosition}
@@ -961,14 +1001,21 @@ export function BetaTripView({
               label: isDirect ? destinationExit.name : `${finalLine ? LINE_NAMES[finalLine] : 'Connecting'} Line`,
             }}
           />
-        </Step>
+        </BetaStep>
       )}
 
       {!isDirect && transfer && transferStep && (
-        <Step
+        <BetaStep
           number={transferStep}
           title={`Off the train at ${transferName}${transferArrivalClock ? ` — arrives ${transferArrivalClock}` : ''}`}
-          trailing={accessible ? <span className="beta-accessible-note"><Accessibility /> elevator-aware</span> : undefined}
+          trailing={(accessible || liveSelectedLeg2Train) ? (
+            <span className="beta-step-actions">
+              {accessible && <span className="beta-accessible-note"><Accessibility /> elevator-aware</span>}
+              {liveSelectedLeg2Train && onClearLeg2Selection && (
+                <button type="button" className="beta-change-link" onClick={onClearLeg2Selection}>Change train</button>
+              )}
+            </span>
+          ) : undefined}
         >
           <div className="beta-sign beta-station-sign beta-transfer-sign">
             <div className="beta-station-top">
@@ -1005,16 +1052,20 @@ export function BetaTripView({
               <div className="beta-connection-loading"><span /> Confirming the live connection…</div>
             ) : (
               <div className="beta-train-list">
-                {connectionRows.length > 0 ? connectionRows.slice(0, 5).map(({ train, wait }, index) => (
+                {connectionRows.length > 0 ? connectionRows.slice(0, 5).map(({ train, wait }, index) => {
+                  const selected = !!liveSelectedLeg2Train && sameTrain(train, liveSelectedLeg2Train)
+                  return (
                   <TrainRow
                     key={train._tripId ?? `${train.Line}-${train.DestinationName}-leg2-${index}`}
                     train={train}
-                    selected={false}
+                    selected={selected}
                     connection
                     connectionWait={wait}
-                    bestConnection={train === catchableTrain}
+                    bestConnection={train === bestConnection?.train}
+                    onClick={onSelectLeg2Train && !selected ? () => onSelectLeg2Train(train, index) : undefined}
                   />
-                )) : (
+                  )
+                }) : (
                   <div className="beta-no-trains">
                     {liveSelectedTrain ? 'No confirmed connection is available yet' : 'No connection is currently available'}
                   </div>
@@ -1023,11 +1074,11 @@ export function BetaTripView({
             )}
           </div>
           <div className="beta-follow-caption"><span /> Follow this block — {levelInstruction}, about {walkTime} min</div>
-        </Step>
+        </BetaStep>
       )}
 
       {!isDirect && leg2CarPosition && secondBoardingStep && finalLine && (
-        <Step number={secondBoardingStep} title={`On the ${LINE_NAMES[finalLine]} Line platform — stand here`}>
+        <BetaStep number={secondBoardingStep} title={`On the ${LINE_NAMES[finalLine]} Line platform — stand here`}>
           <BoardingSign
             line={finalLine}
             carPosition={leg2CarPosition}
@@ -1044,11 +1095,11 @@ export function BetaTripView({
               label: destinationExit.name,
             }}
           />
-        </Step>
+        </BetaStep>
       )}
 
       {overviewStep && (
-        <Step number={overviewStep} title="Your leg at a glance">
+        <BetaStep number={overviewStep} title={overviewTitle}>
           <div
             className="beta-sign beta-pylon"
             style={{ '--line-color': finalLine ? LINE_COLORS[finalLine].bg : '#fff' } as CSSProperties}
@@ -1089,11 +1140,11 @@ export function BetaTripView({
               })}
             </div>
           </div>
-        </Step>
+        </BetaStep>
       )}
 
       {exitStep && (
-        <Step number={exitStep} title={`At ${destination.name} — take this exit`}>
+        <BetaStep number={exitStep} title={`At ${destination.name} — take this exit`}>
           <div className="beta-sign beta-direction-sign beta-exit-sign">
             <span className="beta-exit-tag">
               <b>Exit</b>
@@ -1109,22 +1160,24 @@ export function BetaTripView({
             </span>
             <ArrowUp className="beta-direction-arrow" aria-hidden="true" />
           </div>
-        </Step>
+        </BetaStep>
       )}
 
       {destPlaceContext && destinationWalkStep && (
-        <Step number={destinationWalkStep} title={`Walk to ${destPlaceContext.place.name}${arrivalClock ? ` — arrive ${arrivalClock}` : ''}`}>
+        <BetaStep number={destinationWalkStep} title={`Walk to ${destPlaceContext.place.name}${arrivalClock ? ` — arrive ${arrivalClock}` : ''}`}>
           <WalkingWayfindingStep context={destPlaceContext} onSelectAlternative={onSelectDestWalkingAlt} />
-        </Step>
+        </BetaStep>
       )}
 
-      <div className="beta-data-note">
-        <TrainFront aria-hidden="true" />
-        Live and scheduled data from the same TransferHero planner as the classic interface.
-        {scheduledLabel
-          ? ` ${scheduledLabel}.`
-          : ` ${effectiveFirstWalk ? `Walk: ${effectiveFirstWalk} min · ` : ''}Platform wait: ${firstWait} min${!isDirect && hasKnownConnection ? ` · transfer wait: ${secondWait} min` : ''}.`}
-      </div>
+      {!embedded && (
+        <div className="beta-data-note">
+          <TrainFront aria-hidden="true" />
+          Live and scheduled data from the same TransferHero planner as the classic interface.
+          {scheduledLabel
+            ? ` ${scheduledLabel}.`
+            : ` ${effectiveFirstWalk ? `Walk: ${effectiveFirstWalk} min · ` : ''}Platform wait: ${firstWait} min${!isDirect && hasKnownConnection ? ` · transfer wait: ${secondWait} min` : ''}.`}
+        </div>
+      )}
     </div>
   )
 }

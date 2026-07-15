@@ -1,15 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Accessibility, ArrowLeft, Moon, Sparkles, Sun } from 'lucide-react'
+import { Accessibility, ArrowLeft, Bus, Moon, Sparkles, Sun, TrainFront } from 'lucide-react'
 import type { Line, PlaceContext, Station } from '@transferhero/shared'
 import {
-  BusTripList,
   Footer,
-  ModeToggle,
   SavedTripsList,
   TripSelector,
 } from './components'
 import { AlertsBanner } from './components/AlertsBanner'
+import { BetaBusTripList } from './components/BetaBusTripView'
 import { BetaTripView } from './components/BetaTripView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { OfflineBanner } from './components/OfflineBanner'
@@ -32,7 +31,7 @@ function BetaHeader({ accessible, onToggleAccessible }: {
   return (
     <header className="beta-header">
       <div className="beta-brand">
-        <span className="beta-m-logo" aria-hidden="true">M</span>
+        <span className="beta-brand-mark" aria-hidden="true">T</span>
         <div>
           <h1>TransferHero</h1>
           <p>wayfinding edition</p>
@@ -74,6 +73,47 @@ function BetaEmptyState() {
         <span className="beta-empty-arrow">↑</span>
       </div>
       <p>Live arrivals, transfer timing, best-car guidance, walking exits, and bus connections will appear here.</p>
+    </div>
+  )
+}
+
+function BetaModeToggle({
+  mode,
+  onModeChange,
+  busCount,
+  busOnlyLock,
+}: {
+  mode: 'metro' | 'metro-bus'
+  onModeChange: (mode: 'metro' | 'metro-bus') => void
+  busCount?: number
+  busOnlyLock: boolean
+}) {
+  return (
+    <div className="beta-plan-mode">
+      <span className="beta-plan-mode-label">Plan with</span>
+      <div className="beta-plan-mode-options" role="group" aria-label="Trip type">
+        <button
+          type="button"
+          className={mode === 'metro' ? 'is-active' : ''}
+          onClick={() => onModeChange('metro')}
+          disabled={busOnlyLock}
+          aria-pressed={mode === 'metro'}
+        >
+          <TrainFront aria-hidden="true" />
+          Metro only
+        </button>
+        <button
+          type="button"
+          className={mode === 'metro-bus' ? 'is-active is-bus' : 'is-bus'}
+          onClick={() => onModeChange('metro-bus')}
+          aria-pressed={mode === 'metro-bus'}
+        >
+          <span className="beta-plan-bus-tile"><Bus aria-hidden="true" /></span>
+          Metro + bus
+          {busCount != null && busCount > 0 && <span className="beta-plan-count">{busCount}</span>}
+        </button>
+      </div>
+      {busOnlyLock && <small>Bus required for this address</small>}
     </div>
   )
 }
@@ -342,7 +382,7 @@ function BetaContent() {
 
           {hasTrip && (
             <div className="beta-mode-row">
-              <ModeToggle
+              <BetaModeToggle
                 mode={tripMode}
                 onModeChange={setTripMode}
                 busCount={busTripsData?.trips.length}
@@ -354,7 +394,7 @@ function BetaContent() {
           <div className="beta-results">
             {hasTrip && tripData?.trip && tripMode === 'metro-bus' ? (
               <div className="beta-bus-results">
-                <BusTripList
+                <BetaBusTripList
                   trips={busTripsData?.trips ?? []}
                   isLoading={busTripsLoading}
                   stationNames={stationNameMap}
