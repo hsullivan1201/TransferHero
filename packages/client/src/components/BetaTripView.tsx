@@ -403,23 +403,6 @@ function LegPylon({
   )
 }
 
-function getTransferExitGroups(markers: ExitOption[] | undefined): Array<{ letters: string[]; text: string }> {
-  const grouped = new Map<string, string[]>()
-  const seen = new Set<number>()
-
-  for (const marker of markers ?? []) {
-    if (marker.exitLabel == null || seen.has(marker.exitLabel)) continue
-    if (/line|platform/i.test(marker.description ?? '')) continue
-    const letter = exitGroupLetter(marker.exitLabel)
-    if (!letter) continue
-    seen.add(marker.exitLabel)
-    const text = marker.description ?? marker.label
-    grouped.set(text, [...(grouped.get(text) ?? []), letter])
-  }
-
-  return [...grouped.entries()].slice(0, 2).map(([text, letters]) => ({ letters, text }))
-}
-
 export function BetaStep({ number, title, children, trailing }: {
   number: number
   title: string
@@ -964,7 +947,6 @@ export function BetaTripView({
         ...connectionRows.map(({ train }) => train.Line),
       ])]
   const levelInstruction = transfer?.levelInstruction ?? 'across the station'
-  const transferExitGroups = getTransferExitGroups(activeLeg1CarPosition?.platformMarkers)
   const finalLegStops = isDirect && finalLine
     ? leg1LineStops?.[finalLine] ?? leg1Stops
     : isDirect
@@ -1276,21 +1258,9 @@ export function BetaTripView({
               </div>
               {targetPlatformLines.length > 0 && <LineDiscs lines={targetPlatformLines} />}
             </div>
+            {/* street exits are omitted here on purpose: the rider is
+                transferring, and we have no bearing data to point at them */}
             <div className="beta-transfer-direction">
-              {/* no directional arrow on the exits: we don't have platform
-                  bearings, so implying "these are to your left" would be a lie */}
-              <span className="beta-transfer-exits">
-                <Accessibility className="beta-transfer-accessibility" aria-hidden="true" />
-                {transferExitGroups.map((group) => (
-                  <span className="beta-transfer-exit-group" key={`${group.text}-${group.letters.join('')}`}>
-                    <span className="beta-exit-tag is-small">
-                      <b>Exit</b>
-                      {group.letters.map((letter) => <span key={letter}>{letter}</span>)}
-                    </span>
-                    <small>{group.text}</small>
-                  </span>
-                ))}
-              </span>
               <span className="beta-transfer-target">
                 <span className="beta-follow-block">
                   {targetPlatformLines.length > 0 && <LineDiscs lines={targetPlatformLines} small />}

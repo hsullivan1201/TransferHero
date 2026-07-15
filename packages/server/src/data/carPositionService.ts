@@ -1,17 +1,8 @@
-/**
- * Car Position Service
- * 
- * Provides optimal car recommendations for DC Metro trips based on exit locations.
- * Uses data from DCMetroStationExits dataset.
- */
+/** Optimal DC Metro car recommendations based on DCMetroStationExits data. */
 
 import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
-
-// ============================================================================
-// Types
-// ============================================================================
 
 export interface Egress {
   x: number
@@ -91,10 +82,6 @@ export interface TransferWayfinding {
   levelInstruction: 'up one level' | 'down one level' | 'across the station'
 }
 
-// ============================================================================
-// Data Loading
-// ============================================================================
-
 interface StationData {
   stations: Record<string, Station>
   doorPositions: { car: number; positions: number[] }[]
@@ -103,10 +90,8 @@ interface StationData {
 
 let cachedData: StationData | null = null
 
-// Secondary indexes — built once at load time
 let wmataCodeIndex: Map<string, Station> | null = null
 let lowerNameIndex: Map<string, Station> | null = null
-// Pre-lowercased track destinations per platform
 let trackDestsLower: WeakMap<Platform, { track1: string[]; track2: string[] }> | null = null
 
 function loadStationData(): StationData {
@@ -119,7 +104,6 @@ function loadStationData(): StationData {
     cachedData = JSON.parse(content) as StationData
     console.log(`[CarPosition] Loaded ${Object.keys(cachedData.stations).length} stations`)
 
-    // Build secondary indexes for O(1) lookups in getStation()
     wmataCodeIndex = new Map()
     lowerNameIndex = new Map()
     trackDestsLower = new WeakMap()
@@ -127,7 +111,6 @@ function loadStationData(): StationData {
       if (station.wmataCode) wmataCodeIndex.set(station.wmataCode, station)
       lowerNameIndex.set(name.toLowerCase(), station)
       if (station.nameAlt) lowerNameIndex.set(station.nameAlt.toLowerCase(), station)
-      // Pre-lowercase track destinations for getTrackDirection()
       for (const platform of station.platforms) {
         trackDestsLower.set(platform, {
           track1: platform.track1Destinations.map(d => d.toLowerCase()),
@@ -139,7 +122,6 @@ function loadStationData(): StationData {
     return cachedData
   } catch (error) {
     console.error('[CarPosition] Failed to load stationExits.json:', error)
-    // Return empty data structure
     return {
       stations: {},
       doorPositions: [],
@@ -152,7 +134,7 @@ function getData(): StationData {
   return cachedData ?? loadStationData()
 }
 
-// Additional WMATA code mappings for multi-level stations
+// Physically distinct platform codes intentionally resolve to the shared station record.
 const MULTI_LEVEL_CODE_MAP: Record<string, string> = {
   'A01': 'Metro Center',      // Red line (upper)
   'C01': 'Metro Center',      // BL/OR/SV (lower)
@@ -164,18 +146,13 @@ const MULTI_LEVEL_CODE_MAP: Record<string, string> = {
   'E06': 'Fort Totten',       // GR (lower)
 }
 
-/**
- * Get station by name or WMATA code
- */
+/** Get a station by name or WMATA code. */
 export function getStation(nameOrCode: string): Station | null {
   const data = getData()
-
-  // Try direct name lookup first
   if (data.stations[nameOrCode]) {
     return data.stations[nameOrCode]
   }
 
-  // Check multi-level code map
   if (MULTI_LEVEL_CODE_MAP[nameOrCode]) {
     const stationName = MULTI_LEVEL_CODE_MAP[nameOrCode]
     if (data.stations[stationName]) {
@@ -183,20 +160,16 @@ export function getStation(nameOrCode: string): Station | null {
     }
   }
 
-  // Try WMATA code via index (O(1) instead of linear scan)
   const byWmata = wmataCodeIndex?.get(nameOrCode)
   if (byWmata) return byWmata
 
-  // Try case-insensitive name via index (O(1) instead of linear scan)
   const byLower = lowerNameIndex?.get(nameOrCode.toLowerCase())
   if (byLower) return byLower
 
   return null
 }
 
-/**
- * Find the platform at a station that serves a given line
- */
+/** Find the platform at a station that serves a given line. */
 export function findPlatformForLine(station: Station, line: string): Platform | null {
   for (const platform of station.platforms) {
     if (platform.lines.includes(line)) {
@@ -226,14 +199,11 @@ export function getTransferWayfinding(
   }
 }
 
-/**
- * Determine which track a train is on based on its destination
- */
+/** Determine a train's track from its destination. */
 export function getTrackDirection(platform: Platform, destination: string): TrackDirection {
   const destLower = destination.toLowerCase()
   const cached = trackDestsLower?.get(platform)
 
-  // Use pre-lowercased arrays when available (avoids repeated toLowerCase per element)
   const t1 = cached?.track1 ?? platform.track1Destinations
   const t2 = cached?.track2 ?? platform.track2Destinations
 
@@ -254,13 +224,7 @@ export function getTrackDirection(platform: Platform, destination: string): Trac
   return 'track1'
 }
 
-// ============================================================================
-// Car Calculation
-// ============================================================================
-
-/**
- * Convert x-position (light pair 1-72) to car number (1-8)
- */
+/** Convert x-position (light pair 1-72) to car number (1-8). */
 export function xToCar(x: number): number {
   const data = getData()
   for (let i = 0; i < data.carBoundaries.length; i++) {
@@ -271,9 +235,7 @@ export function xToCar(x: number): number {
   return 8
 }
 
-/**
- * Find the closest door position to a given x coordinate
- */
+/** Find the closest door position to a given x coordinate. */
 export function findClosestDoor(x: number): { car: number; door: 1 | 2 | 3; doorX: number; distance: number } {
   const data = getData()
   let closest: { car: number; door: 1 | 2 | 3; doorX: number; distance: number } = {
@@ -300,11 +262,7 @@ export function findClosestDoor(x: number): { car: number; door: 1 | 2 | 3; door
   return closest
 }
 
-/**
- * Return the nearest door in the rider's front-to-back train orientation.
- * Platform coordinates are stored in track-1 orientation, so track 2 mirrors
- * both the car order and the within-car door order.
- */
+/** Return the nearest door in train orientation, mirroring cars and doors on track 2. */
 export function getDoorRecommendation(x: number, track: TrackDirection): DoorRecommendation {
   const closest = findClosestDoor(x)
   return {
@@ -316,19 +274,14 @@ export function getDoorRecommendation(x: number, track: TrackDirection): DoorRec
   }
 }
 
-/**
- * Get human-readable position in train
- */
+/** Get a human-readable position in the train. */
 function getPositionDescription(car: number): 'front' | 'middle' | 'back' {
   if (car <= 2) return 'front'
   if (car >= 7) return 'back'
   return 'middle'
 }
 
-/**
- * Adjust car number for track direction
- * Track 2 trains are oriented opposite to Track 1
- */
+/** Adjust the car number because track 2 trains face the opposite direction. */
 export function adjustCarForTrack(car: number, track: TrackDirection): number {
   if (track === 'track2') {
     return 9 - car // Flip: 1→8, 2→7, 3→6, etc.
@@ -341,9 +294,36 @@ export function toTrainXPosition(x: number, track: TrackDirection): number {
   return track === 'track2' ? 72 - x : x
 }
 
-/**
- * Build a leg1 transfer legend, flagging elevator transfers in accessible mode.
- */
+function buildFallbackCarPosition(): CarPosition {
+  return {
+    boardCar: 4,
+    exitCar: 4,
+    boardPosition: 'middle',
+    legend: 'Board middle of train',
+    confidence: 'low',
+  }
+}
+
+function resolveCarDetails(
+  x: number,
+  track: TrackDirection,
+  exitType?: string,
+  exitDescription?: string,
+): { car: number; details: NonNullable<CarPosition['details']> } {
+  const doorRecommendation = getDoorRecommendation(x, track)
+  return {
+    car: doorRecommendation.car,
+    details: {
+      exitType,
+      exitDescription,
+      xPosition: x,
+      trainXPosition: toTrainXPosition(x, track),
+      doorRecommendation,
+    },
+  }
+}
+
+/** Build a leg-1 transfer legend, flagging elevator transfers. */
 function buildTransferLegend(car: number, outgoingLine: string, exitType?: Egress['type']): string {
   if (exitType === 'elevator') {
     return `Board car ${car} for elevator transfer to ${outgoingLine} line`
@@ -358,56 +338,40 @@ function inferEgressType(description: string): Egress['type'] {
   return 'escalator'
 }
 
-/**
- * Get egresses for a platform based on track direction
- */
+/** Get a platform's egresses for the supplied track direction. */
 function getEgressesForTrack(platform: Platform, track: TrackDirection): Egress[] {
   if (platform.platformType === 'island' || platform.platformType.startsWith('terminus')) {
     return platform.egresses.shared
   }
   
-  // Side or gap island platforms have separate egresses per track
   const trackEgresses = track === 'track1' ? platform.egresses.track1 : platform.egresses.track2
   return trackEgresses.length > 0 ? trackEgresses : platform.egresses.shared
 }
 
-/**
- * Filter egresses based on accessibility mode
- * When accessible=false, filter out elevators
- * When accessible=true, prioritize elevators
- */
+/** Prefer elevators in accessible mode; otherwise omit them. */
 function filterEgressesByAccessibility(egresses: Egress[], accessible: boolean): Egress[] {
   if (accessible) {
-    // Accessible mode: prioritize elevators, but include all if no elevators
     const elevators = egresses.filter(e => e.type === 'elevator')
     return elevators.length > 0 ? elevators : egresses
   }
-  // Non-accessible mode: filter out elevators
   return egresses.filter(e => e.type !== 'elevator')
 }
 
-/**
- * Find the best egress from a list
- * Prioritizes: preferred > escalator > stairs > exit > elevator
- * @param accessible - When true, prioritize elevators; when false, filter them out
- */
+/** Find the best egress, honoring preferred status, type preference, and accessibility. */
 function findBestEgress(egresses: Egress[], accessible: boolean = false, preferType?: Egress['type']): Egress | null {
   const filtered = filterEgressesByAccessibility(egresses, accessible)
   if (filtered.length === 0) return null
 
-  // First check for preferred egress
   const preferred = filtered.find(e => e.preferred)
   if (preferred && (!preferType || preferred.type === preferType)) {
     return preferred
   }
 
-  // If specific type requested, try to find it
   if (preferType) {
     const ofType = filtered.find(e => e.type === preferType)
     if (ofType) return ofType
   }
 
-  // Priority order for speed: escalator > stairs > exit > elevator
   const priority: Egress['type'][] = accessible 
     ? ['elevator', 'escalator', 'stairs', 'exit']
     : ['escalator', 'stairs', 'exit', 'elevator']
@@ -419,14 +383,10 @@ function findBestEgress(egresses: Egress[], accessible: boolean = false, preferT
   return filtered[0]
 }
 
-/**
- * Build a label for an exit from type and description
- * Format: "{Abbrev} {street}" (e.g., "Stairs M St", "Esc. Florida Ave")
- */
+/** Build a compact "{type} {street}" exit label. */
 function buildExitLabel(egress: Egress): string {
   let desc = egress.description || ''
 
-  // Remove redundant suffixes that duplicate the exit type
   desc = desc
     .replace(/,?\s*Elevator to Platform( Only)?/gi, '')
     .replace(/,?\s*Elevator to Platform & Street/gi, '')
@@ -434,10 +394,8 @@ function buildExitLabel(egress: Egress): string {
     .replace(/,?\s*Stairs/gi, '')
     .trim()
 
-  // Remove trailing commas after cleanup
   desc = desc.replace(/,\s*$/, '').trim()
 
-  // Short type abbreviations for compact labels
   const typeAbbrev: Record<string, string> = {
     escalator: 'Esc.',
     elevator: 'Elev.',
@@ -450,7 +408,6 @@ function buildExitLabel(egress: Egress): string {
     return `${typeLabel} ${desc}`
   }
 
-  // Fallback: full type name when no description
   return egress.type.charAt(0).toUpperCase() + egress.type.slice(1)
 }
 
@@ -594,43 +551,19 @@ export function getDirectTripCarPosition(
   accessible: boolean = false
 ): CarPosition {
   const station = getStation(destinationCode)
-  if (!station) {
-    return {
-      boardCar: 4,
-      exitCar: 4,
-      boardPosition: 'middle',
-      legend: 'Board middle of train',
-      confidence: 'low',
-    }
-  }
+  if (!station) return buildFallbackCarPosition()
 
   const platform = findPlatformForLine(station, line)
-  if (!platform) {
-    return {
-      boardCar: 4,
-      exitCar: 4,
-      boardPosition: 'middle',
-      legend: 'Board middle of train',
-      confidence: 'low',
-    }
-  }
+  if (!platform) return buildFallbackCarPosition()
 
   const track = getTrackDirection(platform, trainDestination)
   const egresses = getEgressesForTrack(platform, track)
   const bestEgress = findBestEgress(egresses, accessible)
 
-  if (!bestEgress) {
-    return {
-      boardCar: 4,
-      exitCar: 4,
-      boardPosition: 'middle',
-      legend: 'Board middle of train',
-      confidence: 'low',
-    }
-  }
+  if (!bestEgress) return buildFallbackCarPosition()
 
-  const doorRecommendation = getDoorRecommendation(bestEgress.x, track)
-  const adjustedCar = doorRecommendation.car
+  const resolved = resolveCarDetails(bestEgress.x, track, bestEgress.type, bestEgress.description)
+  const adjustedCar = resolved.car
 
   // Get all valid exits for destinations
   const allExits = getAllValidExits(egresses, track, accessible)
@@ -646,13 +579,7 @@ export function getDirectTripCarPosition(
     exits,
     allExits,
     platformMarkers,
-    details: {
-      exitType: bestEgress.type,
-      exitDescription: bestEgress.description,
-      xPosition: bestEgress.x,
-      trainXPosition: toTrainXPosition(bestEgress.x, track),
-      doorRecommendation,
-    },
+    details: resolved.details,
   }
 }
 
@@ -679,14 +606,7 @@ export function getTransferCarPosition(
   const transferStation = getStation(transferCode)
   const destStation = getStation(destinationCode)
 
-  // Default fallback
-  const fallback: CarPosition = {
-    boardCar: 4,
-    exitCar: 4,
-    boardPosition: 'middle',
-    legend: 'Board middle of train',
-    confidence: 'low',
-  }
+  const fallback = buildFallbackCarPosition()
 
   if (!transferStation) {
     return { leg1: fallback, leg2: fallback }
@@ -721,28 +641,19 @@ export function getTransferCarPosition(
                         || transferStation.transfers?.[fallbackKey]
 
   if (accessibleTransferEgress) {
-    const doorRecommendation = getDoorRecommendation(accessibleTransferEgress.x, inTrack)
-    leg1Car = doorRecommendation.car
+    const resolved = resolveCarDetails(
+      accessibleTransferEgress.x, inTrack, accessibleTransferEgress.type, accessibleTransferEgress.description,
+    )
+    leg1Car = resolved.car
     leg1Legend = buildTransferLegend(leg1Car, outgoingLine, accessibleTransferEgress.type)
-    leg1Details = {
-      exitType: accessibleTransferEgress.type,
-      exitDescription: accessibleTransferEgress.description,
-      xPosition: accessibleTransferEgress.x,
-      trainXPosition: toTrainXPosition(accessibleTransferEgress.x, inTrack),
-      doorRecommendation,
-    }
+    leg1Details = resolved.details
   } else if (explicitTransfer) {
-    // Use the explicit transfer mapping
-    const doorRecommendation = getDoorRecommendation(explicitTransfer.x, inTrack)
-    leg1Car = doorRecommendation.car
+    const resolved = resolveCarDetails(
+      explicitTransfer.x, inTrack, inferEgressType(explicitTransfer.description), explicitTransfer.description,
+    )
+    leg1Car = resolved.car
     leg1Legend = `Board car ${leg1Car} for ${explicitTransfer.description}`
-    leg1Details = {
-      exitType: inferEgressType(explicitTransfer.description),
-      exitDescription: explicitTransfer.description,
-      xPosition: explicitTransfer.x,
-      trainXPosition: toTrainXPosition(explicitTransfer.x, inTrack),
-      doorRecommendation,
-    }
+    leg1Details = resolved.details
   } else if (inPlatform === outPlatform) {
     // Same platform - cross-platform transfer, just stay put
     leg1Car = 4
@@ -753,16 +664,10 @@ export function getTransferCarPosition(
     // Pass finalDestination for direction-aware matching
     const transferEgress = findTransferEgress(inPlatform, inTrack, [outgoingLine], finalDestination, accessible)
     if (transferEgress) {
-      const doorRecommendation = getDoorRecommendation(transferEgress.x, inTrack)
-      leg1Car = doorRecommendation.car
+      const resolved = resolveCarDetails(transferEgress.x, inTrack, transferEgress.type, transferEgress.description)
+      leg1Car = resolved.car
       leg1Legend = buildTransferLegend(leg1Car, outgoingLine, transferEgress.type)
-      leg1Details = {
-        exitType: transferEgress.type,
-        exitDescription: transferEgress.description,
-        xPosition: transferEgress.x,
-        trainXPosition: toTrainXPosition(transferEgress.x, inTrack),
-        doorRecommendation,
-      }
+      leg1Details = resolved.details
     } else {
       leg1Car = 4
       leg1Legend = `Board middle of train for transfer at ${transferStation.name}`
@@ -787,17 +692,11 @@ export function getTransferCarPosition(
       leg2PlatformMarkers = getPlatformMarkers(destEgresses, destTrack)
 
       if (destEgress) {
-        const doorRecommendation = getDoorRecommendation(destEgress.x, destTrack)
-        leg2Car = doorRecommendation.car
+        const resolved = resolveCarDetails(destEgress.x, destTrack, destEgress.type, destEgress.description)
+        leg2Car = resolved.car
         leg2Legend = `Exit car ${leg2Car} at ${destStation.name}`
         leg2Confidence = 'high'
-        leg2Details = {
-          exitType: destEgress.type,
-          exitDescription: destEgress.description,
-          xPosition: destEgress.x,
-          trainXPosition: toTrainXPosition(destEgress.x, destTrack),
-          doorRecommendation,
-        }
+        leg2Details = resolved.details
         // Get all valid exits for leg2 destination (preferred status preserved from source)
         leg2Exits = getAllValidExits(destEgresses, destTrack, accessible)
       }

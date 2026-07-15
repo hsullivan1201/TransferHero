@@ -52,6 +52,17 @@ const defaultDeps: ScheduledTripDeps = {
   now: () => Date.now()
 }
 
+function validateDepartureOffset(offsetMin: number): void {
+  if (offsetMin < -5) {
+    throw new ValidationError('Departure time is in the past')
+  }
+  if (offsetMin > MAX_FUTURE_HOURS * 60) {
+    throw new ValidationError(
+      `Scheduling is only available for the current service day (up to ${MAX_FUTURE_HOURS} hours ahead)`
+    )
+  }
+}
+
 /** map a GTFS departure to the Train shape the client already renders */
 function toScheduledTrain(
   dep: ScheduledMetroTrain,
@@ -86,14 +97,7 @@ export function planScheduledTrip(
   const nowMs = deps.now()
   const offsetMin = Math.round((departAtMs - nowMs) / 60_000)
 
-  if (offsetMin < -5) {
-    throw new ValidationError('Departure time is in the past')
-  }
-  if (offsetMin > MAX_FUTURE_HOURS * 60) {
-    throw new ValidationError(
-      `Scheduling is only available for the current service day (up to ${MAX_FUTURE_HOURS} hours ahead)`
-    )
-  }
+  validateDepartureOffset(offsetMin)
 
   const fromStation = findStationByCode(from)
   const toStation = findStationByCode(to)
