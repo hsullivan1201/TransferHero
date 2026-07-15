@@ -308,12 +308,13 @@ function getPositionForEightCar(car: number): 'front' | 'middle' | 'back' {
 }
 
 function LineDisc({ line, small = false }: { line: Line; small?: boolean }) {
-  // The 2026 rail-disc system uses one medium-weight BLACK letter on every
-  // color field — no more alternating type color between lines.
+  // 2026 rail discs: dark fields (R, G, B) carry white letters; light fields
+  // (Y, O, S) carry black — per-disc contrast, fixed per line systemwide.
+  const darkInk = line === 'YL' || line === 'OR' || line === 'SV'
   return (
     <span
       className={`beta-line-disc ${small ? 'beta-line-disc--small' : ''}`}
-      style={{ backgroundColor: LINE_COLORS[line].bg, color: '#17110d' }}
+      style={{ backgroundColor: LINE_COLORS[line].bg, color: darkInk ? '#17110d' : '#fff' }}
       title={`${LINE_NAMES[line]} Line`}
       aria-label={`${LINE_NAMES[line]} Line`}
     >
