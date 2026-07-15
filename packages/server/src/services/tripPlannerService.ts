@@ -5,12 +5,13 @@ import { getStaticTrips } from '../data/staticTrips.js'
 import { getScheduledTrains } from '../data/scheduleData.js'
 import {
   getDirectTripCarPosition,
-  getTransferCarPosition
+  getTransferCarPosition,
+  getTransferWayfinding
 } from '../data/carPositionService.js'
 import { LINE_STATIONS } from '../data/lineConfig.js'
 import { getPlatformForLine, normalizePlatformCode } from '../data/platformCodes.js'
 import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
-import { getInterlinesForLeg1, getInterlinesForLeg2, getTerminusString } from './lineHelpers.js'
+import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
 import { planScheduledTrip } from './scheduledTripPlanner.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { mergeTrainData, sortTrains } from './trainMerger.js'
@@ -213,6 +214,14 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       const directCarPosition = directLines.length === 1
         ? lineCarPositions[directLines[0]] ?? null
         : null
+      const lineStops = directLines.reduce<Partial<Record<Line, ReturnType<typeof getStopsForLeg>>>>((stops, line) => {
+        stops[line] = getStopsForLeg(line, from, to)
+        return stops
+      }, {})
+      const lineStopsBeyond = directLines.reduce<Partial<Record<Line, ReturnType<typeof getStopsBeyondDestination>>>>((stops, line) => {
+        stops[line] = getStopsBeyondDestination(line, from, to)
+        return stops
+      }, {})
 
       return {
         trip: {
@@ -224,7 +233,9 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
           leg1: {
             trains: sortedTrains,
             carPosition: directCarPosition,
-            ...(directLines.length > 1 ? { lineCarPositions } : {})
+            stops: directLines.length === 1 ? lineStops[directLines[0]] ?? [] : undefined,
+            stopsBeyond: directLines.length === 1 ? lineStopsBeyond[directLines[0]] ?? [] : undefined,
+            ...(directLines.length > 1 ? { lineCarPositions, lineStops, lineStopsBeyond } : {})
           }
         },
         meta: {
@@ -405,6 +416,11 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         getTerminusString(terminusSecond),
         accessible
       )
+      const transferWayfinding = getTransferWayfinding(
+        currentTransfer.fromPlatform,
+        currentTransfer.fromLine!,
+        currentTransfer.toLine!
+      )
 
       const leg1TravelTime = currentTransfer.leg1Time || calculateRouteTravelTime(
         from,
@@ -432,19 +448,24 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
             leg1Time: leg1TravelTime,
             leg2Time: leg2TravelTime,
             alternatives: currentTransfer.alternatives || [],
-            defaultTransferName: optDefaultName
+            defaultTransferName: optDefaultName,
+            toPlatformLines: transferWayfinding.toPlatformLines,
+            levelInstruction: transferWayfinding.levelInstruction
           },
           leg1: {
             trains: sortedTrains,
             carPosition: carPositions.leg1,
             terminus: terminusFirst,
-            travelTime: leg1TravelTime
+            travelTime: leg1TravelTime,
+            stops: getStopsForLeg(currentTransfer.fromLine!, from, currentTransfer.fromPlatform)
           },
           leg2: {
             trains: leg2SortedTrains,
             terminus: terminusSecond,
             travelTime: leg2TravelTime,
-            carPosition: carPositions.leg2
+            carPosition: carPositions.leg2,
+            stops: getStopsForLeg(currentTransfer.toLine!, currentTransfer.toPlatform, to),
+            stopsBeyond: getStopsBeyondDestination(currentTransfer.toLine!, currentTransfer.toPlatform, to)
           }
         },
         meta: {

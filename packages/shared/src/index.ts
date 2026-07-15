@@ -102,6 +102,10 @@ export interface TransferResult extends Transfer {
   line?: Line
   // Added this missing property
   defaultTransferName?: string
+  /** Lines shown together on the connecting platform's wayfinding sign */
+  toPlatformLines?: Line[]
+  /** Physical movement between the arriving and connecting platforms */
+  levelInstruction?: 'up one level' | 'down one level' | 'across the station'
 }
 
 export interface TransferAlternative extends Transfer {
@@ -114,6 +118,17 @@ export interface TransferAlternative extends Transfer {
 /**
  * Individual exit option at a station
  */
+export interface DoorRecommendation {
+  /** Car and door are oriented from the front of the arriving train */
+  car: number
+  door: 1 | 2 | 3
+  referenceCarCount: 8
+  /** Distance from the platform target to the chosen door, in source data units */
+  distance: number
+  /** Original platform coordinate used for the recommendation */
+  sourceX: number
+}
+
 export interface ExitOption {
   /** Which car to exit from (1-8) */
   car: number
@@ -127,6 +142,10 @@ export interface ExitOption {
   description?: string
   /** Platform x-position for reference */
   xPosition?: number
+  /** Exact x-position in the arriving train's front-to-back orientation (0-72) */
+  trainXPosition?: number
+  /** Exact, train-oriented door nearest the platform target */
+  doorRecommendation?: DoorRecommendation
   /** Whether this is the preferred/recommended exit */
   preferred?: boolean
   /** Exit group identifier — egresses with the same exitLabel lead to the same physical exit area */
@@ -150,11 +169,19 @@ export interface CarPosition {
   confidence?: 'high' | 'medium' | 'low'
   /** All valid exits at destination (for direct trips and leg2 only) */
   exits?: ExitOption[]
+  /** Complete exit set used for exact destination matching */
+  allExits?: ExitOption[]
+  /** Unfiltered physical egress markers for the platform diagram */
+  platformMarkers?: ExitOption[]
   /** Additional details about the primary exit */
   details?: {
     exitType?: 'escalator' | 'elevator' | 'stairs' | 'exit'
     exitDescription?: string
     xPosition?: number
+    /** Exact platform target in the arriving train's front-to-back orientation (0-72) */
+    trainXPosition?: number
+    /** Exact, train-oriented door nearest the platform target */
+    doorRecommendation?: DoorRecommendation
   }
 }
 

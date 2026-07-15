@@ -13,10 +13,16 @@ export interface TripResponse {
       trains: Train[]
       carPosition: CarPosition | null
       lineCarPositions?: Partial<Record<Line, CarPosition>>
+      stops?: Station[]
+      stopsBeyond?: Station[]
+      lineStops?: Partial<Record<Line, Station[]>>
+      lineStopsBeyond?: Partial<Record<Line, Station[]>>
     }
     leg2?: {
       trains: CatchableTrain[]
       carPosition: CarPosition | null
+      stops?: Station[]
+      stopsBeyond?: Station[]
     }
   }
   meta: {
@@ -35,6 +41,8 @@ export interface Leg2Response {
   trains: CatchableTrain[]
   arrivalAtTransfer: number
   arrivalTime: string
+  carPosition?: CarPosition
+  exitCarPosition?: CarPosition
   meta?: {
     fetchedAt: string
     sources?: string[]

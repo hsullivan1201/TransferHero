@@ -3,10 +3,11 @@ import { getDisplayName } from '@transferhero/shared'
 import { findStationByCode } from '../data/stations.js'
 import {
   getDirectTripCarPosition,
-  getTransferCarPosition
+  getTransferCarPosition,
+  getTransferWayfinding
 } from '../data/carPositionService.js'
 import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
-import { getInterlinesForLeg1, getInterlinesForLeg2, getTerminusString } from './lineHelpers.js'
+import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
 import { getMetroDepartures, type ScheduledMetroTrain } from './metroScheduleIndex.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from './travelTime.js'
@@ -121,6 +122,14 @@ export function planScheduledTrip(
       positions[line] = getDirectTripCarPosition(to, line, getTerminusString(getTerminus(line, from, to)), accessible)
       return positions
     }, {})
+    const lineStops = directLines.reduce<Partial<Record<Line, ReturnType<typeof getStopsForLeg>>>>((stops, line) => {
+      stops[line] = getStopsForLeg(line, from, to)
+      return stops
+    }, {})
+    const lineStopsBeyond = directLines.reduce<Partial<Record<Line, ReturnType<typeof getStopsBeyondDestination>>>>((stops, line) => {
+      stops[line] = getStopsBeyondDestination(line, from, to)
+      return stops
+    }, {})
 
     return {
       trip: {
@@ -132,7 +141,9 @@ export function planScheduledTrip(
         leg1: {
           trains,
           carPosition: directLines.length === 1 ? lineCarPositions[directLines[0]] ?? null : null,
-          ...(directLines.length > 1 ? { lineCarPositions } : {})
+          stops: directLines.length === 1 ? lineStops[directLines[0]] ?? [] : undefined,
+          stopsBeyond: directLines.length === 1 ? lineStopsBeyond[directLines[0]] ?? [] : undefined,
+          ...(directLines.length > 1 ? { lineCarPositions, lineStops, lineStopsBeyond } : {})
         }
       },
       meta
@@ -205,6 +216,11 @@ export function planScheduledTrip(
     getTerminusString(terminusSecond),
     accessible
   )
+  const transferWayfinding = getTransferWayfinding(
+    transfer.fromPlatform,
+    transfer.fromLine!,
+    transfer.toLine!
+  )
 
   return {
     trip: {
@@ -221,19 +237,24 @@ export function planScheduledTrip(
         leg1Time: leg1TravelTime,
         leg2Time: leg2TravelTime,
         alternatives: transfer.alternatives || [],
-        defaultTransferName
+        defaultTransferName,
+        toPlatformLines: transferWayfinding.toPlatformLines,
+        levelInstruction: transferWayfinding.levelInstruction
       },
       leg1: {
         trains: leg1Trains,
         carPosition: carPositions.leg1,
         terminus: terminusFirst,
-        travelTime: leg1TravelTime
+        travelTime: leg1TravelTime,
+        stops: getStopsForLeg(transfer.fromLine!, from, transfer.fromPlatform)
       },
       leg2: {
         trains: leg2Trains,
         terminus: terminusSecond,
         travelTime: leg2TravelTime,
-        carPosition: carPositions.leg2
+        carPosition: carPositions.leg2,
+        stops: getStopsForLeg(transfer.toLine!, transfer.toPlatform, to),
+        stopsBeyond: getStopsBeyondDestination(transfer.toLine!, transfer.toPlatform, to)
       }
     },
     meta

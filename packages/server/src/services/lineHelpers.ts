@@ -1,6 +1,56 @@
-import type { Line } from '@transferhero/shared'
+import type { Line, Station } from '@transferhero/shared'
 import { LINE_STATIONS } from '../data/lineConfig.js'
 import { PLATFORM_CODES, normalizePlatformCode } from '../data/platformCodes.js'
+import { findStationByCode } from '../data/stations.js'
+
+/** Return every real station on a leg in travel order, including both endpoints. */
+export function getStopsForLeg(line: Line, fromCode: string, toCode: string): Station[] {
+  const stationsOnLine = LINE_STATIONS[line]
+  if (!stationsOnLine) return []
+
+  const from = normalizePlatformCode(fromCode, stationsOnLine)
+  const to = normalizePlatformCode(toCode, stationsOnLine)
+  const fromIndex = stationsOnLine.indexOf(from)
+  const toIndex = stationsOnLine.indexOf(to)
+  if (fromIndex < 0 || toIndex < 0) return []
+
+  const step = toIndex >= fromIndex ? 1 : -1
+  const stops: Station[] = []
+  for (let index = fromIndex; index !== toIndex + step; index += step) {
+    const station = findStationByCode(stationsOnLine[index])
+    if (station) stops.push(station)
+  }
+  return stops
+}
+
+/** Return up to `limit` real stations beyond the destination in travel order. */
+export function getStopsBeyondDestination(
+  line: Line,
+  fromCode: string,
+  toCode: string,
+  limit: number = 3
+): Station[] {
+  const stationsOnLine = LINE_STATIONS[line]
+  if (!stationsOnLine || limit <= 0) return []
+
+  const from = normalizePlatformCode(fromCode, stationsOnLine)
+  const to = normalizePlatformCode(toCode, stationsOnLine)
+  const fromIndex = stationsOnLine.indexOf(from)
+  const toIndex = stationsOnLine.indexOf(to)
+  if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return []
+
+  const step = toIndex > fromIndex ? 1 : -1
+  const stops: Station[] = []
+  for (
+    let index = toIndex + step;
+    index >= 0 && index < stationsOnLine.length && stops.length < limit;
+    index += step
+  ) {
+    const station = findStationByCode(stationsOnLine[index])
+    if (station) stops.push(station)
+  }
+  return stops
+}
 
 /**
  * get all lines that serve the origin and can reach the transfer platform.

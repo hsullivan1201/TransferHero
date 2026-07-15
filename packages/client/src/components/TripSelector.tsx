@@ -68,6 +68,7 @@ interface TripSelectorProps {
   checkTripSaved?: (from: SmartSelection | null, to: SmartSelection | null) => boolean
   loadTrip?: SavedTrip | null
   onTripLoaded?: () => void
+  variant?: 'classic' | 'wayfinding'
 }
 
 export function TripSelector({
@@ -85,6 +86,7 @@ export function TripSelector({
   checkTripSaved,
   loadTrip,
   onTripLoaded,
+  variant = 'classic',
 }: TripSelectorProps) {
   const [fromSelection, setFromSelection] = useState<SmartSelection | null>(null)
   const [toSelection, setToSelection] = useState<SmartSelection | null>(null)
@@ -235,7 +237,10 @@ export function TripSelector({
   const destPlaceContext = activeDestPlaceContext ?? localDestPlaceContext
 
   return (
-    <div className="bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg p-4 shadow-sm">
+    <div
+      className={`bg-[var(--card-bg)] border border-[var(--border-color)] rounded-lg p-4 shadow-sm ${variant === 'wayfinding' ? 'wayfinding-selector' : ''}`}
+      data-variant={variant}
+    >
       {/* All inputs in one row on desktop */}
       <div className="flex flex-col lg:flex-row gap-3 lg:items-end">
         {/* From */}
