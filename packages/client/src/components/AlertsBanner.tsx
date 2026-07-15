@@ -53,7 +53,7 @@ export function AlertsBanner({ alerts, tripLines, stationCodes, accessible = fal
     : 'border-amber-300 bg-amber-50 text-amber-900 dark:border-amber-700 dark:bg-amber-950 dark:text-amber-200'
 
   return (
-    <div role="alert" className={`mt-4 rounded-lg border ${tone}`} data-testid="alerts-banner">
+    <div role="alert" className={`mt-4 rounded-lg border ${tone}`} data-testid="alerts-banner" data-tone={severe ? 'severe' : 'info'}>
       <button
         type="button"
         onClick={() => setExpanded(e => !e)}

@@ -17,12 +17,16 @@ export interface TripResponse {
       stopsBeyond?: Station[]
       lineStops?: Partial<Record<Line, Station[]>>
       lineStopsBeyond?: Partial<Record<Line, Station[]>>
+      /** canonical per-line terminus names for signage (not short-turn headsigns) */
+      directionLabels?: Partial<Record<Line, string>>
     }
     leg2?: {
       trains: CatchableTrain[]
       carPosition: CarPosition | null
       stops?: Station[]
       stopsBeyond?: Station[]
+      /** canonical per-line terminus names for signage (not short-turn headsigns) */
+      directionLabels?: Partial<Record<Line, string>>
     }
   }
   meta: {

@@ -4,12 +4,16 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
+  CalendarClock,
   Check,
   ChevronDown,
   ChevronUp,
+  Clock3,
   ExternalLink,
   Footprints,
   RefreshCw,
+  Rss,
+  Satellite,
   TrainFront,
 } from 'lucide-react'
 import type {
@@ -74,6 +78,9 @@ interface BetaTripViewProps {
   leg1LineStopsBeyond?: Partial<Record<Line, Station[]>>
   leg2Stops: Station[]
   leg2StopsBeyond: Station[]
+  /** canonical per-line termini for signage — falls back to headsigns when absent */
+  leg1DirectionLabels?: Partial<Record<Line, string>>
+  leg2DirectionLabels?: Partial<Record<Line, string>>
   leg1Time: number
   leg2Time: number
   walkTime: number
@@ -85,6 +92,8 @@ interface BetaTripViewProps {
   isRefreshing: boolean
   fetchedAt?: string
   scheduledLabel?: string
+  /** epoch ms of the planned departure for schedule-only trips; anchors durations */
+  plannedForMs?: number | null
   isLoadingLeg2: boolean
   isDirect: boolean
   showDeparted: boolean
@@ -190,7 +199,7 @@ interface BoardingMarker {
   type: EgressType
   label: string
   primary: boolean
-  row: 0 | 1
+  row: 0 | 1 | 2
   labelXPosition: number
 }
 
@@ -231,32 +240,56 @@ function buildBoardingMarkers(
     primary: true,
   }]
   const seenExitGroups = new Set<number>()
+  const seenPositions = new Set<string>()
 
+  // every distinct egress goes on the strip — riders should see all their options
   for (const marker of carPosition.platformMarkers ?? []) {
-    if (marker.exitLabel == null || seenExitGroups.has(marker.exitLabel)) continue
     if (/line|platform/i.test(marker.description ?? '')) continue
     if (!Number.isFinite(marker.trainXPosition)) continue
-    if (Math.abs(marker.trainXPosition! - primary.trainXPosition!) < 9) continue
+    // skip only what is effectively the primary's own egress
+    if (Math.abs(marker.trainXPosition! - primary.trainXPosition!) < 3) continue
 
-    seenExitGroups.add(marker.exitLabel)
+    if (marker.exitLabel != null) {
+      if (seenExitGroups.has(marker.exitLabel)) continue
+      seenExitGroups.add(marker.exitLabel)
+    } else {
+      const positionKey = `${Math.round(marker.trainXPosition! / 3)}:${marker.type}`
+      if (seenPositions.has(positionKey)) continue
+      seenPositions.add(positionKey)
+    }
+
     const letter = exitGroupLetter(marker.exitLabel)
     markers.push({
       trainXPosition: marker.trainXPosition!,
       type: marker.type,
-      label: marker.description ?? (letter ? `Exit ${letter}` : marker.label),
+      label: marker.description ?? marker.label ?? (letter ? `Exit ${letter}` : marker.type),
       primary: false,
     })
-    if (markers.length >= 3) break
   }
 
   const sorted = [...markers].sort((a, b) => a.trainXPosition - b.trainXPosition)
-  const rowEnds = [-Infinity, -Infinity]
+
+  // nudge markers that sit on top of each other so bubbles stay legible —
+  // 6 units clears the (responsively shrunk) bubbles down to phone widths
+  const MIN_MARKER_GAP = 6
+  for (let index = 1; index < sorted.length; index++) {
+    const gap = sorted[index].trainXPosition - sorted[index - 1].trainXPosition
+    if (gap < MIN_MARKER_GAP) {
+      sorted[index] = {
+        ...sorted[index],
+        trainXPosition: Math.min(72, sorted[index - 1].trainXPosition + MIN_MARKER_GAP),
+      }
+    }
+  }
+
+  const rowEnds = [-Infinity, -Infinity, -Infinity]
   return sorted.map((marker) => {
     const estimatedWidth = Math.min(Math.max(8, marker.label.length * 0.72), 33)
     const halfWidth = estimatedWidth / 2
     const labelXPosition = Math.max(halfWidth, Math.min(72 - halfWidth, marker.trainXPosition))
     const start = labelXPosition - halfWidth
-    const row: 0 | 1 = start > rowEnds[0] + 1 ? 0 : 1
+    const openRow = rowEnds.findIndex((end) => start > end + 1)
+    const row = (openRow === -1 ? rowEnds.length - 1 : openRow) as 0 | 1 | 2
     rowEnds[row] = labelXPosition + halfWidth
     return { ...marker, row, labelXPosition }
   })
@@ -275,13 +308,12 @@ function getPositionForEightCar(car: number): 'front' | 'middle' | 'back' {
 }
 
 function LineDisc({ line, small = false }: { line: Line; small?: boolean }) {
-  // The 2026 rail-disc system uses one medium-weight letter and dark type on
-  // every light/color field except Red.
-  const darkInk = line !== 'RD'
+  // The 2026 rail-disc system uses one medium-weight BLACK letter on every
+  // color field — no more alternating type color between lines.
   return (
     <span
       className={`beta-line-disc ${small ? 'beta-line-disc--small' : ''}`}
-      style={{ backgroundColor: LINE_COLORS[line].bg, color: darkInk ? '#17110d' : '#fff' }}
+      style={{ backgroundColor: LINE_COLORS[line].bg, color: '#17110d' }}
       title={`${LINE_NAMES[line]} Line`}
       aria-label={`${LINE_NAMES[line]} Line`}
     >
@@ -296,6 +328,77 @@ function LineDiscs({ lines, small = false }: { lines: Line[]; small?: boolean })
     <span className="beta-line-discs">
       {unique.map((line) => <LineDisc key={line} line={line} small={small} />)}
     </span>
+  )
+}
+
+interface PylonRow {
+  station: Station
+  beyond: boolean
+  isDestination: boolean
+  isOrigin: boolean
+}
+
+function LegPylon({
+  line,
+  directionLabel,
+  rows,
+  rideMinutes,
+  destinationNote,
+}: {
+  line: Line | undefined
+  directionLabel: string
+  rows: PylonRow[]
+  rideMinutes: number
+  destinationNote?: string
+}) {
+  // collapsed by default on phones — the header row doubles as a compact
+  // summary (line · direction · stops · ride) without the intermediate stops
+  const [expanded, setExpanded] = useState(() =>
+    typeof window === 'undefined' || !window.matchMedia('(max-width: 650px)').matches
+  )
+  const stopCount = Math.max(0, rows.filter((row) => !row.beyond).length - 1)
+
+  return (
+    <div
+      className={`beta-sign beta-pylon ${expanded ? '' : 'is-collapsed'}`}
+      style={{ '--line-color': line ? LINE_COLORS[line].bg : '#fff' } as CSSProperties}
+    >
+      <button
+        type="button"
+        className="beta-pylon-header"
+        onClick={() => setExpanded((value) => !value)}
+        aria-expanded={expanded}
+      >
+        <span className="beta-pylon-service">
+          {line && <LineDisc line={line} />}
+          <span>
+            <strong>{line ? `${LINE_NAMES[line]} Line` : 'Metro'}</strong>
+            <small>Toward {directionLabel}</small>
+          </span>
+        </span>
+        <span className="beta-pylon-meta">
+          {stopCount} {stopCount === 1 ? 'stop' : 'stops'}{rideMinutes > 0 ? ` · ${rideMinutes} min` : ''}
+          {expanded ? <ChevronUp aria-hidden="true" /> : <ChevronDown aria-hidden="true" />}
+        </span>
+      </button>
+      {expanded && (
+        <div className="beta-pylon-route">
+          {rows.map(({ station, beyond, isDestination, isOrigin }, index) => (
+            <div
+              key={`${station.code}-${index}`}
+              className={`beta-pylon-stop ${beyond ? 'is-beyond' : ''} ${isDestination ? 'is-destination' : ''} ${isOrigin ? 'is-origin' : ''}`}
+            >
+              <span className="beta-pylon-track" aria-hidden="true" />
+              <span className="beta-pylon-stop-copy">
+                {isDestination ? <strong>{station.name}</strong> : <span>{station.name}</span>}
+                {isDestination && destinationNote && <small>{destinationNote}</small>}
+                {isOrigin && <small>You are here</small>}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -334,8 +437,16 @@ export function BetaStep({ number, title, children, trailing }: {
   )
 }
 
-function TrainTime({ train }: { train: Train }) {
+function TrainTime({ train, clockMode = false }: { train: Train; clockMode?: boolean }) {
   const minutes = getTrainMinutes(train.Min)
+
+  // schedule-planned trips read better as timetable clock times than "509 min"
+  if (clockMode && Number.isFinite(minutes) && minutes >= 0 && train.Min !== 'ARR' && train.Min !== 'BRD') {
+    const clock = new Date(Date.now() + minutes * 60_000)
+      .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    return <span className="beta-min-box is-clock">{clock}</span>
+  }
+
   const display = train.Min === 'ARR' || train.Min === 'BRD'
     ? train.Min
     : Number.isFinite(minutes) && minutes < 0
@@ -356,6 +467,7 @@ function TrainRow({
   connection = false,
   connectionWait,
   bestConnection = false,
+  clockMode = false,
   onClick,
 }: {
   train: Train | CatchableTrain
@@ -363,6 +475,7 @@ function TrainRow({
   connection?: boolean
   connectionWait?: number | null
   bestConnection?: boolean
+  clockMode?: boolean
   onClick?: () => void
 }) {
   const departed = isDeparted(train)
@@ -371,34 +484,66 @@ function TrainRow({
   const carDetail = reportedCarCount
     ? `${reportedCarCount}-car train`
     : 'train length unavailable'
+  // data-source helper chip, styled after the wayfinding guide's helper blocks
+  const source = train._gtfs
+    ? { Icon: Satellite, label: 'GPS', title: 'Tracked via GPS' }
+    : train._scheduled
+      ? { Icon: CalendarClock, label: 'Sched', title: 'From the timetable' }
+      : { Icon: Rss, label: 'Live', title: 'Live at station' }
+  const departureMinutes = getTrainMinutes(train.Min)
+  const departureClock = !clockMode && !departed && Number.isFinite(departureMinutes) && departureMinutes > 0
+    ? new Date(Date.now() + departureMinutes * 60_000)
+        .toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+    : null
   const rowClass = `beta-train-row ${selected ? 'is-selected' : ''} ${departed ? 'is-muted' : ''}`
   const effectiveConnectionWait = connectionWait ?? (isCatchable(train) ? train._waitTime : null)
-  const status = selected
-    ? departed
-      ? train.Min === 'ARR'
-        ? 'Your train · arriving'
-        : 'Your train · en route'
-      : 'Your train'
-    : (connection || isCatchable(train)) && effectiveConnectionWait != null
-      ? effectiveConnectionWait < 0
-        ? `Tight connection · ${effectiveConnectionWait} min wait`
-        : `${bestConnection ? 'Best connection · ' : ''}${effectiveConnectionWait} min wait`
+  // split into a keyword (hidden on small screens) and the wait itself (always shown)
+  const isConnectionRow = !selected && (connection || isCatchable(train)) && effectiveConnectionWait != null
+  const statusKeyword = selected
+    ? 'Your train'
+    : isConnectionRow
+      ? effectiveConnectionWait! < 0
+        ? 'Tight connection'
+        : bestConnection
+          ? 'Best connection'
+          : null
       : null
+  const statusDetail = selected
+    ? departed
+      ? train.Min === 'ARR' ? 'arriving' : 'en route'
+      : null
+    : isConnectionRow
+      ? `${effectiveConnectionWait} min wait`
+      : null
+  const hasStatus = statusKeyword != null || statusDetail != null
 
   const content = (
     <>
       <LineDisc line={train.Line} small />
       <span className="beta-train-destination">
         {destination}
-        <small>{carDetail}</small>
+        <small>
+          <span className="beta-source-chip" title={source.title} aria-label={source.title}>
+            <source.Icon aria-hidden="true" />
+            {source.label}
+          </span>
+          {carDetail}
+          {departureClock ? ` · ${departureClock}` : ''}
+        </small>
       </span>
-      {status && (
+      {hasStatus && (
         <span className="beta-live-pill">
           {(selected || bestConnection) && <span className="beta-live-pip" />}
-          {status}
+          {statusKeyword && (
+            <span className={isConnectionRow && statusDetail ? 'beta-pill-keyword' : undefined}>
+              {statusKeyword}
+              {statusDetail ? ' · ' : ''}
+            </span>
+          )}
+          {statusDetail}
         </span>
       )}
-      <TrainTime train={train} />
+      <TrainTime train={train} clockMode={clockMode} />
       {selected && <Check className="beta-row-check" aria-hidden="true" />}
     </>
   )
@@ -451,13 +596,21 @@ function BoardingSign({
   const highlightedCar = displayDoor.car
   const doorOffset = displayDoor.door === 1 ? 2.25 : displayDoor.door === 2 ? 5 : 7.75
   const doorTrainX = (highlightedCar - 1) * 9 + doorOffset
-  const standLabelX = Math.max(8, Math.min(diagramCarCount * 9 - 8, doorTrainX))
+  // px-based clamp: the label has a fixed rendered width, so diagram units
+  // can't keep it inside the sign at phone widths. The caret is positioned
+  // separately so it always points at the door even when the label clamps.
+  const doorPercent = (doorTrainX / (diagramCarCount * 9)) * 100
+  const standLabelStyle: CSSProperties = {
+    left: `clamp(78px, ${doorPercent}%, calc(100% - 78px))`,
+  }
   const doorText = displayDoor.exact ? `${DOOR_LABELS[displayDoor.door]} door` : 'center door'
   const rawLegend = detail ?? carPosition.legend
   const legend = rawLegend.replace(/car\s+\d+/i, (match) => (
     `${match.startsWith('C') ? 'Car' : 'car'} ${highlightedCar}`
   ))
   const markers = buildBoardingMarkers(carPosition, primaryMarker)
+  // full exit list (destination signs only — the server populates exits there)
+  const exitOptions = [...(carPosition.exits ?? [])].sort((a, b) => a.car - b.car)
 
   return (
     <div className="beta-sign beta-boarding-sign">
@@ -473,10 +626,10 @@ function BoardingSign({
         className="beta-train-diagram"
         aria-label={`Stand at car ${highlightedCar} of ${diagramCarCount}, ${doorText}`}
       >
-        <div className="beta-stand-label" style={diagramPositionStyle(standLabelX, diagramCarCount)}>
+        <div className="beta-stand-label" style={standLabelStyle}>
           STAND HERE · {doorText.toUpperCase()}
-          <ChevronDown aria-hidden="true" />
         </div>
+        <ChevronDown className="beta-stand-caret" aria-hidden="true" style={{ left: `${doorPercent}%` }} />
         <div className="beta-car-row">
           {Array.from({ length: diagramCarCount }, (_, index) => {
             const number = index + 1
@@ -504,7 +657,7 @@ function BoardingSign({
         </div>
         <div className="beta-platform" style={{ '--platform-line': LINE_COLORS[line].bg } as CSSProperties} />
         {markers.length > 0 && (
-          <div className={`beta-platform-markers ${markers.some((marker) => marker.row === 1) ? 'has-two-rows' : ''}`}>
+          <div className={`beta-platform-markers ${markers.some((marker) => marker.row === 2) ? 'has-three-rows' : markers.some((marker) => marker.row === 1) ? 'has-two-rows' : ''}`}>
             {markers.map((marker, index) => (
               <div key={`${marker.label}-${marker.trainXPosition}-${index}`}>
                 <span
@@ -531,6 +684,24 @@ function BoardingSign({
       <div className="beta-board-legend">
         {legend}{!displayDoor.exact ? ' · use the center doorway' : ''}
       </div>
+      {exitOptions.length > 1 && (
+        <ul className="beta-exit-options" aria-label={`All exits at ${arrivalName}`}>
+          {exitOptions.map((exit, index) => {
+            const primary = exit.car === requestedCar
+            return (
+              <li
+                key={`${exit.car}-${exit.label}-${index}`}
+                className={`beta-exit-option ${primary ? 'is-primary' : exit.preferred ? 'is-preferred' : ''}`}
+              >
+                <b>{exit.car}</b>
+                <PlatformEgressIcon type={exit.type} />
+                <span>{exit.label}</span>
+                {primary && <small>your exit</small>}
+              </li>
+            )
+          })}
+        </ul>
+      )}
     </div>
   )
 }
@@ -659,6 +830,8 @@ export function BetaTripView({
   leg1LineStopsBeyond,
   leg2Stops,
   leg2StopsBeyond,
+  leg1DirectionLabels,
+  leg2DirectionLabels,
   leg1Time,
   leg2Time,
   walkTime,
@@ -670,6 +843,7 @@ export function BetaTripView({
   isRefreshing,
   fetchedAt,
   scheduledLabel,
+  plannedForMs = null,
   isLoadingLeg2,
   isDirect,
   showDeparted,
@@ -814,6 +988,26 @@ export function BetaTripView({
   const hasKnownRideTime = !!summaryTrain
     && hasKnownConnection
     && (isDirect ? effectiveLeg1Time > 0 : leg1Time > 0 && leg2Time > 0)
+  // schedule-only trips: the headline should show trip duration from the planned
+  // departure, not minutes-from-now (which balloons for an evening trip)
+  const scheduledWaitOffset = plannedForMs
+    ? Math.min(firstWait, Math.max(0, Math.round((plannedForMs - nowMinute) / 60_000)))
+    : 0
+  const displayTotalMinutes = Math.max(0, totalMinutes - scheduledWaitOffset)
+  const displayFirstWait = Math.max(0, firstWait - scheduledWaitOffset)
+  const glanceSegments: Array<{ label: string; minutes: number | null; icon: ReactNode }> = [
+    ...(effectiveFirstWalk > 0 ? [{ label: 'Walk to Metro', minutes: effectiveFirstWalk as number | null, icon: <Footprints /> as ReactNode }] : []),
+    { label: 'Platform wait', minutes: displayFirstWait, icon: <Clock3 /> },
+    ...(isDirect
+      ? [{ label: 'Metro ride', minutes: effectiveLeg1Time > 0 ? effectiveLeg1Time : null, icon: <TrainFront /> }]
+      : [
+          { label: 'Metro leg 1', minutes: leg1Time > 0 ? effectiveLeg1Time : null, icon: <TrainFront /> },
+          { label: 'Transfer walk', minutes: walkTime, icon: <Footprints /> },
+          { label: 'Transfer wait', minutes: hasKnownConnection ? secondWait : null, icon: <Clock3 /> },
+          { label: 'Metro leg 2', minutes: leg2Time > 0 ? leg2Time : null, icon: <TrainFront /> },
+        ]),
+    ...(lastWalk > 0 ? [{ label: 'Exit walk', minutes: lastWalk, icon: <Footprints /> }] : []),
+  ]
   const stationArrivalClock = isDirect
     ? summaryTrain?._destArrivalTime
     : (catchableTrain && isCatchable(catchableTrain) ? catchableTrain._arrivalClock : undefined)
@@ -828,6 +1022,19 @@ export function BetaTripView({
   const secondHeadsign = routeLeg2Train
     ? getDisplayName(routeLeg2Train.DestinationName)
     : 'your destination'
+  // Signage shows canonical full-line termini (what the permanent station signs
+  // say), never short-turn headsigns. Train rows keep their real destinations.
+  const joinSignageLabels = (
+    labels: Partial<Record<Line, string>> | undefined,
+    lines: Line[]
+  ): string | null => {
+    const named = [...new Set(lines.map((line) => labels?.[line]).filter((label): label is string => !!label))]
+    return named.length > 0 ? named.join(', ') : null
+  }
+  const firstDirectionLabel = (primaryLine ? leg1DirectionLabels?.[primaryLine] : undefined) ?? firstHeadsign
+  const firstDirectionSignage = joinSignageLabels(leg1DirectionLabels, origin.lines) ?? firstDirectionLabel
+  const secondDirectionLabel = (finalLine ? leg2DirectionLabels?.[finalLine] : undefined) ?? secondHeadsign
+  const secondDirectionSignage = joinSignageLabels(leg2DirectionLabels, targetPlatformLines) ?? secondDirectionLabel
   const firstCarCount = getReportedCarCount(summaryTrain)
   const secondCarCount = getReportedCarCount(representativeLeg2Train)
   const fallbackTransferArrivalTimestamp = liveSelectedTrain
@@ -865,10 +1072,34 @@ export function BetaTripView({
     ? finalLegStops
     : [finalLegOrigin, destination]
   const pylonStopsDestinationFirst = [...pylonStops].reverse()
-  const pylonRows = [
-    ...[...finalLegStopsBeyond].reverse().map((station) => ({ station, beyond: true })),
-    ...pylonStopsDestinationFirst.map((station) => ({ station, beyond: false })),
+  const finalPylonRows: PylonRow[] = [
+    ...[...finalLegStopsBeyond].reverse().map((station) => ({
+      station,
+      beyond: true,
+      isDestination: false,
+      isOrigin: false,
+    })),
+    ...pylonStopsDestinationFirst.map((station, index) => ({
+      station,
+      beyond: false,
+      isDestination: index === 0,
+      isOrigin: index === pylonStopsDestinationFirst.length - 1,
+    })),
   ]
+  const finalPylonNote = `Your stop · ${isDirect ? effectiveLeg1Time : leg2Time} min ride${destinationPositionText ? ` · exit ${destinationPositionText}` : ''}`
+  // first leg gets its own glance on transfer trips
+  const firstLegStops = leg1Stops.length >= 2
+    ? leg1Stops
+    : transfer
+      ? [origin, { code: transfer.fromPlatform, name: transfer.name, lines: primaryLine ? [primaryLine] : [] }]
+      : []
+  const firstPylonRows: PylonRow[] = [...firstLegStops].reverse().map((station, index, reversed) => ({
+    station,
+    beyond: false,
+    isDestination: index === 0,
+    isOrigin: index === reversed.length - 1,
+  }))
+  const firstPylonNote = `Transfer here · ${effectiveLeg1Time} min ride`
   const selectedDisplayTrain = liveSelectedTrain
     ? {
         ...liveSelectedTrain,
@@ -882,18 +1113,24 @@ export function BetaTripView({
   const originWalkStep = originPlaceContext ? step++ : null
   const originStationStep = step++
   const firstBoardingStep = activeLeg1CarPosition ? step++ : null
+  const firstGlanceStep = !isDirect && transfer && firstPylonRows.length >= 2 ? step++ : null
   const transferStep = !isDirect && transfer ? step++ : null
   const secondBoardingStep = !isDirect && leg2CarPosition ? step++ : null
   const overviewStep = step++
   const exitStep = step++
   const destinationWalkStep = destPlaceContext ? step++ : null
+  const glanceStep = embedded ? null : step++
+  const firstGlanceTitle = embedded ? 'Metro leg 1 at a glance' : 'First leg at a glance'
+  const finalOverviewTitle = isDirect
+    ? overviewTitle
+    : embedded ? 'Metro leg 2 at a glance' : 'Second leg at a glance'
 
   return (
     <div className={`beta-trip-view ${embedded ? 'is-embedded' : ''}`}>
       {!embedded && (
         <>
           <div className="beta-summary" aria-live="polite">
-            <span className="beta-total">{hasKnownRideTime ? totalMinutes : '—'}<small> min</small></span>
+            <span className="beta-total">{hasKnownRideTime ? displayTotalMinutes : '—'}<small> min</small></span>
             <span className="beta-via">
               {isDirect
                 ? `${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line direct`
@@ -921,7 +1158,7 @@ export function BetaTripView({
 
       <BetaStep
         number={originStationStep}
-        title={`${origin.name} — ${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line toward ${firstHeadsign}`}
+        title={`${origin.name} — ${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line toward ${firstDirectionLabel}`}
         trailing={liveSelectedTrain ? (
           <button type="button" className="beta-change-link" onClick={onClearLeg1Selection}>Change train</button>
         ) : (
@@ -932,7 +1169,7 @@ export function BetaTripView({
           <div className="beta-station-top">
             <div>
               <h2>{origin.name}</h2>
-              <p>Platform toward {firstHeadsign}</p>
+              <p>Platform toward {firstDirectionSignage}</p>
             </div>
             <LineDiscs lines={origin.lines} />
           </div>
@@ -945,6 +1182,7 @@ export function BetaTripView({
                   train={selected && selectedDisplayTrain ? selectedDisplayTrain : train}
                   selected={selected}
                   bestConnection={isCatchable(train) && train === currentTrains[0]?.train}
+                  clockMode={!!plannedForMs}
                   onClick={index >= 0 && !selected ? () => onSelectLeg1Train(train, index) : undefined}
                 />
               )
@@ -1004,6 +1242,18 @@ export function BetaTripView({
         </BetaStep>
       )}
 
+      {firstGlanceStep && (
+        <BetaStep number={firstGlanceStep} title={firstGlanceTitle}>
+          <LegPylon
+            line={primaryLine}
+            directionLabel={firstDirectionLabel}
+            rows={firstPylonRows}
+            rideMinutes={effectiveLeg1Time}
+            destinationNote={firstPylonNote}
+          />
+        </BetaStep>
+      )}
+
       {!isDirect && transfer && transferStep && (
         <BetaStep
           number={transferStep}
@@ -1042,12 +1292,12 @@ export function BetaTripView({
               <span className="beta-transfer-target">
                 <span className="beta-follow-block">
                   {targetPlatformLines.length > 0 && <LineDiscs lines={targetPlatformLines} small />}
-                  <strong>{secondHeadsign}</strong>
+                  <strong>{secondDirectionSignage}</strong>
                 </span>
                 <ArrowRight className="beta-sign-arrow" aria-hidden="true" />
               </span>
             </div>
-            <div className="beta-trains-heading">Next trains · toward {secondHeadsign}</div>
+            <div className="beta-trains-heading">Next trains · toward {secondDirectionSignage}</div>
             {isLoadingLeg2 ? (
               <div className="beta-connection-loading"><span /> Confirming the live connection…</div>
             ) : (
@@ -1062,6 +1312,7 @@ export function BetaTripView({
                     connection
                     connectionWait={wait}
                     bestConnection={train === bestConnection?.train}
+                    clockMode={!!plannedForMs}
                     onClick={onSelectLeg2Train && !selected ? () => onSelectLeg2Train(train, index) : undefined}
                   />
                   )
@@ -1099,47 +1350,14 @@ export function BetaTripView({
       )}
 
       {overviewStep && (
-        <BetaStep number={overviewStep} title={overviewTitle}>
-          <div
-            className="beta-sign beta-pylon"
-            style={{ '--line-color': finalLine ? LINE_COLORS[finalLine].bg : '#fff' } as CSSProperties}
-          >
-            <ArrowLeft className="beta-pylon-direction" aria-hidden="true" />
-            <div className="beta-pylon-service">
-              {finalLine && <LineDisc line={finalLine} />}
-              <span>
-                <strong>{finalLine ? `${LINE_NAMES[finalLine]} Line` : 'Metro'}</strong>
-                <small>Toward {isDirect ? firstHeadsign : secondHeadsign}</small>
-              </span>
-            </div>
-            <div className="beta-pylon-route">
-              {pylonRows.map(({ station, beyond }, index) => {
-                const routeIndex = index - finalLegStopsBeyond.length
-                const isDestination = !beyond && routeIndex === 0
-                const isOrigin = !beyond && routeIndex === pylonStopsDestinationFirst.length - 1
-                return (
-                  <div
-                    key={`${station.code}-${index}`}
-                    className={`beta-pylon-stop ${beyond ? 'is-beyond' : ''} ${isDestination ? 'is-destination' : ''} ${isOrigin ? 'is-origin' : ''}`}
-                  >
-                    <span className="beta-pylon-track" aria-hidden="true" />
-                    <span className="beta-pylon-stop-copy">
-                      {isDestination
-                        ? <strong>{station.name}</strong>
-                        : <span>{station.name}</span>}
-                      {isDestination && (
-                        <small>
-                          Your stop · {isDirect ? effectiveLeg1Time : leg2Time} min ride
-                          {destinationPositionText ? ` · exit ${destinationPositionText}` : ''}
-                        </small>
-                      )}
-                      {isOrigin && <small>You are here</small>}
-                    </span>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
+        <BetaStep number={overviewStep} title={finalOverviewTitle}>
+          <LegPylon
+            line={finalLine}
+            directionLabel={isDirect ? firstDirectionLabel : secondDirectionLabel}
+            rows={finalPylonRows}
+            rideMinutes={isDirect ? effectiveLeg1Time : leg2Time}
+            destinationNote={finalPylonNote}
+          />
         </BetaStep>
       )}
 
@@ -1169,15 +1387,29 @@ export function BetaTripView({
         </BetaStep>
       )}
 
-      {!embedded && (
-        <div className="beta-data-note">
-          <TrainFront aria-hidden="true" />
-          Live and scheduled data from the same TransferHero planner as the classic interface.
-          {scheduledLabel
-            ? ` ${scheduledLabel}.`
-            : ` ${effectiveFirstWalk ? `Walk: ${effectiveFirstWalk} min · ` : ''}Platform wait: ${firstWait} min${!isDirect && hasKnownConnection ? ` · transfer wait: ${secondWait} min` : ''}.`}
-        </div>
+      {!embedded && glanceStep && hasKnownRideTime && (
+        <BetaStep number={glanceStep} title="Your trip at a glance">
+          <div className="beta-sign beta-hybrid-glance">
+            <div className="beta-hybrid-glance-head">
+              <span>
+                <TrainFront />
+                <strong>{isDirect && primaryLine ? `${LINE_NAMES[primaryLine]} Line` : `via ${transferName}`}</strong>
+              </span>
+              <span><b>{displayTotalMinutes}</b> min{arrivalClock ? ` · Arr ${arrivalClock}` : ''}</span>
+            </div>
+            <div className="beta-hybrid-breakdown">
+              {glanceSegments.map((segment, index) => (
+                <span key={`${segment.label}-${index}`}>
+                  <i>{segment.icon}</i>
+                  <small>{segment.label}</small>
+                  <strong>{segment.minutes == null ? '—' : `${Math.round(segment.minutes)} min`}</strong>
+                </span>
+              ))}
+            </div>
+          </div>
+        </BetaStep>
       )}
+
     </div>
   )
 }

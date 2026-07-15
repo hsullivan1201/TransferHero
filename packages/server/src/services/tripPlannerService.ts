@@ -15,7 +15,7 @@ import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, 
 import { planScheduledTrip } from './scheduledTripPlanner.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { mergeTrainData, sortTrains } from './trainMerger.js'
-import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from './travelTime.js'
+import { calculateRouteTravelTime, getCanonicalTerminus, getTerminus, minutesToClockTime } from './travelTime.js'
 import {
   fetchDestinationArrivals,
   fetchGTFSTripUpdates,
@@ -80,6 +80,24 @@ interface TransferBuildOptions {
   allowYellowFallback?: boolean
   branchWarning?: string
   defaultTransferName?: string
+}
+
+/**
+ * Per-line canonical terminus names for signage. Directional labels follow the
+ * permanent station signs (e.g. "Shady Grove"), not short-turn headsigns.
+ */
+function buildDirectionLabels(
+  lines: Array<Line | undefined> | undefined,
+  fromStation: string,
+  toStation: string
+): Partial<Record<Line, string>> {
+  const labels: Partial<Record<Line, string>> = {}
+  for (const line of lines ?? []) {
+    if (!line || labels[line]) continue
+    const label = getCanonicalTerminus(line, fromStation, toStation)
+    if (label) labels[line] = label
+  }
+  return labels
 }
 
 export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): TripPlanner {
@@ -179,7 +197,24 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       )
       const trainsWithArrival = trainsWithArrivalArrays.flat()
 
-      let sortedTrains = sortTrains(trainsWithArrival)
+      // trains realtime couldn't match still need an arrival: fall back to the
+      // pathfinding travel time so direct trips always carry a ride duration
+      const trainsWithEstimates = trainsWithArrival.map(train => {
+        if (train._destArrivalMin != null) return train
+        const originMin = getTrainMinutes(train.Min)
+        if (!Number.isFinite(originMin)) return train
+        const rideTime = calculateRouteTravelTime(from, to, train.Line)
+        if (!rideTime || rideTime <= 0) return train
+        const arrivalMin = originMin + rideTime
+        return {
+          ...train,
+          _destArrivalMin: arrivalMin,
+          _destArrivalTime: minutesToClockTime(arrivalMin),
+          _destArrivalTimestamp: Date.now() + arrivalMin * 60_000
+        }
+      })
+
+      let sortedTrains = sortTrains(trainsWithEstimates)
 
       if (includeDeparted && directLines.length > 0) {
         const allDepartedTrains: Train[] = []
@@ -233,6 +268,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
           leg1: {
             trains: sortedTrains,
             carPosition: directCarPosition,
+            directionLabels: buildDirectionLabels(directLines, from, to),
             stops: directLines.length === 1 ? lineStops[directLines[0]] ?? [] : undefined,
             stopsBeyond: directLines.length === 1 ? lineStopsBeyond[directLines[0]] ?? [] : undefined,
             ...(directLines.length > 1 ? { lineCarPositions, lineStops, lineStopsBeyond } : {})
@@ -457,6 +493,11 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
             carPosition: carPositions.leg1,
             terminus: terminusFirst,
             travelTime: leg1TravelTime,
+            directionLabels: buildDirectionLabels(
+              leg1AllowedLines ?? [currentTransfer.fromLine],
+              from,
+              currentTransfer.fromPlatform
+            ),
             stops: getStopsForLeg(currentTransfer.fromLine!, from, currentTransfer.fromPlatform)
           },
           leg2: {
@@ -464,6 +505,11 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
             terminus: terminusSecond,
             travelTime: leg2TravelTime,
             carPosition: carPositions.leg2,
+            directionLabels: buildDirectionLabels(
+              leg2AllowedLines ?? [currentTransfer.toLine],
+              currentTransfer.toPlatform,
+              to
+            ),
             stops: getStopsForLeg(currentTransfer.toLine!, currentTransfer.toPlatform, to),
             stopsBeyond: getStopsBeyondDestination(currentTransfer.toLine!, currentTransfer.toPlatform, to)
           }

@@ -56,6 +56,21 @@ export function calculateRouteTravelTime(fromStation: string, toStation: string,
 }
 
 /**
+ * Canonical (full-line) terminus name for the direction of travel — what the
+ * permanent station signage shows, regardless of short-turn service patterns.
+ * The first entry of each TERMINI direction array is the true end of the line;
+ * later entries are turnbacks added for train filtering.
+ */
+export function getCanonicalTerminus(line: Line, fromStation: string, toStation: string): string | null {
+  const stations = LINE_STATIONS[line] || []
+  const fromIdx = stations.indexOf(normalizePlatformCode(fromStation, stations))
+  const toIdx = stations.indexOf(normalizePlatformCode(toStation, stations))
+  const termini = TERMINI[line]
+  if (!termini || fromIdx === -1 || toIdx === -1 || fromIdx === toIdx) return null
+  return (toIdx < fromIdx ? termini.toward_a : termini.toward_b)[0] ?? null
+}
+
+/**
  * Get terminus stations for a given direction on a line
  */
 export function getTerminus(line: Line, fromStation: string, toStation: string): string[] {

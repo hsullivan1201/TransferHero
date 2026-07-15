@@ -38,6 +38,7 @@ function toTitleCase(str: string): string {
   return str.toLowerCase()
     .replace(/\b\w/g, c => c.toUpperCase()) // title-case the words so they stop yelling
     .replace(/'S\b/g, "'s") // fix possessives like george's
+    .replace(/(\d)(St|Nd|Rd|Th)\b/g, (_, digit, suffix) => digit + suffix.toLowerCase()) // 2Nd -> 2nd
 }
 
 export function normalizeDestination(dest: string): string {

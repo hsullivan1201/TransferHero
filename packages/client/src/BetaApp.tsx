@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
-import { Accessibility, ArrowLeft, Bus, Moon, Sparkles, Sun, TrainFront } from 'lucide-react'
+import { Accessibility, Bus, Moon, Sun, TrainFront } from 'lucide-react'
 import type { Line, PlaceContext, Station } from '@transferhero/shared'
 import {
   Footer,
@@ -34,15 +34,10 @@ function BetaHeader({ accessible, onToggleAccessible }: {
         <span className="beta-brand-mark" aria-hidden="true">T</span>
         <div>
           <h1>TransferHero</h1>
-          <p>wayfinding edition</p>
+          <p>DC Metro wayfinding</p>
         </div>
       </div>
       <div className="beta-header-actions">
-        <span className="beta-badge"><Sparkles /> Beta · live data</span>
-        <a href="/" className="beta-classic-link">
-          <ArrowLeft />
-          Classic UI
-        </a>
         <button
           type="button"
           className={accessible ? 'is-active' : ''}
@@ -70,7 +65,7 @@ function BetaEmptyState() {
           <strong>Where are you headed?</strong>
           <small>Choose a station, address, or landmark above.</small>
         </div>
-        <span className="beta-empty-arrow">↑</span>
+        <span className="beta-empty-arrow" aria-hidden="true">↑</span>
       </div>
       <p>Live arrivals, transfer timing, best-car guidance, walking exits, and bus connections will appear here.</p>
     </div>
@@ -110,7 +105,11 @@ function BetaModeToggle({
         >
           <span className="beta-plan-bus-tile"><Bus aria-hidden="true" /></span>
           Metro + bus
-          {busCount != null && busCount > 0 && <span className="beta-plan-count">{busCount}</span>}
+          {busCount != null && busCount > 0 && (
+            <span className="beta-plan-count" aria-label={`${busCount} bus ${busCount === 1 ? 'option' : 'options'} available`}>
+              {busCount}
+            </span>
+          )}
         </button>
       </div>
       {busOnlyLock && <small>Bus required for this address</small>}
@@ -311,10 +310,6 @@ function BetaContent() {
     return [...codes]
   }, [tripState.from?.code, tripState.to?.code, activeTransfer])
 
-  useEffect(() => {
-    document.title = 'TransferHero Beta — live Metro wayfinding'
-  }, [])
-
   return (
     <div className="beta-page min-h-screen flex flex-col">
       <div className="beta-wrap">
@@ -420,6 +415,8 @@ function BetaContent() {
                 leg1LineStopsBeyond={tripData.trip.leg1.lineStopsBeyond}
                 leg2Stops={tripData.trip.leg2?.stops ?? []}
                 leg2StopsBeyond={tripData.trip.leg2?.stopsBeyond ?? []}
+                leg1DirectionLabels={tripData.trip.leg1.directionLabels}
+                leg2DirectionLabels={tripData.trip.leg2?.directionLabels}
                 leg1Time={activeTransfer?.leg1Time ?? tripData.trip.transfer?.leg1Time ?? 0}
                 leg2Time={activeTransfer?.leg2Time ?? tripData.trip.transfer?.leg2Time ?? 0}
                 walkTime={tripState.walkTime}
@@ -437,6 +434,11 @@ function BetaContent() {
                   isScheduledTrip && tripData.meta.plannedFor
                     ? `Planned for ${new Date(tripData.meta.plannedFor).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
                     : undefined
+                }
+                plannedForMs={
+                  isScheduledTrip && tripData.meta.plannedFor
+                    ? new Date(tripData.meta.plannedFor).getTime()
+                    : null
                 }
                 isLoadingLeg2={needsSelectedLiveConnection && leg2Loading}
                 isDirect={tripData.trip.isDirect}

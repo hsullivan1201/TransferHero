@@ -613,7 +613,7 @@ function BetaBusTripDetail({
   const metroStepCount = (metroOriginContext ? 1 : 0)
     + 1
     + (leg1CarPosition ? 1 : 0)
-    + (!isDirect && transfer ? 1 : 0)
+    + (!isDirect && transfer ? 2 : 0) // first-leg glance + transfer sign
     + (!isDirect && leg2CarPosition ? 1 : 0)
     + 1
     + 1
@@ -663,6 +663,8 @@ function BetaBusTripDetail({
       leg1LineStopsBeyond={metroTripData.trip.leg1.lineStopsBeyond}
       leg2Stops={metroTripData.trip.leg2?.stops ?? []}
       leg2StopsBeyond={metroTripData.trip.leg2?.stopsBeyond ?? []}
+      leg1DirectionLabels={metroTripData.trip.leg1.directionLabels}
+      leg2DirectionLabels={metroTripData.trip.leg2?.directionLabels}
       leg1Time={isDirect ? trip.metroTimeMinutes : transfer?.leg1Time ?? 0}
       leg2Time={transfer?.leg2Time ?? 0}
       walkTime={walkTime}

@@ -13,9 +13,12 @@ export default defineConfig({
       manifest: {
         name: 'TransferHero',
         short_name: 'TransferHero',
-        description: 'DC Metro transfers with real-time arrivals',
-        theme_color: '#E31837',
-        background_color: '#ffffff',
+        description: 'DC Metro wayfinding with real-time arrivals',
+        id: '/',
+        start_url: '/',
+        scope: '/',
+        theme_color: '#372c24',
+        background_color: '#f2e7dc',
         display: 'standalone',
         icons: [
           { src: 'pwa-192x192.png', sizes: '192x192', type: 'image/png' },

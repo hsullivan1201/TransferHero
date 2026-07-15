@@ -89,7 +89,7 @@ export function TransferDisplay({
                 onClick={() => onSelectAlternative(alt)}
                 className={`w-full text-left p-2 rounded flex items-center justify-between cursor-pointer transition-colors ${
                   isSelected
-                    ? 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400'
+                    ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400'
                     : 'hover:bg-[var(--suggestion-hover)]'
                 }`}
               >

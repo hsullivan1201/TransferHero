@@ -117,8 +117,9 @@ export function TripSelector({
   const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
   const [destOverride, setDestOverride] = useState<WalkingAlt | null>(null)
 
-  // Load a saved trip into the selectors
+  // Load a saved trip into the selectors and run it once endpoints resolve
   const lastLoadedId = useRef<string | null>(null)
+  const [pendingAutoGo, setPendingAutoGo] = useState(false)
   useEffect(() => {
     if (loadTrip && loadTrip.id !== lastLoadedId.current) {
       lastLoadedId.current = loadTrip.id
@@ -127,6 +128,8 @@ export function TripSelector({
       setWalkTime(loadTrip.walkTime)
       setOriginOverride(null)
       setDestOverride(null)
+      setDepartMode('now')
+      setPendingAutoGo(true)
       onTripLoaded?.()
     }
   }, [loadTrip?.id])
@@ -193,6 +196,20 @@ export function TripSelector({
     }
   }, [fromStation, toStation, walkTime, onGo, departMode, departAtValue])
 
+  // Saved-trip auto-run: fire Go as soon as the loaded endpoints are usable;
+  // disarm if the rider clears a field before resolution finishes
+  useEffect(() => {
+    if (!pendingAutoGo) return
+    if (!fromSelection || !toSelection) {
+      setPendingAutoGo(false)
+      return
+    }
+    if (canGo) {
+      setPendingAutoGo(false)
+      handleGo()
+    }
+  }, [pendingAutoGo, fromSelection, toSelection, canGo, handleGo])
+
   const handleOriginAlt = useCallback((alt: WalkingAlt) => {
     setOriginOverride(alt)
   }, [])
@@ -222,7 +239,7 @@ export function TripSelector({
   }, [swapFxTick])
 
   // build place contexts for banner display
-  // prefer active contexts from tripState (kept in sync by WalkingCard alt selections)
+  // prefer active contexts from tripState (kept in sync by walking-alt selections)
   const localOriginPlaceContext: PlaceContext | null =
     fromPlace && fromResolved
       ? buildPlaceContext(fromPlace, fromResolved, originOverride, 'to_station')

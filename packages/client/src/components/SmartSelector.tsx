@@ -79,12 +79,31 @@ export function SmartSelector({
     return result
   }, [stationMatches, placeResults, showCurrentLocation, query])
 
+  // Anchor the highlight to the item itself, not its position: async place
+  // results arriving mid-keystroke reflow the list, and a bare index would
+  // silently point ArrowDown/Enter at a different option.
+  const itemKeyOf = (item: DropdownItem) =>
+    item.kind === 'station' ? `s:${item.station.code}` : item.kind === 'place' ? `p:${item.place.id}` : 'location'
+  const activeKeyRef = useRef<string | null>(null)
+  const setActive = useCallback((index: number, list: DropdownItem[]) => {
+    setActiveIndex(index)
+    activeKeyRef.current = index >= 0 && index < list.length ? itemKeyOf(list[index]) : null
+  }, [])
+
+  useEffect(() => {
+    if (activeKeyRef.current == null) return
+    const index = items.findIndex((item) => itemKeyOf(item) === activeKeyRef.current)
+    if (index < 0) activeKeyRef.current = null
+    setActiveIndex(index)
+  }, [items])
+
   const handleSelectStation = useCallback(
     (station: Station) => {
       onChange({ type: 'station', station })
       setQuery('')
       setIsOpen(false)
       setActiveIndex(-1)
+      activeKeyRef.current = null
     },
     [onChange]
   )
@@ -95,6 +114,7 @@ export function SmartSelector({
       setQuery('')
       setIsOpen(false)
       setActiveIndex(-1)
+      activeKeyRef.current = null
     },
     [onChange]
   )
@@ -122,6 +142,7 @@ export function SmartSelector({
         setQuery('')
         setIsOpen(false)
         setActiveIndex(-1)
+        activeKeyRef.current = null
       },
       (err) => {
         setLocating(false)
@@ -158,11 +179,11 @@ export function SmartSelector({
       switch (e.key) {
         case 'ArrowDown':
           e.preventDefault()
-          setActiveIndex((prev) => (prev < items.length - 1 ? prev + 1 : prev))
+          setActive(activeIndex < items.length - 1 ? activeIndex + 1 : activeIndex, items)
           break
         case 'ArrowUp':
           e.preventDefault()
-          setActiveIndex((prev) => (prev > 0 ? prev - 1 : -1))
+          setActive(activeIndex > 0 ? activeIndex - 1 : -1, items)
           break
         case 'Enter':
           e.preventDefault()
@@ -172,16 +193,18 @@ export function SmartSelector({
           break
         case 'Escape':
           setIsOpen(false)
-          setActiveIndex(-1)
+          setActive(-1, items)
           break
       }
     },
-    [isOpen, items, activeIndex, handleSelectItem]
+    [isOpen, items, activeIndex, handleSelectItem, setActive]
   )
 
   useEffect(() => {
     if (activeIndex >= 0 && listRef.current) {
-      const activeElement = listRef.current.children[activeIndex] as HTMLElement
+      // options carry data-idx — child positions don't line up with item
+      // indexes once the "Places" divider is in the list
+      const activeElement = listRef.current.querySelector<HTMLElement>(`[data-idx="${activeIndex}"]`)
       activeElement?.scrollIntoView({ block: 'nearest' })
     }
   }, [activeIndex])
@@ -233,6 +256,7 @@ export function SmartSelector({
           setQuery(e.target.value)
           setIsOpen(true)
           setActiveIndex(-1)
+          activeKeyRef.current = null
         }}
         onFocus={() => setIsOpen(true)}
         onBlur={() => setTimeout(() => setIsOpen(false), 150)}
@@ -255,11 +279,12 @@ export function SmartSelector({
             <div
               role="option"
               aria-selected={activeIndex === 0}
+              data-idx={0}
               className={`flex items-center gap-2 px-4 py-3 cursor-pointer border-b border-[var(--border-color)] transition-colors ${
                 activeIndex === 0 ? 'bg-[var(--suggestion-hover)]' : 'hover:bg-[var(--suggestion-hover)]'
               }`}
               onMouseDown={handleUseLocation}
-              onMouseEnter={() => setActiveIndex(0)}
+              onMouseMove={() => activeIndex !== 0 && setActive(0, items)}
             >
               <Navigation className="w-4 h-4 text-blue-500 shrink-0" />
               <span className="text-[var(--text-primary)] text-base">
@@ -278,11 +303,12 @@ export function SmartSelector({
                     key={station.code}
                     role="option"
                     aria-selected={idx === activeIndex}
+                    data-idx={idx}
                     className={`flex items-center gap-2 px-4 py-3 cursor-pointer border-b border-[var(--border-color)] last:border-b-0 transition-colors ${
                       idx === activeIndex ? 'bg-[var(--suggestion-hover)]' : 'hover:bg-[var(--suggestion-hover)]'
                     }`}
                     onMouseDown={() => handleSelectStation(station)}
-                    onMouseEnter={() => setActiveIndex(idx)}
+                    onMouseMove={() => idx !== activeIndex && setActive(idx, items)}
                   >
                     <LineDots lines={station.lines} size="sm" />
                     <span className="text-[var(--text-primary)] text-base">{station.name}</span>
@@ -310,11 +336,12 @@ export function SmartSelector({
                 key={place.id}
                 role="option"
                 aria-selected={realIdx === activeIndex}
+                data-idx={realIdx}
                 className={`flex items-center gap-2 px-4 py-3 cursor-pointer border-b border-[var(--border-color)] last:border-b-0 transition-colors ${
                   realIdx === activeIndex ? 'bg-[var(--suggestion-hover)]' : 'hover:bg-[var(--suggestion-hover)]'
                 }`}
                 onMouseDown={() => handleSelectPlace(place)}
-                onMouseEnter={() => setActiveIndex(realIdx)}
+                onMouseMove={() => realIdx !== activeIndex && setActive(realIdx, items)}
               >
                 <MapPin className="w-4 h-4 text-[var(--text-secondary)] shrink-0" />
                 <div className="min-w-0 flex-1">

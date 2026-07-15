@@ -125,8 +125,7 @@
   flex-wrap: wrap;
 }
 
-.beta-header-actions > button,
-.beta-classic-link {
+.beta-header-actions > button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -139,8 +138,7 @@
   transition: background 150ms ease, color 150ms ease, transform 150ms ease;
 }
 
-.beta-header-actions > button:hover,
-.beta-classic-link:hover {
+.beta-header-actions > button:hover {
   background: var(--beta-sign);
   color: #fff;
   transform: translateY(-1px);
@@ -152,41 +150,11 @@
   color: #fff;
 }
 
-.beta-header-actions svg,
-.beta-classic-link svg {
+.beta-header-actions svg {
   width: 18px;
   height: 18px;
 }
 
-.beta-classic-link {
-  gap: 6px;
-  padding: 0 12px;
-  font-size: 12px;
-  font-weight: 750;
-  text-decoration: none;
-  white-space: nowrap;
-}
-
-.beta-badge {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-height: 30px;
-  padding: 4px 10px;
-  border: 1.5px solid var(--beta-soft);
-  border-radius: 999px;
-  color: var(--beta-soft);
-  font-size: 10px;
-  font-weight: 800;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
-.beta-badge svg {
-  width: 12px;
-  height: 12px;
-}
 
 /* The production selector keeps all of its behavior; this skin gives it the
    compact paper-card hierarchy from the wayfinding prototype. */
@@ -308,6 +276,37 @@
 .beta-page .wayfinding-selector > div:last-child > div {
   border-color: rgba(55, 44, 36, 0.18);
   background: rgba(55, 44, 36, 0.04);
+}
+
+/* Re-skin the shared AlertsBanner to the signage system. Severity keeps its
+   meaning through the accent bar + icon color instead of a full tinted wash. */
+.beta-page [data-testid="alerts-banner"][data-tone] {
+  border: 1.5px solid var(--beta-control-border);
+  border-left-width: 6px;
+  border-radius: 12px;
+  background: var(--beta-paper);
+  color: var(--beta-ink);
+  box-shadow: 0 4px 14px rgba(55, 44, 36, 0.08);
+}
+
+.beta-page [data-testid="alerts-banner"][data-tone='severe'] {
+  border-left-color: var(--beta-exit-red);
+}
+
+.beta-page [data-testid="alerts-banner"][data-tone='severe'] > button > svg:first-child {
+  color: var(--beta-exit-red);
+}
+
+.beta-page [data-testid="alerts-banner"][data-tone='info'] {
+  border-left-color: #d98e04;
+}
+
+.beta-page [data-testid="alerts-banner"][data-tone='info'] > button > svg:first-child {
+  color: #b97a06;
+}
+
+.dark .beta-page [data-testid="alerts-banner"][data-tone='info'] > button > svg:first-child {
+  color: #eaa53c;
 }
 
 .beta-results {
@@ -499,6 +498,8 @@
 
 .beta-hybrid-route-tile,
 .beta-bus-route-block {
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
   gap: 7px;
   border-radius: 6px;
@@ -1201,11 +1202,14 @@ button.beta-bus-row:hover,
   justify-content: center;
   width: 30px;
   height: 30px;
+  /* capitals sit on the baseline, so a small lift optically centers the glyph */
+  padding-bottom: 0.14em;
   border-radius: 50%;
   border: 1px solid rgba(0, 0, 0, 0.08);
   font-size: 17px;
   font-weight: 520;
   line-height: 1;
+  text-align: center;
   flex: none;
 }
 
@@ -1309,6 +1313,29 @@ button.beta-train-row:hover {
   white-space: nowrap;
 }
 
+/* data-source helper chip — outlined icon + short label, per the 2026
+   wayfinding guide's directional helper blocks */
+.beta-source-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: 6px;
+  padding: 1px 5px 1px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.38);
+  border-radius: 4px;
+  color: rgba(255, 255, 255, 0.82);
+  font-size: 8.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  vertical-align: text-bottom;
+}
+
+.beta-source-chip svg {
+  width: 9px;
+  height: 9px;
+}
+
 .beta-min-box,
 .beta-live-pill {
   flex: none;
@@ -1331,6 +1358,14 @@ button.beta-train-row:hover {
   color: rgba(23, 17, 13, 0.58);
   font-size: 9px;
   font-weight: 700;
+}
+
+/* timetable clock display for schedule-planned trips */
+.beta-min-box.is-clock {
+  font-size: 12px;
+  letter-spacing: -0.01em;
+  padding-top: 6px;
+  padding-bottom: 6px;
 }
 
 .beta-live-pill {
@@ -1405,13 +1440,14 @@ button.beta-train-row:hover {
 .beta-change-link {
   border: 0;
   background: transparent;
-  color: #0076c0;
+  /* matches the app-wide green "selected/best" accent (live pip, alternatives) */
+  color: #00833d;
   font-size: 11px;
   font-weight: 750;
 }
 
 .dark .beta-change-link {
-  color: #7fc8f5;
+  color: #4cc57e;
 }
 
 .beta-select-note {
@@ -1508,10 +1544,13 @@ button.beta-train-row:hover {
   white-space: nowrap;
 }
 
-.beta-stand-label svg {
+.beta-stand-caret {
+  position: absolute;
+  top: 13px;
   width: 18px;
   height: 18px;
-  margin-top: 2px;
+  transform: translateX(-50%);
+  color: #fff;
 }
 
 .beta-car-row,
@@ -1588,6 +1627,10 @@ button.beta-train-row:hover {
   height: 92px;
 }
 
+.beta-platform-markers.has-three-rows {
+  height: 105px;
+}
+
 .beta-egress-marker {
   position: absolute;
   top: 0;
@@ -1658,11 +1701,83 @@ button.beta-train-row:hover {
   top: 70px;
 }
 
+.beta-egress-label.is-row-3 {
+  top: 83px;
+}
+
 .beta-board-legend {
   margin-top: 10px;
   color: var(--beta-sign-soft);
   font-size: 11px;
   text-align: center;
+}
+
+/* full exit list — every destination exit with its best car */
+.beta-exit-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px 8px;
+  margin: 12px 0 0;
+  padding: 12px 0 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
+  list-style: none;
+}
+
+.beta-exit-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 9px 4px 4px;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 6px;
+  color: var(--beta-sign-soft);
+  font-size: 10.5px;
+  font-weight: 600;
+}
+
+.beta-exit-option b {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.88);
+  color: #17110d;
+  font-size: 11px;
+  font-weight: 750;
+}
+
+.beta-exit-option svg {
+  width: 12px;
+  height: 12px;
+  flex: none;
+}
+
+.beta-exit-option > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.beta-exit-option small {
+  flex: none;
+  color: #ffd166;
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.beta-exit-option.is-primary {
+  border-color: rgba(255, 255, 255, 0.65);
+  color: #fff;
+}
+
+.beta-exit-option.is-primary b {
+  background: #fff;
 }
 
 .beta-direction-sign {
@@ -1946,17 +2061,47 @@ button.beta-train-row:hover {
   padding: 20px 20px 24px;
 }
 
-.beta-pylon-direction {
-  width: 34px;
-  height: 34px;
-  margin-bottom: 12px;
-  stroke-width: 2.5;
+.beta-pylon.is-collapsed {
+  width: 100%;
+  padding-bottom: 20px;
+}
+
+.beta-pylon-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  gap: 12px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+
+.beta-pylon-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--beta-sign-soft);
+  font-size: 11px;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.beta-pylon-meta svg {
+  width: 16px;
+  height: 16px;
+  flex: none;
 }
 
 .beta-pylon-service {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+
+.beta-pylon:not(.is-collapsed) .beta-pylon-header {
   margin-bottom: 18px;
 }
 
@@ -2037,6 +2182,29 @@ button.beta-train-row:hover {
 
 .beta-pylon-stop.is-beyond .beta-pylon-track::before {
   opacity: 0.32;
+}
+
+/* the ridden (lit) segment ends at the destination circle; anything above it
+   belongs to the beyond-stops and stays dim */
+.beta-pylon-stop.is-destination .beta-pylon-track::before {
+  top: 50%;
+  border-radius: 3px 3px 0 0;
+}
+
+.beta-pylon-stop.is-destination {
+  position: relative;
+}
+
+.beta-pylon-stop.is-beyond + .beta-pylon-stop.is-destination::before {
+  position: absolute;
+  top: 0;
+  bottom: 50%;
+  left: 4px;
+  width: 5px;
+  background: var(--line-color);
+  content: '';
+  opacity: 0.32;
+  transform: translateX(-50%);
 }
 
 .beta-pylon-stop.is-beyond .beta-pylon-track::after {
@@ -2126,22 +2294,6 @@ button.beta-train-row:hover {
   font-size: 17px;
 }
 
-.beta-data-note {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  margin: 6px 3px 0;
-  color: var(--beta-soft);
-  font-size: 10.5px;
-  line-height: 1.5;
-}
-
-.beta-data-note svg {
-  width: 15px;
-  height: 15px;
-  margin-top: 1px;
-  flex: none;
-}
 
 .beta-empty-state {
   padding: 28px 0 36px;
@@ -2314,9 +2466,6 @@ button.beta-train-row:hover {
     align-items: flex-start;
   }
 
-  .beta-badge {
-    order: 3;
-  }
 
   .beta-header-actions {
     max-width: 230px;
@@ -2333,9 +2482,14 @@ button.beta-train-row:hover {
   }
 
   .beta-live-pill {
-    max-width: 120px;
-    overflow: hidden;
-    text-overflow: ellipsis;
+    gap: 5px;
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  /* keep the wait number, drop the verbose keyword on narrow screens */
+  .beta-pill-keyword {
+    display: none;
   }
 
   .beta-board-heading {
@@ -2354,6 +2508,18 @@ button.beta-train-row:hover {
 
   .beta-car {
     height: 28px;
+  }
+
+  /* smaller egress bubbles so spread-out clusters still clear on tablets */
+  .beta-egress-bubble {
+    width: 28px;
+    height: 28px;
+  }
+
+  .beta-egress-icon {
+    flex-basis: 19px;
+    width: 19px;
+    height: 19px;
   }
 
   .beta-hybrid-list-intro {
@@ -2381,16 +2547,29 @@ button.beta-train-row:hover {
     flex-direction: column;
   }
 
+  /* phones: 24px bubbles keep 6-unit-spread clusters from touching */
+  .beta-egress-bubble {
+    width: 24px;
+    height: 24px;
+    border-width: 1.75px;
+  }
+
+  .beta-egress-icon {
+    flex-basis: 16px;
+    width: 16px;
+    height: 16px;
+  }
+
+  .beta-egress-label {
+    font-size: 9.5px;
+  }
+
   .beta-header-actions {
     width: 100%;
     max-width: none;
     justify-content: flex-start;
   }
 
-  .beta-badge {
-    margin-left: auto;
-    order: initial;
-  }
 
   .beta-mode-row {
     justify-content: stretch;
@@ -2481,7 +2660,9 @@ button.beta-train-row:hover {
   }
 
   .beta-live-pill {
-    display: none;
+    gap: 4px;
+    padding: 3px 7px;
+    font-size: 10px;
   }
 
   .beta-direction-sign {

@@ -10,7 +10,22 @@ import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
 import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
 import { getMetroDepartures, type ScheduledMetroTrain } from './metroScheduleIndex.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
-import { calculateRouteTravelTime, getTerminus, minutesToClockTime } from './travelTime.js'
+import { calculateRouteTravelTime, getCanonicalTerminus, getTerminus, minutesToClockTime } from './travelTime.js'
+
+/** per-line canonical terminus names — signage labels, not short-turn headsigns */
+function buildDirectionLabels(
+  lines: Array<Line | undefined> | undefined,
+  fromStation: string,
+  toStation: string
+): Partial<Record<Line, string>> {
+  const labels: Partial<Record<Line, string>> = {}
+  for (const line of lines ?? []) {
+    if (!line || labels[line]) continue
+    const label = getCanonicalTerminus(line, fromStation, toStation)
+    if (label) labels[line] = label
+  }
+  return labels
+}
 
 export interface PlanScheduledTripInput {
   from: string
@@ -141,6 +156,7 @@ export function planScheduledTrip(
         leg1: {
           trains,
           carPosition: directLines.length === 1 ? lineCarPositions[directLines[0]] ?? null : null,
+          directionLabels: buildDirectionLabels(directLines, from, to),
           stops: directLines.length === 1 ? lineStops[directLines[0]] ?? [] : undefined,
           stopsBeyond: directLines.length === 1 ? lineStopsBeyond[directLines[0]] ?? [] : undefined,
           ...(directLines.length > 1 ? { lineCarPositions, lineStops, lineStopsBeyond } : {})
@@ -246,6 +262,11 @@ export function planScheduledTrip(
         carPosition: carPositions.leg1,
         terminus: terminusFirst,
         travelTime: leg1TravelTime,
+        directionLabels: buildDirectionLabels(
+          leg1AllowedLines ?? [transfer.fromLine],
+          from,
+          transfer.fromPlatform
+        ),
         stops: getStopsForLeg(transfer.fromLine!, from, transfer.fromPlatform)
       },
       leg2: {
@@ -253,6 +274,11 @@ export function planScheduledTrip(
         terminus: terminusSecond,
         travelTime: leg2TravelTime,
         carPosition: carPositions.leg2,
+        directionLabels: buildDirectionLabels(
+          leg2AllowedLines ?? [transfer.toLine],
+          transfer.toPlatform,
+          to
+        ),
         stops: getStopsForLeg(transfer.toLine!, transfer.toPlatform, to),
         stopsBeyond: getStopsBeyondDestination(transfer.toLine!, transfer.toPlatform, to)
       }

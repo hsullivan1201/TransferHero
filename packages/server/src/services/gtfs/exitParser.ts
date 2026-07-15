@@ -71,6 +71,8 @@ export class ExitParser {
 
   private cleanExitName(rawName: string): string {
     const parts = rawName.split(' - ');
-    return parts.length > 1 ? parts.slice(1).join(' - ').trim() : rawName.trim();
+    const name = parts.length > 1 ? parts.slice(1).join(' - ').trim() : rawName.trim();
+    // WMATA's GTFS title-cases ordinal suffixes ("M & 2Nd Sts. NE") — lower them
+    return name.replace(/(\d)(St|Nd|Rd|Th)\b/g, (_, digit, suffix) => digit + suffix.toLowerCase());
   }
 }
