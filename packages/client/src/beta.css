@@ -2547,6 +2547,43 @@ button.beta-train-row:hover {
     flex-direction: column;
   }
 
+  /* transfer sign: stack each exit group on its own line instead of a
+     ragged wrap; labels get the full row so they never cramp or clip */
+  .beta-transfer-direction {
+    gap: 10px 20px;
+  }
+
+  .beta-transfer-exits {
+    row-gap: 9px;
+  }
+
+  .beta-transfer-exit-group {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .beta-transfer-exit-group > small {
+    max-width: none;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .beta-transfer-target {
+    max-width: 100%;
+    margin-left: 0;
+  }
+
+  .beta-transfer-target .beta-follow-block {
+    min-width: 0;
+  }
+
+  .beta-transfer-target .beta-follow-block strong {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
   /* phones: 24px bubbles keep 6-unit-spread clusters from touching */
   .beta-egress-bubble {
     width: 24px;

@@ -487,7 +487,7 @@ function TrainRow({
     : 'train length unavailable'
   // data-source helper chip, styled after the wayfinding guide's helper blocks
   const source = train._gtfs
-    ? { Icon: Satellite, label: 'GPS', title: 'Tracked via GPS' }
+    ? { Icon: Satellite, label: 'GTFS', title: 'Tracked via GTFS realtime' }
     : train._scheduled
       ? { Icon: CalendarClock, label: 'Sched', title: 'From the timetable' }
       : { Icon: Rss, label: 'Live', title: 'Live at station' }
