@@ -1192,7 +1192,9 @@ button.beta-bus-row:hover,
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  flex-wrap: wrap;
+  /* rail discs always read as one block — the station name wraps instead */
+  flex-wrap: nowrap;
+  flex: none;
   justify-content: flex-end;
 }
 
@@ -1225,6 +1227,10 @@ button.beta-bus-row:hover,
   justify-content: space-between;
   gap: 14px;
   padding: 16px 18px 14px;
+}
+
+.beta-station-top > div:first-child {
+  min-width: 0;
 }
 
 .beta-station-top h2 {
