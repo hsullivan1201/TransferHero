@@ -1277,8 +1277,9 @@ export function BetaTripView({
               {targetPlatformLines.length > 0 && <LineDiscs lines={targetPlatformLines} />}
             </div>
             <div className="beta-transfer-direction">
+              {/* no directional arrow on the exits: we don't have platform
+                  bearings, so implying "these are to your left" would be a lie */}
               <span className="beta-transfer-exits">
-                <ArrowLeft className="beta-sign-arrow" aria-hidden="true" />
                 <Accessibility className="beta-transfer-accessibility" aria-hidden="true" />
                 {transferExitGroups.map((group) => (
                   <span className="beta-transfer-exit-group" key={`${group.text}-${group.letters.join('')}`}>

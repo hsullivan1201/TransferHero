@@ -2575,9 +2575,9 @@ button.beta-train-row:hover {
     white-space: nowrap;
   }
 
+  /* onward-direction pill sits right, opposite the exit list */
   .beta-transfer-target {
     max-width: 100%;
-    margin-left: 0;
   }
 
   .beta-transfer-target .beta-follow-block {
