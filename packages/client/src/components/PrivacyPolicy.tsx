@@ -44,6 +44,11 @@ export function PrivacyPolicy({ onClose }: PrivacyPolicyProps) {
             When you save a trip, it's stored in your browser's local storage on your device. This data never leaves your phone or computer; we don't see it, collect it, or back it up. Clearing your browser data will delete your saved trips.
           </p>
 
+          <h3 className="font-medium text-[var(--text-primary)]">Shared trip links</h3>
+          <p>
+            When you choose “Share trip,” we store a signed copy of the shared trip so its short link works. It includes the trip endpoints and may include place names, coordinates, route details, and timing. Anyone with the link can view those details. Shared links do not currently expire.
+          </p>
+
           <h3 className="font-medium text-[var(--text-primary)]">What we don't do</h3>
           <ul className="list-disc pl-5 space-y-1">
             <li>We don't create accounts or track you across sessions.</li>

@@ -83,11 +83,17 @@ NODE_ENV=development
 CORS_ORIGIN=http://localhost:3000
 PUBLIC_BASE_URL=http://localhost:3001
 SHARE_TOKEN_SECRET=replace_with_a_long_random_secret
+# Optional: persist short links locally instead of keeping them in memory
+# SHARE_LINK_DB_PATH=./data/transferhero-share-links.sqlite
 ```
 
 For deployed messaging previews, set `PUBLIC_BASE_URL` to the app's public HTTPS origin
 (for example, `https://transferhero.app`) and keep `SHARE_TOKEN_SECRET` stable across
 deploys and server instances. Changing that secret invalidates existing shared links.
+For durable short links on Railway, attach a volume to the web service (for example at
+`/data`); the server automatically stores its SQLite mapping under Railway's provided
+`RAILWAY_VOLUME_MOUNT_PATH`. Without a production volume or explicit
+`SHARE_LINK_DB_PATH`, sharing safely falls back to the existing signed long URLs.
 
 You'll need a [WMATA API key](https://developer.wmata.com/) and a [Google Maps API key](https://console.cloud.google.com/) with Places and Directions APIs enabled.
 

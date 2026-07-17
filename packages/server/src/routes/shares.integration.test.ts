@@ -2,8 +2,12 @@ import assert from 'node:assert/strict'
 import type { AddressInfo } from 'node:net'
 import type { SharedTripPayload } from '@transferhero/shared'
 import { createApp } from '../app.js'
+import { closeShareLinkStoreForTests } from '../services/shareLinkStore.js'
+import { createShareToken } from '../services/shareToken.js'
 
 const now = Date.now()
+const originalShareDatabasePath = process.env.SHARE_LINK_DB_PATH
+process.env.SHARE_LINK_DB_PATH = ':memory:'
 const trip: SharedTripPayload = {
   v: 2,
   origin: { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
@@ -50,8 +54,9 @@ try {
   })
   assert.equal(created.status, 201)
   const body = await created.json() as { token: string; url: string }
-  assert.match(body.token, /^[A-Za-z0-9_-]+\.[A-Za-z0-9_-]{43}$/u)
+  assert.match(body.token, /^[A-Za-z0-9_-]{16}$/u)
   assert.equal(body.url, `${baseUrl}/t/${body.token}`)
+  assert.ok(body.url.length < 60)
 
   const htmlResponse = await fetch(body.url, { headers: { 'User-Agent': 'Twitterbot/1.0' } })
   assert.equal(htmlResponse.status, 200)
@@ -77,7 +82,14 @@ try {
   assert.equal(resolvedBody.trip.origin.code, 'A03')
   assert.equal(resolvedBody.trip.destination.code, 'F05')
 
-  const tampered = `${body.token.slice(0, -1)}x`
+  const legacyToken = createShareToken(trip)
+  const legacyUrl = `${baseUrl}/t/${legacyToken}`
+  assert.equal((await fetch(`${baseUrl}/api/shares/${legacyToken}`)).status, 200)
+  assert.equal((await fetch(legacyUrl, { headers: { 'User-Agent': 'Twitterbot/1.0' } })).status, 200)
+  assert.equal((await fetch(`${legacyUrl}/card.png?v=2`)).status, 200)
+
+  const replacement = body.token.endsWith('A') ? 'B' : 'A'
+  const tampered = `${body.token.slice(0, -1)}${replacement}`
   assert.equal((await fetch(`${baseUrl}/t/${tampered}`)).status, 404)
   console.log('share routes integration tests passed')
 } finally {
@@ -86,4 +98,7 @@ try {
       server.close(error => error ? reject(error) : resolve())
     })
   }
+  closeShareLinkStoreForTests()
+  if (originalShareDatabasePath == null) delete process.env.SHARE_LINK_DB_PATH
+  else process.env.SHARE_LINK_DB_PATH = originalShareDatabasePath
 }

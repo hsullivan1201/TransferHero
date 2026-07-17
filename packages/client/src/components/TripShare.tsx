@@ -955,7 +955,7 @@ export function TripShare({
           </div>
           {(originPlaceContext || destPlaceContext) && (
             <p className="trip-share-privacy">
-              Anyone with this link can see the trip endpoints.
+              Anyone with this link can see the trip endpoints. Shared links do not currently expire.
             </p>
           )}
           <p className="trip-share-status" role="status" aria-live="polite">{status}</p>
