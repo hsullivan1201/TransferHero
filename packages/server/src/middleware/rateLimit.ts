@@ -14,15 +14,8 @@ interface Bucket {
 const buckets = new Map<string, Bucket>()
 
 function getClientIp(req: Request): string {
-  const forwarded = req.headers['x-forwarded-for']
-
-  if (typeof forwarded === 'string' && forwarded.length > 0) {
-    return forwarded.split(',')[0].trim()
-  }
-  if (Array.isArray(forwarded) && forwarded.length > 0) {
-    return forwarded[0].split(',')[0].trim()
-  }
-
+  // Express applies the configured trust-proxy policy when resolving req.ip.
+  // Reading X-Forwarded-For directly would let clients spoof limiter buckets.
   return req.ip || req.socket.remoteAddress || 'unknown'
 }
 
@@ -109,4 +102,10 @@ export const busWalkRateLimit = createRateLimiter({
   scope: 'bus-walk',
   windowMs: 60_000,
   max: 60
+})
+
+export const shareCreateRateLimit = createRateLimiter({
+  scope: 'share-create',
+  windowMs: 60_000,
+  max: 30
 })

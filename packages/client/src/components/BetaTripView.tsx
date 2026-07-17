@@ -23,6 +23,8 @@ import type {
   ExitOption,
   Line,
   PlaceContext,
+  SharedTripLeg,
+  SharedTripTiming,
   Station,
   Train,
   TransferResult,
@@ -39,6 +41,7 @@ import { buildMapsUrl, formatDistance } from '../utils/geo'
 import { resolveExitLabel } from '../data/exitMapping'
 import { useNow } from '../hooks/useNow'
 import { PlatformEgressIcon } from './PlatformEgressIcon'
+import { TripShare } from './TripShare'
 import { UpdatedAgo } from './UpdatedAgo'
 
 type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
@@ -1052,6 +1055,59 @@ export function BetaTripView({
     : destinationPosition
       ? `near ${destinationPosition} of train`
       : null
+  const shareLines = [...new Set([
+    ...(primaryLine ? [primaryLine] : []),
+    ...(finalLine ? [finalLine] : []),
+  ])]
+  const shareRouteSummary = isDirect
+    ? `${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} Line direct toward ${firstDirectionLabel}`
+    : `${primaryLine ? LINE_NAMES[primaryLine] : 'Metro'} to ${finalLine ? LINE_NAMES[finalLine] : 'Metro'} · transfer at ${transferName}`
+  const shareWalkSegments = [
+    ...(firstWalk > 0 ? [`${firstWalk} min walk to Metro`] : []),
+    ...(!isDirect ? [`${walkTime} min transfer walk`] : []),
+    ...(lastWalk > 0 ? [`${lastWalk} min walk after Metro`] : []),
+  ]
+  const shareTransferWalkSummary = shareWalkSegments.length > 0
+    ? shareWalkSegments.join(' · ')
+    : isDirect ? 'Direct ride · no transfer' : `Transfer at ${transferName}`
+  const shareLegs: SharedTripLeg[] = [
+    ...(effectiveFirstWalk > 0
+      ? [{ kind: 'walk' as const, minutes: effectiveFirstWalk, stationName: origin.name }]
+      : []),
+    ...(primaryLine
+      ? [{ kind: 'rail' as const, minutes: effectiveLeg1Time, line: primaryLine, toward: firstDirectionLabel }]
+      : []),
+    ...(!isDirect
+      ? [{ kind: 'transfer' as const, minutes: walkTime, stationName: transferName }]
+      : []),
+    ...(!isDirect && finalLine
+      ? [{ kind: 'rail' as const, minutes: leg2Time, line: finalLine, toward: secondDirectionLabel }]
+      : []),
+    ...(lastWalk > 0
+      ? [{ kind: 'walk' as const, minutes: lastWalk, stationName: destination.name }]
+      : []),
+  ]
+  const parsedFetchedAt = fetchedAt ? Date.parse(fetchedAt) : Number.NaN
+  const shareCapturedAtMs = Number.isFinite(parsedFetchedAt) ? parsedFetchedAt : nowMinute
+  const shareDepartureAtMs = departureTimestamp
+    ?? (summaryTrain ? nowMinute + Math.max(0, departureFromNow) * 60_000 : null)
+  const shareArrivalAtMs = plannedForMs
+    ? plannedForMs + displayTotalMinutes * 60_000
+    : hasKnownRideTime ? nowMinute + totalMinutes * 60_000 : null
+  const firstLegRealtime = !!summaryTrain?._realtimeSource && !summaryTrain._scheduled
+  const secondLegRealtime = isDirect || (!!routeLeg2Train?._realtimeSource && !routeLeg2Train._scheduled)
+  const shareTiming: SharedTripTiming = {
+    capturedAtMs: shareCapturedAtMs,
+    departureAtMs: shareDepartureAtMs,
+    arrivalAtMs: shareArrivalAtMs,
+    source: plannedForMs
+      ? 'scheduled'
+      : firstLegRealtime && secondLegRealtime
+        ? 'live'
+        : firstLegRealtime || (!isDirect && secondLegRealtime)
+          ? 'mixed'
+          : 'scheduled',
+  }
   const finalLegOrigin: Station = finalLegStops[0] ?? (isDirect || !transfer
     ? origin
     : {
@@ -1133,6 +1189,25 @@ export function BetaTripView({
 
           <div className="beta-refresh-row">
             <UpdatedAgo fetchedAt={fetchedAt} isFetching={isRefreshing} label={scheduledLabel} />
+            {hasKnownRideTime && (
+              <TripShare
+                origin={origin}
+                destination={destination}
+                originPlaceContext={originPlaceContext}
+                destPlaceContext={destPlaceContext}
+                lines={shareLines}
+                durationMinutes={displayTotalMinutes}
+                arrivalClock={arrivalClock}
+                routeSummary={shareRouteSummary}
+                transferWalkSummary={shareTransferWalkSummary}
+                walkTime={walkTime}
+                accessible={accessible}
+                transferName={isDirect ? null : transferName}
+                legs={shareLegs}
+                timing={shareTiming}
+                plannedForMs={plannedForMs}
+              />
+            )}
             <button type="button" onClick={onRefresh} disabled={isRefreshing}>
               <RefreshCw className={isRefreshing ? 'animate-spin' : ''} />
               {isRefreshing ? 'Refreshing' : 'Refresh'}

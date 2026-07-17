@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import type { PlaceResult, Line } from '@transferhero/shared'
+import type { PlaceContext, PlaceResult, Line } from '@transferhero/shared'
 import type { SmartSelection } from '../components/SmartSelector'
 
 export interface SavedTripSelection {
@@ -14,6 +14,11 @@ export interface SavedTrip {
   from: SavedTripSelection
   to: SavedTripSelection
   walkTime: number
+  /** Optional planned departure used when a shared trip hydrates the planner. */
+  departAt?: number | null
+  /** Exact place-to-station choices carried by a shared trip (not used by saved trips). */
+  fromPlaceContext?: PlaceContext
+  toPlaceContext?: PlaceContext
   savedAt: number
 }
 

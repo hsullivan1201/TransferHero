@@ -81,7 +81,13 @@ GOOGLE_PLACES_API_KEY=your_google_api_key_here
 PORT=3001
 NODE_ENV=development
 CORS_ORIGIN=http://localhost:3000
+PUBLIC_BASE_URL=http://localhost:3001
+SHARE_TOKEN_SECRET=replace_with_a_long_random_secret
 ```
+
+For deployed messaging previews, set `PUBLIC_BASE_URL` to the app's public HTTPS origin
+(for example, `https://transferhero.app`) and keep `SHARE_TOKEN_SECRET` stable across
+deploys and server instances. Changing that secret invalidates existing shared links.
 
 You'll need a [WMATA API key](https://developer.wmata.com/) and a [Google Maps API key](https://console.cloud.google.com/) with Places and Directions APIs enabled.
 

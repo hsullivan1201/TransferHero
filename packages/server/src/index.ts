@@ -21,6 +21,7 @@ function logMemory(label: string): void {
 
 function initStartupData(): void {
   if (process.env.NODE_ENV === 'test') return
+  const skipBusGtfs = process.env.LOCAL_SHARE_SMOKE === 'true'
 
   logMemory('boot')
 
@@ -29,11 +30,15 @@ function initStartupData(): void {
       logMemory('after metro GTFS')
       return loadStationExits()
     })
-    .then(() => loadBusGtfs())
+    .then(async () => {
+      if (!skipBusGtfs) await loadBusGtfs()
+    })
     .then(() => {
-      logMemory('after bus GTFS')
-      buildSpatialIndex()
-      buildStationProximity()
+      if (!skipBusGtfs) {
+        logMemory('after bus GTFS')
+        buildSpatialIndex()
+        buildStationProximity()
+      }
       logMemory('startup complete')
     })
     .catch(err => {

@@ -8,6 +8,7 @@ import alertsRouter from './routes/alerts.js'
 import busesRouter from './routes/buses.js'
 import destinationsRouter from './routes/destinations.js'
 import healthRouter from './routes/health.js'
+import sharesApiRouter, { publicSharesRouter } from './routes/shares.js'
 import stationsRouter from './routes/stations.js'
 import tripsRouter from './routes/trips.js'
 
@@ -25,6 +26,7 @@ const __dirname = path.dirname(__filename)
 export function createApp(options: CreateAppOptions = {}) {
   const app = express()
   const isProduction = options.isProduction ?? process.env.NODE_ENV === 'production'
+  const isLocalShareSmoke = process.env.LOCAL_SHARE_SMOKE === 'true'
 
   app.set('trust proxy', isProduction ? 1 : false)
 
@@ -36,8 +38,10 @@ export function createApp(options: CreateAppOptions = {}) {
         styleSrc: ["'self'", "'unsafe-inline'"],
         imgSrc: ["'self'", 'data:', 'https://*.tile.openstreetmap.org'],
         connectSrc: ["'self'", 'https://api.wmata.com'],
+        ...(isLocalShareSmoke ? { upgradeInsecureRequests: null } : {}),
       }
-    } : false
+    } : false,
+    ...(isLocalShareSmoke ? { strictTransportSecurity: false } : {}),
   }))
 
   const corsOrigin = process.env.CORS_ORIGIN
@@ -60,6 +64,10 @@ export function createApp(options: CreateAppOptions = {}) {
   app.use('/api/destinations', destinationsRouter)
   app.use('/api/buses', busesRouter)
   app.use('/api/alerts', alertsRouter)
+  app.use('/api/shares', sharesApiRouter)
+
+  // Crawler-readable trip pages must run before the production SPA catch-all.
+  app.use('/t', publicSharesRouter)
 
   if (isProduction) {
     const clientDistPath = path.join(__dirname, '../../client/dist')

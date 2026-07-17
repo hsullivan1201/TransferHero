@@ -1111,6 +1111,7 @@ button.beta-bus-row:hover,
   display: flex;
   align-items: center;
   justify-content: flex-end;
+  flex-wrap: wrap;
   gap: 10px;
   min-height: 38px;
   margin-bottom: 15px;
@@ -2451,6 +2452,50 @@ button.beta-train-row:hover {
   color: #fff;
   font-size: 11px;
   font-weight: 750;
+}
+
+.beta-shared-trip-banner {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  margin: -10px 0 20px;
+  padding: 11px 13px;
+  border: 1.5px solid rgba(55, 44, 36, 0.24);
+  border-radius: 11px;
+  background: var(--beta-paper);
+  color: var(--beta-ink);
+  box-shadow: 0 3px 12px rgba(55, 44, 36, 0.07);
+}
+
+.beta-shared-trip-banner > span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--beta-sign);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 800;
+  flex: none;
+}
+
+.beta-shared-trip-banner strong,
+.beta-shared-trip-banner small {
+  display: block;
+}
+
+.beta-shared-trip-banner strong {
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.beta-shared-trip-banner small {
+  margin-top: 2px;
+  color: var(--beta-soft);
+  font-size: 10.5px;
+  font-weight: 600;
 }
 
 .beta-footer {

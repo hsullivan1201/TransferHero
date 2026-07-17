@@ -116,6 +116,8 @@ export function TripSelector({
   // station override when user picks an alternative walking station
   const [originOverride, setOriginOverride] = useState<WalkingAlt | null>(null)
   const [destOverride, setDestOverride] = useState<WalkingAlt | null>(null)
+  const sharedOriginContextRef = useRef<PlaceContext | null>(null)
+  const sharedDestContextRef = useRef<PlaceContext | null>(null)
 
   // Load a saved trip into the selectors and run it once endpoints resolve
   const lastLoadedId = useRef<string | null>(null)
@@ -126,9 +128,15 @@ export function TripSelector({
       setFromSelection(savedToSelection(loadTrip.from))
       setToSelection(savedToSelection(loadTrip.to))
       setWalkTime(loadTrip.walkTime)
+      sharedOriginContextRef.current = loadTrip.fromPlaceContext ?? null
+      sharedDestContextRef.current = loadTrip.toPlaceContext ?? null
       setOriginOverride(null)
       setDestOverride(null)
-      setDepartMode('now')
+      const sharedDeparture = loadTrip.departAt && loadTrip.departAt > Date.now()
+        ? loadTrip.departAt
+        : null
+      setDepartMode(sharedDeparture ? 'later' : 'now')
+      setDepartAtValue(sharedDeparture ? toLocalInputValue(new Date(sharedDeparture)) : '')
       setPendingAutoGo(true)
       onTripLoaded?.()
     }
@@ -143,19 +151,43 @@ export function TripSelector({
 
   // Place/resolve change: reset override and build context in one pass (no cascade)
   useEffect(() => {
-    setOriginOverride(null)
     if (fromPlace && fromResolved) {
-      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, null, 'to_station'))
+      const sharedContext = sharedOriginContextRef.current
+      sharedOriginContextRef.current = null
+      const sharedOverride = sharedContext && sharedContext.place.id === fromPlace.id
+        && (sharedContext.station.code !== fromResolved.station.code || sharedContext.exit.id !== fromResolved.exit.id)
+        ? {
+            station: sharedContext.station,
+            exit: sharedContext.exit,
+            walkTimeMinutes: sharedContext.walkTimeMinutes,
+            walkDistanceMeters: sharedContext.walkDistanceMeters,
+          }
+        : null
+      setOriginOverride(sharedOverride)
+      onOriginPlaceContext?.(buildPlaceContext(fromPlace, fromResolved, sharedOverride, 'to_station'))
     } else {
+      setOriginOverride(null)
       onOriginPlaceContext?.(null)
     }
   }, [fromPlace?.id, fromResolved?.station?.code])
 
   useEffect(() => {
-    setDestOverride(null)
     if (toPlace && toResolved) {
-      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, null, 'from_station'))
+      const sharedContext = sharedDestContextRef.current
+      sharedDestContextRef.current = null
+      const sharedOverride = sharedContext && sharedContext.place.id === toPlace.id
+        && (sharedContext.station.code !== toResolved.station.code || sharedContext.exit.id !== toResolved.exit.id)
+        ? {
+            station: sharedContext.station,
+            exit: sharedContext.exit,
+            walkTimeMinutes: sharedContext.walkTimeMinutes,
+            walkDistanceMeters: sharedContext.walkDistanceMeters,
+          }
+        : null
+      setDestOverride(sharedOverride)
+      onDestPlaceContext?.(buildPlaceContext(toPlace, toResolved, sharedOverride, 'from_station'))
     } else {
+      setDestOverride(null)
       onDestPlaceContext?.(null)
     }
   }, [toPlace?.id, toResolved?.station?.code])

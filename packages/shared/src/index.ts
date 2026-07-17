@@ -2,6 +2,8 @@
 
 export type Line = 'RD' | 'OR' | 'SV' | 'BL' | 'YL' | 'GR'
 
+export * from './shareTrip.js'
+
 // Maps WMATA/GTFS route names to our line codes
 export const ROUTE_TO_LINE: Record<string, Line> = {
   'ORANGE': 'OR', 'OR': 'OR',

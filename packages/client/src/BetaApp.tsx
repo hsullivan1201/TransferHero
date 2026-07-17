@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Accessibility, Bus, Moon, Sun, TrainFront } from 'lucide-react'
-import type { Line, PlaceContext, Station } from '@transferhero/shared'
+import type { Line, PlaceContext, SharedTripPayload, Station } from '@transferhero/shared'
+import { resolveTripShareToken } from './api/shares'
 import {
   Footer,
   SavedTripsList,
@@ -12,6 +13,7 @@ import { BetaBusTripList } from './components/BetaBusTripView'
 import { BetaTripView } from './components/BetaTripView'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { OfflineBanner } from './components/OfflineBanner'
+import { parseTripShareUrl } from './components/TripShare'
 import { useAlerts } from './hooks/useAlerts'
 import { useBusTrips } from './hooks/useBusTrips'
 import { useOnlineStatus } from './hooks/useOnlineStatus'
@@ -136,7 +138,48 @@ function BetaContent() {
   const tripState = useTripState()
   const { savedTrips, saveTrip, deleteTrip, isSaved } = useSavedTrips()
   const [loadTrip, setLoadTrip] = useState<SavedTrip | null>(null)
+  const [sharedTrip, setSharedTrip] = useState<SharedTripPayload | null>(() => parseTripShareUrl())
+  const [sharedTripError, setSharedTripError] = useState(false)
+  const shareResolveStartedRef = useRef(false)
+  const sharedTripLoadedRef = useRef(false)
   const handleTripLoaded = useCallback(() => setLoadTrip(null), [])
+
+  useEffect(() => {
+    if (sharedTrip || shareResolveStartedRef.current) return
+    const match = /^\/t\/([^/]+)$/u.exec(window.location.pathname)
+    if (!match) return
+    shareResolveStartedRef.current = true
+    resolveTripShareToken(match[1])
+      .then(setSharedTrip)
+      .catch(() => setSharedTripError(true))
+  }, [sharedTrip])
+
+  useEffect(() => {
+    if (!sharedTrip || stations.length === 0 || sharedTripLoadedRef.current) return
+    sharedTripLoadedRef.current = true
+
+    const originLabel = sharedTrip.originPlaceContext?.place.name ?? sharedTrip.origin.name
+    const destinationLabel = sharedTrip.destPlaceContext?.place.name ?? sharedTrip.destination.name
+    setLoadTrip({
+      id: `shared-${sharedTrip.origin.code}-${sharedTrip.destination.code}-${sharedTrip.departAt ?? 'now'}`,
+      label: `${originLabel} → ${destinationLabel}`,
+      from: sharedTrip.originPlaceContext
+        ? { type: 'place', place: sharedTrip.originPlaceContext.place }
+        : { type: 'station', station: sharedTrip.origin },
+      to: sharedTrip.destPlaceContext
+        ? { type: 'place', place: sharedTrip.destPlaceContext.place }
+        : { type: 'station', station: sharedTrip.destination },
+      walkTime: Math.max(1, Math.min(5, Math.round(sharedTrip.walkTime))),
+      departAt: sharedTrip.departAt,
+      fromPlaceContext: sharedTrip.originPlaceContext,
+      toPlaceContext: sharedTrip.destPlaceContext,
+      savedAt: Date.now(),
+    })
+
+    if (sharedTrip.accessible !== tripState.accessible) {
+      tripState.toggleAccessible()
+    }
+  }, [sharedTrip, stations, tripState.accessible, tripState.toggleAccessible])
 
   const {
     data: tripData,
@@ -360,6 +403,23 @@ function BetaContent() {
               loadTrip={loadTrip}
               onTripLoaded={handleTripLoaded}
             />
+          )}
+
+          {sharedTrip && (
+            <div className="beta-shared-trip-banner" role="status">
+              <span aria-hidden="true">↗</span>
+              <div>
+                <strong>A friend shared this trip</strong>
+                <small>We replanned it with the latest available trip data.</small>
+              </div>
+            </div>
+          )}
+
+          {sharedTripError && (
+            <div className="beta-error" role="alert">
+              <strong>That shared trip link could not be opened.</strong>
+              <span>Ask your friend to create a fresh link.</span>
+            </div>
           )}
 
           {tripError && (

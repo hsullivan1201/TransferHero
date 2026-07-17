@@ -14,6 +14,8 @@
     "dev:server": "npm run dev -w @transferhero/server",
     "typecheck": "npm run typecheck -w @transferhero/shared && npm run typecheck -w @transferhero/server && npm run typecheck -w @transferhero/client",
     "test": "npm run test -w @transferhero/server",
+    "test:share": "npm run test:share -w @transferhero/server",
+    "smoke:share": "npm run build && npm run smoke:share -w @transferhero/server",
     "quality:check": "npm run quality:check -w @transferhero/server",
     "perf:bench": "npm run perf:bench -w @transferhero/server",
     "perf:gate": "npm run perf:gate -w @transferhero/server",
