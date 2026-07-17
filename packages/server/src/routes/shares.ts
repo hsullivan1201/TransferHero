@@ -13,6 +13,7 @@ import { getExitsForStation } from '../services/stationService.js'
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
 const MAX_CARD_CACHE_ENTRIES = 64
+const SHARE_CARD_RENDER_VERSION = 2
 const cardCache = new Map<string, Promise<Buffer>>()
 let cachedClientIndex: string | null = null
 
@@ -113,7 +114,8 @@ export function renderSharePage(trip: SharedTripPayload, token: string, baseUrl 
   const title = `${origin} to ${destination}${arrival ? ` · arrive ${arrival}` : ''}`
   const description = `${Math.round(trip.durationMinutes)} min · ${trip.routeSummary}`
   const shareUrl = `${baseUrl}/t/${token}`
-  const imageUrl = `${shareUrl}/card.png`
+  // Keep crawler caches from reusing a card produced by an older renderer.
+  const imageUrl = `${shareUrl}/card.png?v=${SHARE_CARD_RENDER_VERSION}`
   const capturedAt = formatClock(trip.timing.capturedAtMs)
   const status = trip.timing.source === 'live'
     ? 'live snapshot'

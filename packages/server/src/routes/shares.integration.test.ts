@@ -59,10 +59,10 @@ try {
   const html = await htmlResponse.text()
   assert.ok(html.includes('property="og:image"'))
   assert.ok(html.includes('name="twitter:card" content="summary_large_image"'))
-  assert.ok(html.includes(`${body.url}/card.png`))
+  assert.ok(html.includes(`${body.url}/card.png?v=2`))
   assert.ok(html.includes('name="robots" content="noindex,noarchive"'))
 
-  const imageResponse = await fetch(`${body.url}/card.png`)
+  const imageResponse = await fetch(`${body.url}/card.png?v=2`)
   assert.equal(imageResponse.status, 200)
   assert.equal(imageResponse.headers.get('content-type'), 'image/png')
   assert.equal(imageResponse.headers.get('cross-origin-resource-policy'), 'cross-origin')

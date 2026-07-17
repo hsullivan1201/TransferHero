@@ -1,5 +1,10 @@
+import { fileURLToPath } from 'node:url'
 import { Resvg } from '@resvg/resvg-js'
 import type { Line, SharedTripPayload } from '@transferhero/shared'
+
+const SHARE_CARD_FONT_PATH = fileURLToPath(
+  new URL('../assets/fonts/Inter-Bold.ttf', import.meta.url)
+)
 
 const LINE_NAMES: Record<Line, string> = {
   RD: 'Red',
@@ -145,39 +150,39 @@ export function renderShareCardSvg(trip: SharedTripPayload): string {
     <rect x="42" y="40" width="1116" height="548" rx="32" fill="#372c24" filter="url(#shadow)" />
 
     <rect x="78" y="68" width="58" height="58" rx="12" fill="#faf3eb" />
-    <text x="107" y="109" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="39" font-weight="900" fill="#372c24">T</text>
-    <text x="156" y="91" font-family="Arial,Helvetica,sans-serif" font-size="29" font-weight="800" fill="#faf3eb">TransferHero</text>
-    <text x="157" y="116" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="700" fill="#cdbbad">DC METRO WAYFINDING</text>
+    <text x="107" y="109" text-anchor="middle" font-family="Inter" font-size="39" font-weight="900" fill="#372c24">T</text>
+    <text x="156" y="91" font-family="Inter" font-size="29" font-weight="800" fill="#faf3eb">TransferHero</text>
+    <text x="157" y="116" font-family="Inter" font-size="15" font-weight="700" fill="#cdbbad">DC METRO WAYFINDING</text>
     <rect x="856" y="76" width="266" height="42" rx="21" fill="#faf3eb" fill-opacity="0.11" />
-    <text x="989" y="103" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="800" fill="#faf3eb">${status} · ${escapeXml(formatClock(trip.timing.capturedAtMs))}</text>
+    <text x="989" y="103" text-anchor="middle" font-family="Inter" font-size="15" font-weight="800" fill="#faf3eb">${status} · ${escapeXml(formatClock(trip.timing.capturedAtMs))}</text>
     <line x1="78" y1="144" x2="1122" y2="144" stroke="#faf3eb" stroke-opacity="0.14" stroke-width="2" />
 
-    <text x="78" y="179" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="1.4" fill="#cdbbad">SHARED TRIP</text>
-    <text x="78" y="222" font-family="Arial,Helvetica,sans-serif" font-size="${titleSize}" font-weight="800" fill="#faf3eb">${escapeXml(title)}</text>
+    <text x="78" y="179" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.4" fill="#cdbbad">SHARED TRIP</text>
+    <text x="78" y="222" font-family="Inter" font-size="${titleSize}" font-weight="800" fill="#faf3eb">${escapeXml(title)}</text>
 
     <rect x="78" y="246" width="310" height="86" rx="18" fill="#2c231d" />
-    <text x="104" y="277" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">${departureLabel}</text>
-    <text x="104" y="316" font-family="Arial,Helvetica,sans-serif" font-size="35" font-weight="850" fill="#faf3eb">${escapeXml(formatClock(leaveAt ?? trip.timing.departureAtMs))}</text>
+    <text x="104" y="277" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">${departureLabel}</text>
+    <text x="104" y="316" font-family="Inter" font-size="35" font-weight="850" fill="#faf3eb">${escapeXml(formatClock(leaveAt ?? trip.timing.departureAtMs))}</text>
 
     <rect x="405" y="246" width="310" height="86" rx="18" fill="#faf3eb" />
-    <text x="431" y="277" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="1.2" fill="#6b584b">ARRIVE</text>
-    <text x="431" y="316" font-family="Arial,Helvetica,sans-serif" font-size="35" font-weight="850" fill="#372c24">${escapeXml(formatClock(trip.timing.arrivalAtMs))}</text>
+    <text x="431" y="277" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.2" fill="#6b584b">ARRIVE</text>
+    <text x="431" y="316" font-family="Inter" font-size="35" font-weight="850" fill="#372c24">${escapeXml(formatClock(trip.timing.arrivalAtMs))}</text>
 
     <rect x="732" y="246" width="180" height="86" rx="18" fill="#2c231d" stroke="#faf3eb" stroke-opacity="0.14" />
-    <text x="758" y="277" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">TRIP TIME</text>
-    <text x="758" y="316" font-family="Arial,Helvetica,sans-serif" font-size="35" font-weight="850" fill="#faf3eb">${Math.round(trip.durationMinutes)} <tspan font-size="18">MIN</tspan></text>
+    <text x="758" y="277" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">TRIP TIME</text>
+    <text x="758" y="316" font-family="Inter" font-size="35" font-weight="850" fill="#faf3eb">${Math.round(trip.durationMinutes)} <tspan font-size="18">MIN</tspan></text>
 
     <rect x="929" y="246" width="193" height="86" rx="18" fill="#2c231d" stroke="#faf3eb" stroke-opacity="0.14" />
-    <text x="955" y="277" font-family="Arial,Helvetica,sans-serif" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">ROUTE</text>
-    <text x="955" y="310" font-family="Arial,Helvetica,sans-serif" font-size="20" font-weight="800" fill="#faf3eb">${escapeXml(trip.lines.map(line => LINE_NAMES[line]).join(' → '))}</text>
+    <text x="955" y="277" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.2" fill="#cdbbad">ROUTE</text>
+    <text x="955" y="310" font-family="Inter" font-size="20" font-weight="800" fill="#faf3eb">${escapeXml(trip.lines.map(line => LINE_NAMES[line]).join(' → '))}</text>
 
-    <g font-family="Arial,Helvetica,sans-serif">
+    <g font-family="Inter">
       ${diagramSvg(trip)}
     </g>
 
     <rect x="850" y="526" width="272" height="42" rx="21" fill="#faf3eb" />
-    <text x="872" y="553" font-family="Arial,Helvetica,sans-serif" font-size="15" font-weight="850" letter-spacing="0.5" fill="#372c24">OPEN TRIP DETAILS</text>
-    <text x="1094" y="554" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="22" font-weight="800" fill="#372c24">→</text>
+    <text x="872" y="553" font-family="Inter" font-size="15" font-weight="850" letter-spacing="0.5" fill="#372c24">OPEN TRIP DETAILS</text>
+    <text x="1094" y="554" text-anchor="middle" font-family="Inter" font-size="22" font-weight="800" fill="#372c24">→</text>
   </svg>`
 }
 
@@ -185,6 +190,12 @@ export function renderShareCardPng(trip: SharedTripPayload): Buffer {
   const renderer = new Resvg(renderShareCardSvg(trip), {
     fitTo: { mode: 'width', value: 1200 },
     background: '#f2e7dc',
+    font: {
+      fontFiles: [SHARE_CARD_FONT_PATH],
+      loadSystemFonts: false,
+      defaultFontFamily: 'Inter',
+      sansSerifFamily: 'Inter',
+    },
   })
   return Buffer.from(renderer.render().asPng())
 }

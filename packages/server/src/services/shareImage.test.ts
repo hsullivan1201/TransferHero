@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { Resvg } from '@resvg/resvg-js'
 import type { SharedTripPayload } from '@transferhero/shared'
 import { renderShareCardPng, renderShareCardSvg } from './shareImage.js'
 
@@ -37,6 +38,8 @@ const svg = renderShareCardSvg({
 assert.ok(svg.includes('Safe &amp; useful &lt;trip&gt;'))
 assert.ok(!svg.includes('<trip>'))
 assert.ok(svg.includes('OPEN TRIP DETAILS'))
+assert.ok(svg.includes('font-family="Inter"'))
+assert.ok(!svg.includes('Arial,Helvetica,sans-serif'))
 assert.ok(!svg.includes('Open for current trains'))
 assert.ok(!svg.includes('ELEVATOR-AWARE'))
 assert.ok(!svg.includes('STATUS AS OF'))
@@ -54,9 +57,15 @@ assert.ok(destinationWalkOnlySvg.includes('>TRAIN</text>'))
 assert.equal(destinationWalkOnlySvg.match(/5 min walk/gu)?.length, 1)
 
 const png = renderShareCardPng(trip)
+const noFontPng = new Resvg(renderShareCardSvg(trip), {
+  fitTo: { mode: 'width', value: 1200 },
+  background: '#f2e7dc',
+  font: { loadSystemFonts: false },
+}).render().asPng()
 assert.deepEqual([...png.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10])
 assert.equal(png.readUInt32BE(16), 1200)
 assert.equal(png.readUInt32BE(20), 630)
+assert.ok(png.byteLength > noFontPng.byteLength * 1.25, 'share card should contain rendered text glyphs')
 assert.ok(png.byteLength < 500_000)
 
 console.log('share image tests passed')
