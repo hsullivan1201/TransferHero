@@ -1091,9 +1091,13 @@ export function BetaTripView({
   const shareCapturedAtMs = Number.isFinite(parsedFetchedAt) ? parsedFetchedAt : nowMinute
   const shareDepartureAtMs = departureTimestamp
     ?? (summaryTrain ? nowMinute + Math.max(0, departureFromNow) * 60_000 : null)
-  const shareArrivalAtMs = plannedForMs
-    ? plannedForMs + displayTotalMinutes * 60_000
-    : hasKnownRideTime ? nowMinute + totalMinutes * 60_000 : null
+  // Match the arrival clock shown in the trip view. For scheduled trips,
+  // plannedForMs is the station-departure search anchor—not the start of the
+  // full door-to-door trip—so adding the displayed duration double-counts the
+  // origin walk. totalMinutes already includes the wait until that train.
+  const shareArrivalAtMs = hasKnownRideTime
+    ? nowMinute + totalMinutes * 60_000
+    : null
   const firstLegRealtime = !!summaryTrain?._realtimeSource && !summaryTrain._scheduled
   const secondLegRealtime = isDirect || (!!routeLeg2Train?._realtimeSource && !routeLeg2Train._scheduled)
   const shareTiming: SharedTripTiming = {
