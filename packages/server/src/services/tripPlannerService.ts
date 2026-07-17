@@ -11,7 +11,7 @@ import {
 import { LINE_STATIONS } from '../data/lineConfig.js'
 import { getPlatformForLine, normalizePlatformCode } from '../data/platformCodes.js'
 import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
-import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
+import { getDirectLinesForLeg, getInterlinedLinesForLeg, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
 import { planScheduledTrip } from './scheduledTripPlanner.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { mergeTrainData, sortTrains } from './trainMerger.js'
@@ -145,7 +145,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
     }
 
     if (transfer.direct) {
-      const directLines = fromStation.lines.filter((line: Line) => toStation.lines.includes(line))
+      const directLines = getDirectLinesForLeg(fromStation.lines, toStation.lines, from, to)
       const allTermini: string[] = []
       for (const line of directLines) {
         const lineTermini = getTerminus(line, from, to)
@@ -153,12 +153,14 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       }
       const terminus = [...new Set(allTermini)]
       const originPlatforms = [...new Set(directLines.map(line => getPlatformForLine(from, line)))]
+      const destinationPlatforms = [...new Set(directLines.map(line => getPlatformForLine(to, line)))]
 
-      const [originPredArrays, destPreds, gtfsEntities] = await Promise.all([
+      const [originPredArrays, destinationPredArrays, gtfsEntities] = await Promise.all([
         Promise.all(originPlatforms.map(platform => deps.fetchStationPredictions(platform, apiKey))),
-        deps.fetchStationPredictions(to, apiKey),
+        Promise.all(destinationPlatforms.map(platform => deps.fetchStationPredictions(platform, apiKey))),
         deps.fetchGTFSTripUpdates(apiKey)
       ])
+      const predictionsForPlatform = (platform: string) => destinationPredArrays[destinationPlatforms.indexOf(platform)]
 
       const originPreds = originPredArrays.flat()
       const apiFiltered = deps.filterApiResponse(originPreds, terminus, directLines)
@@ -168,7 +170,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       )
       const gtfsTrains = gtfsTrainArrays.flat()
 
-      const scheduledTrains = getScheduledTrains(from, terminus, 35)
+      const scheduledTrains = originPlatforms.flatMap(platform => getScheduledTrains(platform, terminus, 35))
         .filter(train => directLines.includes(train.Line))
       const mergedTrains = mergeTrainData({
         apiTrains: apiFiltered,
@@ -184,16 +186,17 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       }, new Map())
 
       const trainsWithArrivalArrays = await Promise.all(
-        Array.from(trainsByLine.entries()).map(([line, trains]) =>
-          deps.fetchDestinationArrivals(
+        Array.from(trainsByLine.entries()).map(([line, trains]) => {
+          const destinationPlatform = getPlatformForLine(to, line)
+          return deps.fetchDestinationArrivals(
             trains,
-            to,
+            destinationPlatform,
             apiKey,
             gtfsEntities,
-            destPreds,
+            predictionsForPlatform(destinationPlatform),
             calculateRouteTravelTime(from, to, line)
           )
-        )
+        })
       )
       const trainsWithArrival = trainsWithArrivalArrays.flat()
 
@@ -222,7 +225,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
           const lineTravelTime = calculateRouteTravelTime(from, to, line)
           const lineTermini = getTerminus(line, from, to)
           const departedTrains = deps.findDepartedTrains(
-            to,
+            getPlatformForLine(to, line),
             line,
             lineTravelTime,
             gtfsEntities,
@@ -303,28 +306,22 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
     ): Promise<any> => {
       const { allowYellowFallback = false, branchWarning, defaultTransferName: optDefaultName } = options
 
-      const terminusFirst = getAllTerminiForStation(
-        fromStation,
-        from,
-        currentTransfer.fromPlatform || 'C01'
+      const terminusFirst = getAllTerminiForStation(fromStation, from, currentTransfer.fromPlatform, currentTransfer.fromLine)
+      const terminusSecond = getAllTerminiForStation(toStation, currentTransfer.toPlatform, to, currentTransfer.toLine)
+      const leg1AllowedLines = getInterlinedLinesForLeg(
+        currentTransfer.fromLine!, fromStation.lines, from, currentTransfer.fromPlatform
       )
-      const terminusSecond = getAllTerminiForStation(
-        toStation,
-        currentTransfer.toPlatform || 'A01',
-        to
-      )
-
-      const leg1AllowedLines = getInterlinesForLeg1(fromStation, currentTransfer.fromPlatform)
-        || (currentTransfer.fromLine ? [currentTransfer.fromLine] : undefined)
 
       const leg1OriginPlatforms = leg1AllowedLines
         ? [...new Set(leg1AllowedLines.map(line => getPlatformForLine(from, line)))]
         : [from]
+      const destinationPlatform = getPlatformForLine(to, currentTransfer.toLine!)
 
-      const [originPredArrays, transferPreds, destPreds, gtfsEntities] = await Promise.all([
+      const [originPredArrays, leg1TransferPreds, leg2TransferPreds, destPreds, gtfsEntities] = await Promise.all([
         Promise.all(leg1OriginPlatforms.map(platform => deps.fetchStationPredictions(platform, apiKey))),
+        deps.fetchStationPredictions(currentTransfer.fromPlatform, apiKey),
         deps.fetchStationPredictions(currentTransfer.toPlatform, apiKey),
-        deps.fetchStationPredictions(to, apiKey),
+        deps.fetchStationPredictions(destinationPlatform, apiKey),
         deps.fetchGTFSTripUpdates(apiKey)
       ])
       const originPreds = originPredArrays.flat()
@@ -335,7 +332,9 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         deps.parseUpdatesToTrains(gtfsEntities, platform, terminusFirst, staticTrips, leg1AllowedLines)
       )
       const leg1GtfsTrains = leg1GtfsTrainArrays.flat()
-      const leg1ScheduledTrains = getScheduledTrains(from, terminusFirst, 35)
+      const leg1ScheduledTrains = leg1OriginPlatforms
+        .flatMap(platform => getScheduledTrains(platform, terminusFirst, 35))
+        .filter(train => !leg1AllowedLines || leg1AllowedLines.includes(train.Line))
       const leg1MergedTrains = mergeTrainData({
         apiTrains: leg1ApiFiltered,
         gtfsTrains: leg1GtfsTrains,
@@ -348,7 +347,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         currentTransfer.fromPlatform,
         apiKey,
         gtfsEntities,
-        transferPreds,
+        leg1TransferPreds,
         leg1ExpectedTime
       )
 
@@ -361,7 +360,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
 
       const leg1WithArrival = await deps.fetchDestinationArrivals(
         leg1WithBothArrivals,
-        to,
+        destinationPlatform,
         apiKey,
         gtfsEntities,
         destPreds
@@ -387,9 +386,10 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         sortedTrains = [...sortedTrains, ...uniqueDeparted]
       }
 
-      const leg2AllowedLines = getInterlinesForLeg2(currentTransfer.toPlatform, toStation)
-        || (currentTransfer.toLine ? [currentTransfer.toLine] : undefined)
-      const leg2ApiFiltered = deps.filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
+      const leg2AllowedLines = getInterlinedLinesForLeg(
+        currentTransfer.toLine!, toStation.lines, currentTransfer.toPlatform, to
+      )
+      const leg2ApiFiltered = deps.filterApiResponse(leg2TransferPreds, terminusSecond, leg2AllowedLines)
       const leg2GtfsTrains = deps.parseUpdatesToTrains(
         gtfsEntities,
         currentTransfer.toPlatform,
@@ -398,6 +398,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         leg2AllowedLines
       )
       const leg2ScheduledTrains = getScheduledTrains(currentTransfer.toPlatform, terminusSecond, 35)
+        .filter(train => !leg2AllowedLines || leg2AllowedLines.includes(train.Line))
       const leg2MergedTrains = mergeTrainData({
         apiTrains: leg2ApiFiltered,
         gtfsTrains: leg2GtfsTrains,
@@ -407,7 +408,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       const leg2ExpectedTime = calculateRouteTravelTime(currentTransfer.toPlatform, to, currentTransfer.toLine!)
       const leg2WithArrival = await deps.fetchDestinationArrivals(
         leg2MergedTrains,
-        to,
+        destinationPlatform,
         apiKey,
         gtfsEntities,
         destPreds,
@@ -565,18 +566,20 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
       arrivalAtTransfer = departureMin + leg1TravelTime + walkTime
     }
 
-    const terminusSecond = getAllTerminiForStation(toStation, transfer.toPlatform, to)
-    const terminusFirst = getAllTerminiForStation(fromStation, from, transfer.fromPlatform)
+    const terminusSecond = getAllTerminiForStation(toStation, transfer.toPlatform, to, transfer.toLine)
+    const terminusFirst = getAllTerminiForStation(fromStation, from, transfer.fromPlatform, transfer.fromLine)
+    const destinationPlatform = getPlatformForLine(to, transfer.toLine!)
 
     const [transferPreds, destPreds, gtfsEntities] = await Promise.all([
       deps.fetchStationPredictions(transfer.toPlatform, apiKey),
-      deps.fetchStationPredictions(to, apiKey),
+      deps.fetchStationPredictions(destinationPlatform, apiKey),
       deps.fetchGTFSTripUpdates(apiKey)
     ])
 
     const staticTrips = getStaticTrips()
-    const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
-      || (transfer.toLine ? [transfer.toLine] : undefined)
+    const leg2AllowedLines = getInterlinedLinesForLeg(
+      transfer.toLine!, toStation.lines, transfer.toPlatform, to
+    )
 
     const apiFiltered = deps.filterApiResponse(transferPreds, terminusSecond, leg2AllowedLines)
     const gtfsTrains = deps.parseUpdatesToTrains(
@@ -588,6 +591,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
     )
 
     const scheduledTrains = getScheduledTrains(transfer.toPlatform, terminusSecond, 35)
+      .filter(train => !leg2AllowedLines || leg2AllowedLines.includes(train.Line))
     const mergedTrains = mergeTrainData({
       apiTrains: apiFiltered,
       gtfsTrains,
@@ -602,7 +606,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
 
     const trainsWithArrival = await deps.fetchDestinationArrivals(
       mergedTrains,
-      to,
+      destinationPlatform,
       apiKey,
       gtfsEntities,
       destPreds,
@@ -645,7 +649,7 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         transfer.toLine
       )
       const departedTrains = deps.findDepartedTrains(
-        to,
+        destinationPlatform,
         transfer.toLine,
         leg2TravelTime,
         gtfsEntities,

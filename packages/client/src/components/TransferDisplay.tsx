@@ -15,8 +15,9 @@ export function TransferDisplay({
 }: TransferDisplayProps) {
   const [isExpanded, setIsExpanded] = useState(false)
 
-  // only keep alternatives that aren't wildly slower (within 10 min)
-  const alternatives = (transfer.alternatives || []).filter(alt => alt.timeDiff <= 10)
+  // The server already caps and route-diversifies this list. Rendering it as
+  // supplied preserves useful choices that trade time for a different line.
+  const alternatives = transfer.alternatives || []
   const hasAlternatives = alternatives.length > 0
 
   // figure out what to show in the header: chosen alt or the default

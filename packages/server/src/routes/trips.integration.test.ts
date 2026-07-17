@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import type { NextFunction, Request, Response } from 'express'
-import type { Train } from '@transferhero/shared'
+import type { Line, Train, TransferAlternative } from '@transferhero/shared'
 import { getTrainMinutes } from '@transferhero/shared'
 import { ALL_STATIONS } from '../data/stations.js'
 import { CACHE_CONFIG, cacheMiddleware, clearAllCache } from '../middleware/cache.js'
@@ -105,7 +105,8 @@ function createMockRealtimeDeps(): MockRealtimeControls {
       },
       fetchGTFSTripUpdates: async (): Promise<any[]> => [],
       parseUpdatesToTrains: () => [],
-      filterApiResponse: (trains: Train[]) => trains,
+      filterApiResponse: (trains: Train[], _terminus: string | string[], allowedLines?: Line[]) =>
+        allowedLines?.length ? trains.filter(train => allowedLines.includes(train.Line)) : trains,
       fetchDestinationArrivals: async (originTrains: Train[]) => {
         return originTrains.map((train, index) => {
           const baseMin = getTrainMinutes(train.Min)
@@ -419,11 +420,165 @@ async function futureDepartAtSkipsRealtimeCallsEntirely() {
   console.log('✓ future departAt trips are schedule-only and make zero realtime prediction calls')
 }
 
+async function kingStTransferPlansKeepDivergingLinesInSeparateItineraries() {
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner(controls.deps)
+
+  const viaRosslyn = await planner.planTrip({
+    from: 'C13',
+    to: 'K04',
+    walkTime: 2,
+    accessible: false,
+    includeDeparted: false,
+    apiKey: 'test-key'
+  })
+
+  assert.equal(viaRosslyn.trip.transfer.name, 'Rosslyn')
+  assert.ok(viaRosslyn.trip.leg1.trains.length > 0)
+  assert.ok(viaRosslyn.trip.leg1.trains.every((train: Train) => train.Line === 'BL'))
+  assert.deepEqual(Object.keys(viaRosslyn.trip.leg1.directionLabels), ['BL'])
+  const lenfant = viaRosslyn.trip.transfer.alternatives.find(
+    (alternative: TransferAlternative) => alternative.name === "L'Enfant Plaza"
+  )
+  assert.ok(lenfant)
+  assert.equal(lenfant.fromLine, 'YL')
+
+  const viaLenfant = await planner.planTrip({
+    from: 'C13',
+    to: 'K04',
+    walkTime: 2,
+    transferStation: 'D03',
+    accessible: false,
+    includeDeparted: false,
+    apiKey: 'test-key'
+  })
+
+  assert.equal(viaLenfant.trip.transfer.name, "L'Enfant Plaza")
+  assert.ok(viaLenfant.trip.leg1.trains.length > 0)
+  assert.ok(viaLenfant.trip.leg1.trains.every((train: Train) => train.Line === 'YL'))
+  assert.deepEqual(Object.keys(viaLenfant.trip.leg1.directionLabels), ['YL'])
+  console.log('✓ King St keeps Blue/Rosslyn and Yellow/L\'Enfant as separate valid itineraries')
+}
+
+async function aliasEndpointsUseTheirLineSpecificRealtimePlatforms() {
+  const predictionCodes: string[] = []
+  const destinationCodes: string[] = []
+  const predictions: Train[] = [
+    { Line: 'OR', DestinationName: 'Vienna', Min: '3', Car: '8' },
+    { Line: 'SV', DestinationName: 'Ashburn', Min: '4', Car: '8' },
+    { Line: 'OR', DestinationName: 'New Carrollton', Min: '5', Car: '8' },
+    { Line: 'SV', DestinationName: 'Downtown Largo', Min: '6', Car: '8' },
+  ]
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner({
+    ...controls.deps,
+    fetchStationPredictions: async (stationCode: string) => {
+      predictionCodes.push(stationCode)
+      return predictions
+    },
+    fetchDestinationArrivals: async (trains: Train[], destinationCode: string) => {
+      destinationCodes.push(destinationCode)
+      return trains
+    },
+  })
+  const input = {
+    walkTime: 2,
+    accessible: false,
+    includeDeparted: false,
+    apiKey: 'test-key',
+  }
+
+  const fromAlias = await planner.planTrip({ ...input, from: 'F03', to: 'K04' })
+  assert.equal(fromAlias.trip.isDirect, true)
+  assert.ok(predictionCodes.includes('D03'))
+  assert.ok(!predictionCodes.includes('F03'))
+  assert.deepEqual([...new Set(destinationCodes)], ['K04'])
+
+  predictionCodes.length = 0
+  destinationCodes.length = 0
+  const toAlias = await planner.planTrip({ ...input, from: 'K04', to: 'F03' })
+  assert.equal(toAlias.trip.isDirect, true)
+  assert.ok(predictionCodes.includes('D03'))
+  assert.ok(!predictionCodes.includes('F03'))
+  assert.ok(destinationCodes.length > 0)
+  assert.deepEqual([...new Set(destinationCodes)], ['D03'])
+  console.log('✓ alias endpoints use their line-specific realtime platforms')
+}
+
+async function selectedLenfantTransferKeepsPlatformPredictionsSeparate() {
+  const originPredictions: Train[] = [
+    { Line: 'YL', DestinationName: 'Greenbelt', Min: '3', Car: '8' },
+  ]
+  const f03Predictions: Train[] = [
+    { Line: 'YL', DestinationName: 'Greenbelt', Min: '9', Car: '8' },
+  ]
+  const d03Predictions: Train[] = [
+    { Line: 'OR', DestinationName: 'Vienna', Min: '10', Car: '8' },
+  ]
+  const k04Predictions: Train[] = [
+    { Line: 'OR', DestinationName: 'Vienna', Min: '24', Car: '8' },
+  ]
+  const predictionsByStation = new Map<string, Train[]>([
+    ['C13', originPredictions],
+    ['F03', f03Predictions],
+    ['D03', d03Predictions],
+    ['K04', k04Predictions],
+  ])
+  const leg1TransferPredictionInputs: Train[][] = []
+  const leg2DeparturePredictionInputs: Train[][] = []
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner({
+    ...controls.deps,
+    fetchStationPredictions: async (stationCode: string) =>
+      predictionsByStation.get(stationCode) ?? [],
+    filterApiResponse: (trains: Train[], _terminus: string | string[], allowedLines?: Line[]) => {
+      if (allowedLines?.includes('OR')) leg2DeparturePredictionInputs.push(trains)
+      return allowedLines?.length
+        ? trains.filter(train => allowedLines.includes(train.Line))
+        : trains
+    },
+    fetchDestinationArrivals: async (
+      trains: Train[],
+      destinationCode: string,
+      _apiKey: string,
+      _gtfsEntities?: any[],
+      prefetchedPredictions?: Train[]
+    ) => {
+      if (destinationCode === 'F03' && prefetchedPredictions) {
+        leg1TransferPredictionInputs.push(prefetchedPredictions)
+      }
+      return trains
+    },
+  })
+
+  const trip = await planner.planTrip({
+    from: 'C13',
+    to: 'K04',
+    walkTime: 2,
+    transferStation: 'D03',
+    accessible: false,
+    includeDeparted: false,
+    apiKey: 'test-key',
+  })
+
+  assert.equal(trip.trip.transfer.name, "L'Enfant Plaza")
+  assert.equal(leg1TransferPredictionInputs.length, 1)
+  assert.strictEqual(leg1TransferPredictionInputs[0], f03Predictions)
+  assert.notStrictEqual(leg1TransferPredictionInputs[0], d03Predictions)
+  assert.equal(leg2DeparturePredictionInputs.length, 1)
+  assert.strictEqual(leg2DeparturePredictionInputs[0], d03Predictions)
+  assert.notStrictEqual(leg2DeparturePredictionInputs[0], f03Predictions)
+  console.log('✓ selected L\'Enfant transfer keeps F03 and D03 predictions separate')
+}
+
 await directTripPlanEndpointReturnsStructuredPayload()
 await multiLineDirectTripExposesLineSpecificCarPositions()
 await tripApiCacheAvoidsDuplicateRealtimeCallsWithinTtl()
 await staleRealtimeFallbackServesTripAfterUpstreamFailure()
 await leg2PipelineReturnsCatchableTrainsForTransferTrips()
 await futureDepartAtSkipsRealtimeCallsEntirely()
+await kingStTransferPlansKeepDivergingLinesInSeparateItineraries()
+await aliasEndpointsUseTheirLineSpecificRealtimePlatforms()
+await selectedLenfantTransferKeepsPlatformPredictionsSeparate()
 
 console.log('trips integration tests passed')

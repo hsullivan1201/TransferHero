@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import type { BusStop } from '@transferhero/shared'
-import { rankCandidates, type BusRouteCandidate } from './busRouteFinder.js'
+import { getMetroTimes, rankCandidates, type BusRouteCandidate } from './busRouteFinder.js'
+import { calculateRouteTravelTime } from './travelTime.js'
 
 function makeStop(stopId: string): BusStop {
   return {
@@ -93,7 +94,24 @@ function dedupesByDirectionAndKeepsBestWalkOption() {
   console.log('✓ dedupes by route+station+direction and keeps best walk candidate')
 }
 
+function usesPathTimeForAliasDirectMetroLeg() {
+  const expectedRideMinutes = Math.min(
+    calculateRouteTravelTime('F03', 'K04', 'OR'),
+    calculateRouteTravelTime('F03', 'K04', 'SV')
+  )
+  assert.ok(Number.isFinite(expectedRideMinutes), 'the aliased direct route must have a measured path time')
+
+  const metro = getMetroTimes('F03', 'K04')
+
+  assert.equal(metro.isTransfer, false)
+  assert.equal(metro.transferWalkMinutes, 0)
+  assert.equal(metro.rideMinutes, expectedRideMinutes)
+  assert.ok(Number.isFinite(metro.rideMinutes), 'bus routing must never rank this Metro leg as Infinity')
+  console.log('✓ uses finite path time for an F03 → K04 alias-direct Metro leg')
+}
+
 prunesCandidatesWithNoCatchableDeparture()
 dedupesByDirectionAndKeepsBestWalkOption()
+usesPathTimeForAliasDirectMetroLeg()
 
 console.log('busRouteFinder tests passed')

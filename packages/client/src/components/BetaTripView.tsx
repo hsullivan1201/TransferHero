@@ -850,6 +850,8 @@ export function BetaTripView({
 
   const liveSelectedTrain = useMemo(() => {
     if (!selectedLeg1Train) return null
+    const plannedLines = Object.keys(leg1DirectionLabels ?? {}) as Line[]
+    if (plannedLines.length > 0 && !plannedLines.includes(selectedLeg1Train.Line)) return null
     if (selectedLeg1Train._tripId) {
       return leg1Trains.find((train) => train._tripId === selectedLeg1Train._tripId) ?? selectedLeg1Train
     }
@@ -863,7 +865,7 @@ export function BetaTripView({
     // rider chose instead of silently adopting a later train with the same
     // line and destination.
     return selectedLeg1Train
-  }, [selectedLeg1Train, leg1Trains])
+  }, [selectedLeg1Train, leg1Trains, leg1DirectionLabels])
 
   const liveSelectedLeg2Train = useMemo(() => {
     if (!selectedLeg2Train) return null
@@ -898,6 +900,8 @@ export function BetaTripView({
   })?.train
   const summaryTrain = liveSelectedTrain ?? livePreferredLeg1Train ?? reachableTrain ?? null
   const primaryLine = summaryTrain?.Line ?? transfer?.fromLine ?? origin.lines[0]
+  const configuredLeg1Lines = Object.keys(leg1DirectionLabels ?? {}) as Line[]
+  const originPlatformLines = configuredLeg1Lines.length > 0 ? configuredLeg1Lines : origin.lines
   const activeLeg1CarPosition = primaryLine
     ? leg1LineCarPositions?.[primaryLine] ?? leg1CarPosition
     : leg1CarPosition
@@ -940,12 +944,16 @@ export function BetaTripView({
   const representativeLeg2Train = catchableTrain
   const secondWait = Math.max(0, selectedConnection?.wait ?? bestConnection?.wait ?? 0)
   const finalLine = representativeLeg2Train?.Line ?? routeLeg2Train?.Line ?? transfer?.toLine ?? primaryLine
-  const targetPlatformLines = transfer?.toPlatformLines?.length
-    ? transfer.toPlatformLines
+  const configuredLeg2Lines = Object.keys(leg2DirectionLabels ?? {}) as Line[]
+  const connectingRideLines = configuredLeg2Lines.length > 0
+    ? configuredLeg2Lines
     : [...new Set([
         ...(finalLine ? [finalLine] : []),
         ...connectionRows.map(({ train }) => train.Line),
       ])]
+  const targetPlatformLines = transfer?.toPlatformLines?.length
+    ? transfer.toPlatformLines
+    : connectingRideLines
   const levelInstruction = transfer?.levelInstruction ?? 'across the station'
   const finalLegStops = isDirect && finalLine
     ? leg1LineStops?.[finalLine] ?? leg1Stops
@@ -1015,7 +1023,7 @@ export function BetaTripView({
     return named.length > 0 ? named.join(', ') : null
   }
   const firstDirectionLabel = (primaryLine ? leg1DirectionLabels?.[primaryLine] : undefined) ?? firstHeadsign
-  const firstDirectionSignage = joinSignageLabels(leg1DirectionLabels, origin.lines) ?? firstDirectionLabel
+  const firstDirectionSignage = joinSignageLabels(leg1DirectionLabels, originPlatformLines) ?? firstDirectionLabel
   const secondDirectionLabel = (finalLine ? leg2DirectionLabels?.[finalLine] : undefined) ?? secondHeadsign
   const secondDirectionSignage = joinSignageLabels(leg2DirectionLabels, targetPlatformLines) ?? secondDirectionLabel
   const firstCarCount = getReportedCarCount(summaryTrain)
@@ -1154,7 +1162,7 @@ export function BetaTripView({
               <h2>{origin.name}</h2>
               <p>Platform toward {firstDirectionSignage}</p>
             </div>
-            <LineDiscs lines={origin.lines} />
+            <LineDiscs lines={originPlatformLines} />
           </div>
           <div className="beta-train-list" aria-label={`Trains from ${origin.name}`}>
             {visibleTrains.map(({ train, index }) => {
@@ -1256,7 +1264,7 @@ export function BetaTripView({
                 <h2>{transferName}</h2>
                 <p>Transfer to the {finalLine ? LINE_NAMES[finalLine] : ''} Line · {levelInstruction}</p>
               </div>
-              {targetPlatformLines.length > 0 && <LineDiscs lines={targetPlatformLines} />}
+              {connectingRideLines.length > 0 && <LineDiscs lines={connectingRideLines} />}
             </div>
             {/* street exits are omitted here on purpose: the rider is
                 transferring, and we have no bearing data to point at them */}

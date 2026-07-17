@@ -2,6 +2,7 @@ import type { BusStop, HybridTrip } from '@transferhero/shared'
 import { getBusRoutes, getRouteStopSequences, getStopRoutes, getBusStops, getBusDb } from './busGtfsLoader.js'
 import { queryNearbyStops, getBusStopStations, haversineMeters } from './busStopIndex.js'
 import { getNextScheduledDepartures, getScheduledRideMinutes, getNextDeparture } from './busScheduleIndex.js'
+import { getDirectLinesForLeg } from './lineHelpers.js'
 import { findTransfer } from './pathfinding.js'
 import { calculateRouteTravelTime } from './travelTime.js'
 import { getAllExits } from './stationService.js'
@@ -46,7 +47,7 @@ export function getStationCentroid(stationCode: string): { lat: number; lon: num
  * rideMinutes = total rail time (leg1 + leg2 for transfers, or direct ride).
  * transferWalkMinutes = walk between platforms (0 for direct trips).
  */
-function getMetroTimes(fromStation: string, toStation: string): {
+export function getMetroTimes(fromStation: string, toStation: string): {
   rideMinutes: number
   transferWalkMinutes: number
   isTransfer: boolean
@@ -65,7 +66,7 @@ function getMetroTimes(fromStation: string, toStation: string): {
   if (transfer.direct && transfer.line) {
     const fromLines = STATION_BY_CODE.get(fromStation)?.lines ?? []
     const toLines = STATION_BY_CODE.get(toStation)?.lines ?? []
-    const directLines = fromLines.filter(line => toLines.includes(line))
+    const directLines = getDirectLinesForLeg(fromLines, toLines, fromStation, toStation)
     const ride = Math.min(...directLines.map(line => calculateRouteTravelTime(fromStation, toStation, line)))
     return { rideMinutes: ride, transferWalkMinutes: 0, isTransfer: false }
   }

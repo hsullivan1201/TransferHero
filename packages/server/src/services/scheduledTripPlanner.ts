@@ -6,8 +6,9 @@ import {
   getTransferCarPosition,
   getTransferWayfinding
 } from '../data/carPositionService.js'
+import { getPlatformForLine } from '../data/platformCodes.js'
 import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
-import { getInterlinesForLeg1, getInterlinesForLeg2, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
+import { getDirectLinesForLeg, getInterlinedLinesForLeg, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
 import { getMetroDepartures, type ScheduledMetroTrain } from './metroScheduleIndex.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { calculateRouteTravelTime, getCanonicalTerminus, getTerminus, minutesToClockTime } from './travelTime.js'
@@ -126,12 +127,16 @@ export function planScheduledTrip(
   }
 
   if (transfer.direct) {
-    const directLines = fromStation.lines.filter((line: Line) => toStation.lines.includes(line))
+    const directLines = getDirectLinesForLeg(fromStation.lines, toStation.lines, from, to)
     const allTermini = directLines.flatMap(line => getTerminus(line, from, to))
     const terminus = [...new Set(allTermini)]
+    const originPlatforms = [...new Set(directLines.map(line => getPlatformForLine(from, line)))]
 
-    const departures = deps.getMetroDepartures(from, terminus, offsetMin, TRAINS_PER_LEG)
+    const departures = originPlatforms
+      .flatMap(platform => deps.getMetroDepartures(platform, terminus, offsetMin, TRAINS_PER_LEG))
       .filter(dep => directLines.includes(dep.line))
+      .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
+      .slice(0, TRAINS_PER_LEG)
 
     const trains = departures.map(dep =>
       toScheduledTrain(dep, dep.minutesFromNow + calculateRouteTravelTime(from, to, dep.line), nowMs)
@@ -170,21 +175,39 @@ export function planScheduledTrip(
     }
   }
 
-  const terminusFirst = getAllTerminiForStation(fromStation, from, transfer.fromPlatform || 'C01')
-  const terminusSecond = getAllTerminiForStation(toStation, transfer.toPlatform || 'A01', to)
+  const terminusFirst = getAllTerminiForStation(
+    fromStation,
+    from,
+    transfer.fromPlatform || 'C01',
+    transfer.fromLine
+  )
+  const terminusSecond = getAllTerminiForStation(
+    toStation,
+    transfer.toPlatform || 'A01',
+    to,
+    transfer.toLine
+  )
 
-  const leg1AllowedLines = getInterlinesForLeg1(fromStation, transfer.fromPlatform)
-    || (transfer.fromLine ? [transfer.fromLine] : undefined)
-  const leg2AllowedLines = getInterlinesForLeg2(transfer.toPlatform, toStation)
-    || (transfer.toLine ? [transfer.toLine] : undefined)
+  const leg1AllowedLines = getInterlinedLinesForLeg(
+    transfer.fromLine!, fromStation.lines, from, transfer.fromPlatform
+  )
+  const leg2AllowedLines = getInterlinedLinesForLeg(
+    transfer.toLine!, toStation.lines, transfer.toPlatform, to
+  )
 
   const leg1TravelTime = transfer.leg1Time
     || calculateRouteTravelTime(from, transfer.fromPlatform, transfer.fromLine!)
   const leg2TravelTime = transfer.leg2Time
     || calculateRouteTravelTime(transfer.toPlatform, to, transfer.toLine!)
 
-  const leg1Departures = deps.getMetroDepartures(from, terminusFirst, offsetMin, TRAINS_PER_LEG)
+  const leg1OriginPlatforms = [...new Set(
+    leg1AllowedLines.map(line => getPlatformForLine(from, line))
+  )]
+  const leg1Departures = leg1OriginPlatforms
+    .flatMap(platform => deps.getMetroDepartures(platform, terminusFirst, offsetMin, TRAINS_PER_LEG))
     .filter(dep => !leg1AllowedLines || leg1AllowedLines.includes(dep.line))
+    .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
+    .slice(0, TRAINS_PER_LEG)
 
   // leg1 trains carry both transfer arrival and (schedule-derived) final arrival
   const leg1Trains: Train[] = leg1Departures.map(dep => {

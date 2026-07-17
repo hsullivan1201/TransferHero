@@ -71,10 +71,21 @@ function dedupesWhenTimesAreWithinOneMinuteDifferentDest() {
   console.log('✓ dedupes gtfs when same line within one minute even if dest differs')
 }
 
+function preservesNearSimultaneousScheduledTrainOnAnotherLine() {
+  const result = mergeTrainData({
+    apiTrains: [apiTrain({ Line: 'BL', DestinationName: 'Downtown Largo', Min: '4' })],
+    gtfsTrains: [],
+    scheduledTrains: [apiTrain({ Line: 'YL', DestinationName: 'Greenbelt', Min: '5' })],
+  })
+
+  assert.deepEqual(result.map(train => train.Line), ['BL', 'YL'])
+  console.log('✓ keeps near-simultaneous scheduled trains on different interlined services')
+}
+
 dedupesGtfsAgainstApi()
 keepsGtfsWhenFarApart()
 dedupesWhenGtfsHasCheckBoardHeadSign()
 dedupesWhenTimesAreWithinOneMinuteDifferentDest()
+preservesNearSimultaneousScheduledTrainOnAnotherLine()
 
 console.log('trainMerger tests passed')
-

@@ -67,9 +67,17 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
   // now sprinkle in scheduled trains, still avoiding near-duplicates
   scheduledTrains.forEach(sTrain => {
     const sMin = getTrainMinutes(sTrain.Min)
+    const sDest = normalizeDestination(sTrain.DestinationName || '')
     const duplicate = merged.some(mTrain => {
+      if (mTrain.Line !== sTrain.Line) return false
       const mMin = getTrainMinutes(mTrain.Min)
-      return Math.abs(mMin - sMin) <= scheduleThreshold
+      const mDest = normalizeDestination(mTrain.DestinationName || '')
+      const unknownDestination = (destination: string) =>
+        !destination || destination.includes('check board')
+      const destinationMatches = unknownDestination(mDest)
+        || unknownDestination(sDest)
+        || mDest === sDest
+      return destinationMatches && Math.abs(mMin - sMin) <= scheduleThreshold
     })
     if (!duplicate) {
       merged.push({

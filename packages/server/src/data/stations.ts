@@ -32,7 +32,7 @@ export const ALL_STATIONS: Station[] = [
   // Orange Line (unique stations)
   { code: 'K08', name: 'Vienna', lines: ['OR'] },
   { code: 'K07', name: 'Dunn Loring', lines: ['OR'] },
-  { code: 'K06', name: 'West Falls Church', lines: ['OR', 'SV'] },
+  { code: 'K06', name: 'West Falls Church', lines: ['OR'] },
   { code: 'K05', name: 'East Falls Church', lines: ['OR', 'SV'] },
   { code: 'K04', name: 'Ballston-MU', lines: ['OR', 'SV'] },
   { code: 'K03', name: 'Virginia Square-GMU', lines: ['OR', 'SV'] },
@@ -77,6 +77,7 @@ export const ALL_STATIONS: Station[] = [
   { code: 'J02', name: 'Van Dorn Street', lines: ['BL'] },
   { code: 'C13', name: 'King St-Old Town', lines: ['BL', 'YL'] },
   { code: 'C12', name: 'Braddock Road', lines: ['BL', 'YL'] },
+  { code: 'C11', name: 'Potomac Yard', lines: ['BL', 'YL'] },
   { code: 'C10', name: 'Reagan National Airport', lines: ['BL', 'YL'] },
   { code: 'C09', name: 'Crystal City', lines: ['BL', 'YL'] },
   { code: 'C08', name: 'Pentagon City', lines: ['BL', 'YL'] },
