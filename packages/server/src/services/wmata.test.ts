@@ -4,11 +4,15 @@ import {
   parseUpdatesToTrains,
   getArrivalAtStation,
   fetchDestinationArrivals,
+  fetchGTFSVehiclePositions,
   findDepartedTrains,
+  getWmataCacheStats,
   getWmataUpstreamStats,
   getGTFSTripProgress,
   parseGTFSVehiclePositions,
+  resetWmataCacheStats,
   resetWmataUpstreamStats,
+  resetWmataVehiclePositionCache,
 } from './wmata.js'
 
 function makeEntity(tripId: string, routeId: string, stops: Array<{ stopId: string; timeSec: number; seq: number }>) {
@@ -173,10 +177,41 @@ function vehiclePositionsAreNormalizedAndTripProgressIsOrdered() {
   console.log('✓ vehicle positions and ordered trip progress are normalized for live tracking')
 }
 
+async function vehiclePositionFetchesCoalesceAndCache() {
+  resetWmataVehiclePositionCache()
+  resetWmataCacheStats()
+  let calls = 0
+  const dependencies = {
+    now: () => 1_000,
+    fetcher: async () => {
+      calls++
+      await Promise.resolve()
+      return {
+        ok: true,
+        status: 200,
+        arrayBuffer: async () => new Uint8Array().buffer as ArrayBuffer,
+      }
+    },
+  }
+
+  await Promise.all([
+    fetchGTFSVehiclePositions('test-key', dependencies),
+    fetchGTFSVehiclePositions('test-key', dependencies),
+  ])
+  await fetchGTFSVehiclePositions('test-key', dependencies)
+
+  assert.equal(calls, 1)
+  const stats = getWmataCacheStats()
+  assert.equal(stats.vehiclePositionMisses, 1)
+  assert.equal(stats.vehiclePositionHits, 1)
+  console.log('✓ vehicle position fetches coalesce and reuse their dedicated cache')
+}
+
 parseUpdatesUsesStationIndexAndFiltersCorrectly()
 await destinationArrivalPrefersGtfsTripMatch()
 findDepartedTrainsUsesIndexedStationLookup()
 upstreamStatsExposeRollingCallCounters()
 vehiclePositionsAreNormalizedAndTripProgressIsOrdered()
+await vehiclePositionFetchesCoalesceAndCache()
 
 console.log('wmata tests passed')

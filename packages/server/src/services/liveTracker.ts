@@ -181,6 +181,74 @@ function vehicleStopIndex(vehicle: RailVehiclePosition, train: SharedTrackedTrai
   return routeCodes.indexOf(canonicalProgressStopCode(vehicle.stopCode, routeCodes))
 }
 
+function resolveSegment(
+  train: SharedTrackedTrain,
+  nowMs: number,
+  times: number[],
+  vehicle: RailVehiclePosition | undefined
+): { segment: ReturnType<typeof segmentAt>; stopIndex: number } {
+  let segment = segmentAt(nowMs, times)
+  const stopIndex = vehicle ? vehicleStopIndex(vehicle, train) : -1
+  if (stopIndex < 0) return { segment, stopIndex }
+
+  if (vehicle?.currentStatus === 'STOPPED_AT') {
+    segment = {
+      previousIndex: stopIndex,
+      nextIndex: Math.min(train.stops.length - 1, stopIndex + 1),
+      ratio: 0,
+    }
+  } else if (stopIndex > 0) {
+    const timedSegment = segmentAt(nowMs, times)
+    segment = {
+      previousIndex: stopIndex - 1,
+      nextIndex: stopIndex,
+      ratio: timedSegment.nextIndex === stopIndex ? timedSegment.ratio : 0.75,
+    }
+  }
+
+  return { segment, stopIndex }
+}
+
+function trackerPosition(
+  train: SharedTrackedTrain,
+  segment: ReturnType<typeof segmentAt>,
+  map: MetroMapData,
+  vehicle: RailVehiclePosition | undefined,
+  tripProgress: GtfsTripProgress | undefined
+): LiveTrackerPosition | null {
+  if (!vehicle) {
+    return interpolatePosition(train, segment, map, tripProgress ? 'trip_update' : 'schedule')
+  }
+  return {
+    lat: vehicle.latitude,
+    lon: vehicle.longitude,
+    bearing: vehicle.bearing ?? null,
+    source: 'vehicle',
+  }
+}
+
+function trackerVehicleId(
+  train: SharedTrackedTrain,
+  vehicle: RailVehiclePosition | undefined
+): string | null {
+  return vehicle?.vehicleId
+    ?? vehicle?.vehicleLabel
+    ?? train.vehicleId
+    ?? train.trainId
+    ?? train.trainNumber
+    ?? null
+}
+
+function trackerFreshnessAt(
+  trip: SharedTripPayload,
+  nowMs: number,
+  vehicle: RailVehiclePosition | undefined,
+  tripProgress: GtfsTripProgress | undefined
+): number {
+  if (vehicle?.timestampMs != null) return vehicle.timestampMs
+  return tripProgress ? nowMs : trip.sharedAtMs
+}
+
 function vehicleHasPassedDestination(
   vehicle: RailVehiclePosition,
   train: SharedTrackedTrain,
@@ -284,25 +352,7 @@ function statusForTrain(
     : undefined
   const schedule = buildScheduleModel(train)
   const times = effectiveTimes(train, schedule, tripProgress)
-  let segment = segmentAt(nowMs, times)
-
-  const stopIndex = vehicle ? vehicleStopIndex(vehicle, train) : -1
-  if (stopIndex >= 0) {
-    if (vehicle?.currentStatus === 'STOPPED_AT') {
-      segment = {
-        previousIndex: stopIndex,
-        nextIndex: Math.min(train.stops.length - 1, stopIndex + 1),
-        ratio: 0,
-      }
-    } else if (stopIndex > 0) {
-      const timedSegment = segmentAt(nowMs, times)
-      segment = {
-        previousIndex: stopIndex - 1,
-        nextIndex: stopIndex,
-        ratio: timedSegment.nextIndex === stopIndex ? timedSegment.ratio : 0.75,
-      }
-    }
-  }
+  const { segment, stopIndex } = resolveSegment(train, nowMs, times, vehicle)
 
   const lastIndex = train.stops.length - 1
   const routeFractions = schedule.routeFractions
@@ -330,16 +380,9 @@ function statusForTrain(
   )
   const ended = phase === 'arrived' || phase === 'ended'
 
-  const freshnessAtMs = vehicle?.timestampMs ?? (tripProgress ? nowMs : trip.sharedAtMs)
+  const freshnessAtMs = trackerFreshnessAt(trip, nowMs, vehicle, tripProgress)
   const ageMs = Math.max(0, nowMs - freshnessAtMs)
-  const position: LiveTrackerPosition | null = vehicle
-    ? {
-        lat: vehicle.latitude,
-        lon: vehicle.longitude,
-        bearing: vehicle.bearing ?? null,
-        source: 'vehicle',
-      }
-    : interpolatePosition(train, segment, map, tripProgress ? 'trip_update' : 'schedule')
+  const position = trackerPosition(train, segment, map, vehicle, tripProgress)
 
   return {
     id: train.id,
@@ -347,12 +390,7 @@ function statusForTrain(
     line: train.line,
     toward: train.toward,
     tripId: vehicle?.tripId ?? train.tripId ?? null,
-    vehicleId: vehicle?.vehicleId
-      ?? vehicle?.vehicleLabel
-      ?? train.vehicleId
-      ?? train.trainId
-      ?? train.trainNumber
-      ?? null,
+    vehicleId: trackerVehicleId(train, vehicle),
     from: train.from,
     to: train.to,
     routeStationCodes: train.stops.map(stop => stop.code),
