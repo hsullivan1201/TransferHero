@@ -68,6 +68,28 @@ export function deriveWaitMinutes(
 }
 
 /**
+ * Fixed door-departure time for a scheduled arrive-by itinerary.
+ * Scheduled `Min` values are relative to the server fetch time, so using
+ * Date.now() here would make the displayed clock drift as the page sits open.
+ */
+export function resolveLeaveByTimestamp(
+  train: { Min?: string | number } | null | undefined,
+  fetchedAt: string | null | undefined,
+  originWalkMinutes: number
+): number | null {
+  if (!train || train.Min == null || !fetchedAt) return null
+
+  const fetchedAtMs = Date.parse(fetchedAt)
+  const departureMinutes = getTrainMinutes(train.Min)
+  if (!Number.isFinite(fetchedAtMs) || !Number.isFinite(departureMinutes)) return null
+
+  const walkMinutes = Number.isFinite(originWalkMinutes)
+    ? Math.max(0, originWalkMinutes)
+    : 0
+  return fetchedAtMs + (departureMinutes - walkMinutes) * 60_000
+}
+
+/**
  * sum up journey parts, ignore the junk, and never go below zero
  */
 export function computeTotalMinutes(parts: Array<number | null | undefined>): number {

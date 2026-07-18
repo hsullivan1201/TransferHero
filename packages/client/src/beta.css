@@ -1107,6 +1107,21 @@ button.beta-bus-row:hover,
   font-variant-numeric: tabular-nums;
 }
 
+.beta-leave-by {
+  margin-left: auto;
+  padding: 6px 12px;
+  border-radius: 8px;
+  background: var(--beta-exit-red);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 750;
+  font-variant-numeric: tabular-nums;
+}
+
+.beta-leave-by + .beta-arrival {
+  margin-left: 0;
+}
+
 .beta-refresh-row {
   display: flex;
   align-items: center;
@@ -2715,6 +2730,10 @@ button.beta-train-row:hover {
   }
 
   .beta-arrival {
+    margin-left: 0;
+  }
+
+  .beta-leave-by {
     margin-left: 0;
   }
 

@@ -36,6 +36,7 @@ import {
   deriveWaitMinutes,
   getTrainMinutes,
   resolveArrivalClock,
+  resolveLeaveByTimestamp,
 } from '../utils/time'
 import { buildMapsUrl, formatDistance } from '../utils/geo'
 import { resolveExitLabel } from '../data/exitMapping'
@@ -1015,6 +1016,12 @@ export function BetaTripView({
   const arrivalClock = hasKnownRideTime
     ? (lastWalk > 0 ? resolveArrivalClock(totalMinutes) : stationArrivalClock ?? resolveArrivalClock(totalMinutes))
     : null
+  const leaveByTimestamp = planningMode === 'arriveBy'
+    ? resolveLeaveByTimestamp(summaryTrain, fetchedAt, firstWalk)
+    : null
+  const leaveByClock = leaveByTimestamp == null
+    ? null
+    : new Date(leaveByTimestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
   const destinationExit = destinationGuidance(destPlaceContext, isDirect ? activeLeg1CarPosition : leg2CarPosition)
   const destinationExitLetter = exitGroupLetter(destinationExit.exitLabel)
   const transferName = transfer?.name ?? ''
@@ -1193,6 +1200,7 @@ export function BetaTripView({
                 : `via ${transferName}`}
               {(firstWalk || lastWalk) ? ' + walk' : ''}
             </span>
+            {leaveByClock && <span className="beta-leave-by">Leave by {leaveByClock}</span>}
             {arrivalClock && <span className="beta-arrival">Arr {arrivalClock}</span>}
           </div>
 
