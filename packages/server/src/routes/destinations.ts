@@ -18,6 +18,7 @@ const searchSchema = z.object({
 const resolveSchema = z.object({
   lat: z.coerce.number().min(-90).max(90),
   lon: z.coerce.number().min(-180).max(180),
+  direction: z.enum(['to_station', 'from_station']).default('to_station'),
 })
 
 /**
@@ -40,7 +41,7 @@ router.get('/search', destinationSearchRateLimit, asyncHandler(async (req, res) 
  * Find the best station + exit for coordinates (pure math, no external calls)
  */
 router.get('/resolve', destinationResolveRateLimit, asyncHandler(async (req, res) => {
-  const { lat, lon } = resolveSchema.parse(req.query)
+  const { lat, lon, direction } = resolveSchema.parse(req.query)
 
   // ensure exit data is loaded
   await loadStationExits()
@@ -72,7 +73,9 @@ router.get('/resolve', destinationResolveRateLimit, asyncHandler(async (req, res
     ...result.alternatives.map(a => a.exit),
   ]
   const directionsResults = await Promise.all(
-    allExits.map(exit => getWalkingDirections(lat, lon, exit.lat, exit.lon))
+    allExits.map(exit => direction === 'to_station'
+      ? getWalkingDirections(lat, lon, exit.lat, exit.lon)
+      : getWalkingDirections(exit.lat, exit.lon, lat, lon))
   )
 
   if (directionsResults[0]) {

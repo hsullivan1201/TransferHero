@@ -1,11 +1,10 @@
 import type { Station, StationExit, ResolveResponse } from '@transferhero/shared'
 import { ALL_STATIONS } from '../data/stations.js'
 import { getAllExits } from './stationService.js'
+import { gridWalkMinutes } from './walkingTime.js'
 
 const EARTH_RADIUS_M = 6371000
 const MAX_DISTANCE_M = 2500 // 2.5 km
-const GRID_FACTOR = 1.4 // DC street grid adjustment
-const WALK_SPEED_MPS = 1.33 // ~3 mph
 
 // O(1) station lookup — built once at module load
 const STATION_BY_CODE = new Map<string, Station>(
@@ -19,10 +18,6 @@ function haversineMeters(lat1: number, lon1: number, lat2: number, lon2: number)
     Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
     Math.sin(dLon / 2) ** 2
   return EARTH_RADIUS_M * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
-}
-
-function estimateWalkMinutes(straightLineMeters: number): number {
-  return Math.round((straightLineMeters * GRID_FACTOR) / (WALK_SPEED_MPS * 60))
 }
 
 interface RankedStation {
@@ -74,7 +69,7 @@ export function resolveDestination(lat: number, lon: number): ResolveResponse | 
       station,
       exit: best.exit,
       distanceMeters: Math.round(best.distance),
-      walkTimeMinutes: Math.max(1, estimateWalkMinutes(best.distance)),
+      walkTimeMinutes: gridWalkMinutes(best.distance),
     })
   }
 

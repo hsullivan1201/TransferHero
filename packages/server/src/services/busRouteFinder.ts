@@ -7,11 +7,10 @@ import { findTransfer } from './pathfinding.js'
 import { calculateRouteTravelTime } from './travelTime.js'
 import { getAllExits } from './stationService.js'
 import { ALL_STATIONS } from '../data/stations.js'
+import { gridWalkMinutes } from './walkingTime.js'
 
 const SEARCH_RADIUS_M = 400
-const BUS_ONLY_RADIUS_M = 950 // ~16-17 min walk to a bus stop for bus-only fallback
-const WALK_SPEED_MPS = 1.33
-const GRID_FACTOR = 1.4
+const BUS_ONLY_RADIUS_M = 950 // ~15 min walk to a bus stop for bus-only fallback
 const BUS_MIN_PER_STOP = 1 // DC urban average (~10-12mph, stops every 1-2 blocks)
 const MAX_RESULTS = 7
 const MAX_SEARCH_STOPS = 5 // check up to 5 Metro-connected stops per route direction
@@ -83,10 +82,6 @@ export function getMetroTimes(fromStation: string, toStation: string): {
     transferWalkMinutes: DEFAULT_TRANSFER_WALK,
     isTransfer: true,
   }
-}
-
-function estimateWalkMinutes(meters: number): number {
-  return Math.max(1, Math.round((meters * GRID_FACTOR) / (WALK_SPEED_MPS * 60)))
 }
 
 // Cached headsign lookup — rebuilt from SQLite after each GTFS refresh
@@ -402,8 +397,8 @@ export function rankCandidates(
   let droppedNoNextDeparture = 0
   const trips: HybridTrip[] = []
   for (const c of best.values()) {
-    const boardWalkMinutes = estimateWalkMinutes(c.boardWalkMeters)
-    const alightWalkMinutes = estimateWalkMinutes(c.alightWalkMeters)
+    const boardWalkMinutes = gridWalkMinutes(c.boardWalkMeters)
+    const alightWalkMinutes = gridWalkMinutes(c.alightWalkMeters)
     const busRideMinutes = c.stopCount * BUS_MIN_PER_STOP
 
     const metroFrom = pattern === 'metro-bus' ? knownStationCode : c.transferStationCode
@@ -411,7 +406,7 @@ export function rankCandidates(
 
     const metro = deps.getMetroTimes(metroFrom, metroTo)
     const metroTimeMinutes = metro.rideMinutes + metro.transferWalkMinutes
-    const outsideWalkMinutes = estimateWalkMinutes(outsideWalkMeters)
+    const outsideWalkMinutes = gridWalkMinutes(outsideWalkMeters)
 
     // Compute realistic end-to-end time using GTFS schedules.
     // Sequence the journey step by step so wait times are based on
@@ -611,7 +606,7 @@ export function findBusConnectedStation(lat: number, lon: number): {
   return {
     station,
     exit,
-    walkTimeMinutes: estimateWalkMinutes(busStopWalkMeters),
+    walkTimeMinutes: gridWalkMinutes(busStopWalkMeters),
     walkDistanceMeters: busStopWalkMeters,
   }
 }

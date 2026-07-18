@@ -78,11 +78,13 @@ function BetaModeToggle({
   onModeChange,
   busCount,
   busOnlyLock,
+  scheduledMetroOnly,
 }: {
   mode: 'metro' | 'metro-bus'
   onModeChange: (mode: 'metro' | 'metro-bus') => void
   busCount?: number
   busOnlyLock: boolean
+  scheduledMetroOnly: boolean
 }) {
   return (
     <div className="beta-plan-mode">
@@ -102,6 +104,7 @@ function BetaModeToggle({
           type="button"
           className={mode === 'metro-bus' ? 'is-active is-bus' : 'is-bus'}
           onClick={() => onModeChange('metro-bus')}
+          disabled={scheduledMetroOnly}
           aria-pressed={mode === 'metro-bus'}
         >
           <span className="beta-plan-bus-tile"><Bus aria-hidden="true" /></span>
@@ -114,6 +117,7 @@ function BetaModeToggle({
         </button>
       </div>
       {busOnlyLock && <small>Bus required for this address</small>}
+      {scheduledMetroOnly && <small>Scheduled times currently use Metro timetables only</small>}
     </div>
   )
 }
@@ -161,7 +165,7 @@ function BetaContent() {
     const originLabel = sharedTrip.originPlaceContext?.place.name ?? sharedTrip.origin.name
     const destinationLabel = sharedTrip.destPlaceContext?.place.name ?? sharedTrip.destination.name
     setLoadTrip({
-      id: `shared-${sharedTrip.origin.code}-${sharedTrip.destination.code}-${sharedTrip.departAt ?? 'now'}`,
+      id: `shared-${sharedTrip.origin.code}-${sharedTrip.destination.code}-${sharedTrip.departAt ?? sharedTrip.arriveBy ?? 'now'}`,
       label: `${originLabel} → ${destinationLabel}`,
       from: sharedTrip.originPlaceContext
         ? { type: 'place', place: sharedTrip.originPlaceContext.place }
@@ -171,6 +175,7 @@ function BetaContent() {
         : { type: 'station', station: sharedTrip.destination },
       walkTime: Math.max(1, Math.min(5, Math.round(sharedTrip.walkTime))),
       departAt: sharedTrip.departAt,
+      arriveBy: sharedTrip.arriveBy,
       fromPlaceContext: sharedTrip.originPlaceContext,
       toPlaceContext: sharedTrip.destPlaceContext,
       savedAt: Date.now(),
@@ -194,10 +199,14 @@ function BetaContent() {
     tripState.selectedAlternative?.station ?? null,
     tripState.accessible,
     tripState.showDeparted,
-    tripState.departAt
+    tripState.departAt,
+    tripState.arriveBy,
+    tripState.originPlaceContext?.walkTimeMinutes ?? 0,
+    tripState.destPlaceContext?.walkTimeMinutes ?? 0
   )
 
-  const isScheduledTrip = !!tripState.departAt && tripData?.meta?.scheduleOnly === true
+  const isScheduledTrip = !!(tripState.departAt || tripState.arriveBy)
+    && tripData?.meta?.scheduleOnly === true
 
   const liveLeg1Train = tripState.selectedLeg1Train && tripData?.trip?.leg1?.trains
     ? (tripState.selectedLeg1Train._tripId
@@ -240,8 +249,9 @@ function BetaContent() {
   const busOnlyLock = !!(tripState.originPlaceContext?.busOnly || tripState.destPlaceContext?.busOnly)
 
   useEffect(() => {
-    if (busOnlyLock) setTripMode('metro-bus')
-  }, [busOnlyLock])
+    if (isScheduledTrip) setTripMode('metro')
+    else if (busOnlyLock) setTripMode('metro-bus')
+  }, [busOnlyLock, isScheduledTrip])
 
   const {
     data: busTripsData,
@@ -262,10 +272,16 @@ function BetaContent() {
     return map
   }, [stations])
 
-  const handleGo = (from: Station, to: Station, walkTime: number, departAt: number | null) => {
+  const handleGo = (
+    from: Station,
+    to: Station,
+    walkTime: number,
+    departAt: number | null,
+    arriveBy: number | null
+  ) => {
     // each plan starts fresh on Metro unless an endpoint truly needs the bus
     setTripMode(busOnlyLock ? 'metro-bus' : 'metro')
-    tripState.startTrip(from, to, walkTime, departAt)
+    tripState.startTrip(from, to, walkTime, departAt, arriveBy)
   }
 
   type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
@@ -446,6 +462,7 @@ function BetaContent() {
                 onModeChange={setTripMode}
                 busCount={busTripsData?.trips.length}
                 busOnlyLock={busOnlyLock}
+                scheduledMetroOnly={isScheduledTrip}
               />
             </div>
           )}
@@ -496,7 +513,7 @@ function BetaContent() {
                 fetchedAt={tripData.meta.fetchedAt}
                 scheduledLabel={
                   isScheduledTrip && tripData.meta.plannedFor
-                    ? `Planned for ${new Date(tripData.meta.plannedFor).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                    ? `${tripData.meta.planningMode === 'arriveBy' ? 'Arrive by' : 'Leave at'} ${new Date(tripData.meta.plannedFor).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
                     : undefined
                 }
                 plannedForMs={
@@ -504,6 +521,7 @@ function BetaContent() {
                     ? new Date(tripData.meta.plannedFor).getTime()
                     : null
                 }
+                planningMode={isScheduledTrip ? tripData.meta.planningMode : undefined}
                 isLoadingLeg2={needsSelectedLiveConnection && leg2Loading}
                 isDirect={tripData.trip.isDirect}
                 showDeparted={tripState.showDeparted}

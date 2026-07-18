@@ -359,6 +359,51 @@ function lowerBound(deps: MetroDeparture[], targetSec: number): number {
   return lo
 }
 
+function upperBound(deps: MetroDeparture[], targetSec: number): number {
+  let lo = 0
+  let hi = deps.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (deps[mid].depSec <= targetSec) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  return lo
+}
+
+function matchesTerminus(headsign: string, terminus: string | string[]): boolean {
+  const terminusList = Array.isArray(terminus) ? terminus : [terminus]
+  const normalizedTermini = terminusList.map(t => normalizeDestination(t))
+  const normalizedHeadsign = normalizeDestination(headsign)
+
+  return normalizedTermini.some(term => {
+    if (normalizedHeadsign === term) return true
+    // partial match: "vienna" matches "vienna fairfax-gmu"
+    if (normalizedHeadsign.includes(term) || term.includes(normalizedHeadsign)) return true
+    // first-word match
+    const headsignFirst = normalizedHeadsign.split(/[\s\-\/]/)[0]
+    const termFirst = term.split(/[\s\-\/]/)[0]
+    return headsignFirst === termFirst
+  })
+}
+
+function toScheduledMetroTrain(
+  departure: MetroDeparture,
+  nowSec: number,
+  clampToNow = true
+): ScheduledMetroTrain {
+  const minutesFromNow = Math.round((departure.depSec - nowSec) / 60)
+  return {
+    depSec: departure.depSec,
+    minutesFromNow: clampToNow ? Math.max(0, minutesFromNow) : minutesFromNow,
+    tripId: departure.tripId,
+    line: departure.line,
+    headsign: departure.headsign,
+  }
+}
+
 // ── Public API ─────────────────────────────────────────────────────────
 
 /**
@@ -408,35 +453,44 @@ export function getMetroDepartures(
   const { nowSec } = getEasternTime()
   const searchFromSec = nowSec + startFromMinutes * 60
 
-  const terminusList = Array.isArray(terminus) ? terminus : [terminus]
-  const normalizedTermini = terminusList.map(t => normalizeDestination(t))
-
-  const matchesTerminus = (headsign: string) => {
-    const normalizedHeadsign = normalizeDestination(headsign)
-    return normalizedTermini.some(term => {
-      if (normalizedHeadsign === term) return true
-      // partial match: "vienna" matches "vienna fairfax-gmu"
-      if (normalizedHeadsign.includes(term) || term.includes(normalizedHeadsign)) return true
-      // first-word match
-      const headsignFirst = normalizedHeadsign.split(/[\s\-\/]/)[0]
-      const termFirst = term.split(/[\s\-\/]/)[0]
-      return headsignFirst === termFirst
-    })
-  }
-
   const startIdx = lowerBound(deps, searchFromSec)
   const results: ScheduledMetroTrain[] = []
 
   for (let i = startIdx; i < deps.length && results.length < limit; i++) {
     const d = deps[i]
-    if (matchesTerminus(d.headsign)) {
-      results.push({
-        depSec: d.depSec,
-        minutesFromNow: Math.max(0, Math.round((d.depSec - nowSec) / 60)),
-        tripId: d.tripId,
-        line: d.line,
-        headsign: d.headsign,
-      })
+    if (matchesTerminus(d.headsign, terminus)) {
+      results.push(toScheduledMetroTrain(d, nowSec))
+    }
+  }
+
+  return results
+}
+
+/**
+ * Get the latest Metro departures at or before a requested time. Results are
+ * ordered latest-first so an arrive-by planner can choose the latest feasible
+ * departure without estimating headways.
+ */
+export function getMetroDeparturesBefore(
+  stationCode: string,
+  terminus: string | string[],
+  endAtMinutes: number,
+  limit = 10
+): ScheduledMetroTrain[] {
+  const idx = ensureIndex()
+  if (!idx) return []
+
+  const deps = idx.stationDepartures.get(stationCode)
+  if (!deps || deps.length === 0) return []
+
+  const { nowSec } = getEasternTime()
+  const searchUntilSec = nowSec + endAtMinutes * 60
+  const results: ScheduledMetroTrain[] = []
+
+  for (let i = upperBound(deps, searchUntilSec) - 1; i >= 0 && results.length < limit; i--) {
+    const departure = deps[i]
+    if (matchesTerminus(departure.headsign, terminus)) {
+      results.push(toScheduledMetroTrain(departure, nowSec, false))
     }
   }
 

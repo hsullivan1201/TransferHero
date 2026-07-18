@@ -123,9 +123,9 @@ export function renderShareCardSvg(trip: SharedTripPayload): string {
   const firstLeg = trip.legs[0]
   const originWalk = trip.originPlaceContext?.walkTimeMinutes
     ?? (firstLeg?.kind === 'walk' ? firstLeg.minutes : 0)
-  const leaveAt = trip.timing.departureAtMs == null
+  const leaveAt = trip.departAt ?? (trip.timing.departureAtMs == null
     ? null
-    : trip.timing.departureAtMs - originWalk * 60_000
+    : trip.timing.departureAtMs - originWalk * 60_000)
   const departureLabel = originWalk > 0 ? 'LEAVE' : 'TRAIN'
   const status = trip.timing.source === 'live'
     ? 'LIVE SNAPSHOT'

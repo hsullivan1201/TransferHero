@@ -34,6 +34,18 @@ const trip: SharedTripPayload = {
 
 const token = createShareToken(trip, secret)
 assert.deepEqual(decodeShareToken(token, secret), trip)
+
+const arriveByTrip: SharedTripPayload = {
+  ...trip,
+  arriveBy: now + 25 * 60_000,
+}
+const arriveByToken = createShareToken(arriveByTrip, secret)
+assert.deepEqual(decodeShareToken(arriveByToken, secret), arriveByTrip)
+
+assert.throws(
+  () => createShareToken({ ...arriveByTrip, departAt: now + 5 * 60_000 }, secret),
+  /invalid shared trip/u
+)
 assert.equal(decodeShareToken(`${token.slice(0, -1)}x`, secret), null)
 assert.equal(decodeShareToken(token, `${secret}-different`), null)
 assert.equal(decodeShareToken('not-a-token', secret), null)

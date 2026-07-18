@@ -16,6 +16,8 @@ export interface SavedTrip {
   walkTime: number
   /** Optional planned departure used when a shared trip hydrates the planner. */
   departAt?: number | null
+  /** Optional arrival deadline used when a shared trip hydrates the planner. */
+  arriveBy?: number | null
   /** Exact place-to-station choices carried by a shared trip (not used by saved trips). */
   fromPlaceContext?: PlaceContext
   toPlaceContext?: PlaceContext

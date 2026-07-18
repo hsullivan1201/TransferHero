@@ -33,12 +33,13 @@ export interface PlanTripInput {
   accessible: boolean
   includeDeparted: boolean
   apiKey: string
-  /** epoch ms — plan for a future departure using schedule data instead of realtime */
+  /** epoch ms — leave the actual origin at this time */
   departAt?: number
+  /** epoch ms — reach the actual destination by this time */
+  arriveBy?: number
+  originWalkMinutes?: number
+  destinationWalkMinutes?: number
 }
-
-/** departures further out than realtime predictions cover go to the schedule-only planner */
-const REALTIME_HORIZON_MIN = 30
 
 export interface PlanLeg2Input {
   tripId: string
@@ -107,15 +108,36 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
   }
 
   async function planTrip(input: PlanTripInput): Promise<any> {
-    const { from, to, walkTime, transferStation, accessible, includeDeparted, apiKey, departAt } = input
+    const {
+      from,
+      to,
+      walkTime,
+      transferStation,
+      accessible,
+      includeDeparted,
+      apiKey,
+      departAt,
+      arriveBy,
+      originWalkMinutes = 0,
+      destinationWalkMinutes = 0,
+    } = input
 
-    // future departures beyond the realtime horizon use GTFS schedule data only
-    if (departAt !== undefined) {
-      const offsetMin = Math.round((departAt - Date.now()) / 60000)
-      if (offsetMin > REALTIME_HORIZON_MIN) {
-        return planScheduledTrip({ from, to, walkTime, transferStation, accessible, departAtMs: departAt })
-      }
-      // within the horizon, realtime "leave now" data already covers the departure
+    // Explicit time requests use the timetable at every horizon. Treating a
+    // near-term request as "leave now" silently returns trains before the
+    // rider can leave the origin, and realtime data cannot search backwards
+    // for arrive-by itineraries.
+    if (departAt !== undefined || arriveBy !== undefined) {
+      return planScheduledTrip({
+        from,
+        to,
+        walkTime,
+        transferStation,
+        accessible,
+        departAtMs: departAt,
+        arriveByMs: arriveBy,
+        originWalkMinutes,
+        destinationWalkMinutes,
+      })
     }
 
     const fromStation = findStationByCode(from)

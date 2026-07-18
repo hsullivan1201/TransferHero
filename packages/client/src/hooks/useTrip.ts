@@ -23,15 +23,42 @@ export function useTrip(
   transferStation?: string | null,
   accessible: boolean = false,
   showDeparted: boolean = false,
-  departAt: number | null = null
+  departAt: number | null = null,
+  arriveBy: number | null = null,
+  originWalkMinutes: number = 0,
+  destinationWalkMinutes: number = 0
 ) {
+  const hasExplicitTime = departAt != null || arriveBy != null
   return useQuery({
-    queryKey: ['trip', from, to, walkTime, transferStation, accessible, showDeparted, departAt],
-    queryFn: () => fetchTrip(from!, to!, walkTime, transferStation || undefined, accessible, showDeparted, departAt),
+    queryKey: [
+      'trip',
+      from,
+      to,
+      walkTime,
+      transferStation,
+      accessible,
+      showDeparted,
+      departAt,
+      arriveBy,
+      originWalkMinutes,
+      destinationWalkMinutes,
+    ],
+    queryFn: () => fetchTrip(
+      from!,
+      to!,
+      walkTime,
+      transferStation || undefined,
+      accessible,
+      showDeparted,
+      departAt,
+      arriveBy,
+      originWalkMinutes,
+      destinationWalkMinutes
+    ),
     enabled: !!from && !!to,
     // scheduled (future) trips don't change every 15s — skip the realtime polling
-    staleTime: departAt ? Infinity : 10 * 1000,
-    refetchInterval: departAt ? false : 15 * 1000,
+    staleTime: hasExplicitTime ? Infinity : 10 * 1000,
+    refetchInterval: hasExplicitTime ? false : 15 * 1000,
     placeholderData: keepPreviousData,
   })
 }
@@ -87,6 +114,8 @@ interface TripState {
   destPlaceContext: PlaceContext | null
   /** epoch ms for "leave at" trips; null = leave now */
   departAt: number | null
+  /** epoch ms for "arrive by" trips; null = leave now/at */
+  arriveBy: number | null
 }
 
 export function useTripState() {
@@ -103,6 +132,7 @@ export function useTripState() {
     originPlaceContext: null,
     destPlaceContext: null,
     departAt: null,
+    arriveBy: null,
   }))
 
   const setFrom = useCallback((station: Station | null) => {
@@ -113,7 +143,6 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-      departAt: null,
     }))
   }, [])
 
@@ -125,7 +154,6 @@ export function useTripState() {
       selectedLeg1Index: undefined,
       selectedAlternative: null,
       departureTimestamp: null,
-      departAt: null,
     }))
   }, [])
 
@@ -178,7 +206,13 @@ export function useTripState() {
     }))
   }, [])
 
-  const startTrip = useCallback((from: Station, to: Station, walkTime: number, departAt: number | null = null) => {
+  const startTrip = useCallback((
+    from: Station,
+    to: Station,
+    walkTime: number,
+    departAt: number | null = null,
+    arriveBy: number | null = null
+  ) => {
     setState(prev => ({
       from,
       to,
@@ -192,6 +226,7 @@ export function useTripState() {
       originPlaceContext: prev.originPlaceContext, // keep place contexts through trip start
       destPlaceContext: prev.destPlaceContext,
       departAt,
+      arriveBy,
     }))
   }, [])
 

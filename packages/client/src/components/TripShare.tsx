@@ -56,6 +56,7 @@ export interface TripShareData {
   timing: SharedTripTiming
   transferName: string | null
   plannedForMs?: number | null
+  planningMode?: 'departAt' | 'arriveBy'
 }
 
 export interface TripShareProps extends TripShareData {
@@ -119,7 +120,8 @@ export function createTripSharePayload(data: TripShareData): SharedTripPayload {
     accessible: data.accessible,
     legs: data.legs.map((leg) => ({ ...leg })),
     timing: { ...data.timing },
-    departAt: data.plannedForMs ?? null,
+    departAt: data.planningMode === 'departAt' ? data.plannedForMs ?? null : null,
+    arriveBy: data.planningMode === 'arriveBy' ? data.plannedForMs ?? null : null,
     transferName: data.transferName,
     // The server replaces this with the exact share-creation time before signing.
     sharedAtMs: data.timing.capturedAtMs,
@@ -353,9 +355,9 @@ export function drawTripShareImage(
   const finalLine = payload.lines.at(-1) ?? firstLine
   const transferLeg = payload.legs.find(leg => leg.kind === 'transfer')
   const hasTransfer = payload.lines.length > 1 && payload.transferName != null
-  const leaveAtMs = payload.timing.departureAtMs == null
+  const leaveAtMs = payload.departAt ?? (payload.timing.departureAtMs == null
     ? null
-    : payload.timing.departureAtMs - originWalk * 60_000
+    : payload.timing.departureAtMs - originWalk * 60_000)
   const statusLabel = payload.timing.source === 'live'
     ? 'LIVE SNAPSHOT'
     : payload.timing.source === 'mixed'
@@ -772,6 +774,7 @@ export function TripShare({
   legs,
   timing,
   plannedForMs,
+  planningMode,
   className,
 }: TripShareProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -799,6 +802,7 @@ export function TripShare({
     legs,
     timing,
     plannedForMs,
+    planningMode,
   }), [
     origin,
     destination,
@@ -815,6 +819,7 @@ export function TripShare({
     legs,
     timing,
     plannedForMs,
+    planningMode,
   ])
 
   const originLabel = getEndpointLabel(payload.origin, payload.originPlaceContext)

@@ -420,6 +420,89 @@ async function futureDepartAtSkipsRealtimeCallsEntirely() {
   console.log('✓ future departAt trips are schedule-only and make zero realtime prediction calls')
 }
 
+async function nearTermDepartAtStillUsesTheRequestedTimetable() {
+  clearAllCache()
+  process.env.WMATA_API_KEY = 'test-key'
+
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner(controls.deps)
+  const handlers = createTripHandlers(planner)
+  const directRoute = findRoutePair(true)
+  const departAt = Date.now() + 15 * 60_000
+  const req = makeMockRequest({
+    originalUrl: `/api/trips?from=${directRoute.from}&to=${directRoute.to}&walkTime=2&departAt=${departAt}&originWalkMinutes=11`,
+    query: {
+      from: directRoute.from,
+      to: directRoute.to,
+      walkTime: '2',
+      departAt: String(departAt),
+      originWalkMinutes: '11',
+    }
+  })
+  const res = makeMockResponse()
+
+  await runTripGetPipeline(req, res, handlers.getTrip as any)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.meta?.scheduleOnly, true)
+  assert.equal(res.body.meta?.planningMode, 'departAt')
+  assert.equal(res.body.meta?.originWalkMinutes, 11)
+  assert.equal(controls.getPredictionCallCount(), 0)
+  console.log('✓ near-term departAt trips no longer fall back to leave-now realtime data')
+}
+
+async function arriveByUsesScheduleWithoutRealtimeCalls() {
+  clearAllCache()
+  process.env.WMATA_API_KEY = 'test-key'
+
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner(controls.deps)
+  const handlers = createTripHandlers(planner)
+  const directRoute = findRoutePair(true)
+  const arriveBy = Date.now() + 2 * 60 * 60 * 1000
+  const req = makeMockRequest({
+    originalUrl: `/api/trips?from=${directRoute.from}&to=${directRoute.to}&walkTime=2&arriveBy=${arriveBy}&destinationWalkMinutes=7`,
+    query: {
+      from: directRoute.from,
+      to: directRoute.to,
+      walkTime: '2',
+      arriveBy: String(arriveBy),
+      destinationWalkMinutes: '7',
+    }
+  })
+  const res = makeMockResponse()
+
+  await runTripGetPipeline(req, res, handlers.getTrip as any)
+
+  assert.equal(res.statusCode, 200)
+  assert.equal(res.body.meta?.scheduleOnly, true)
+  assert.equal(res.body.meta?.planningMode, 'arriveBy')
+  assert.equal(res.body.meta?.destinationWalkMinutes, 7)
+  assert.equal(controls.getPredictionCallCount(), 0)
+  console.log('✓ arriveBy trips use the timetable and make zero realtime prediction calls')
+}
+
+async function rejectsConflictingExplicitTimes() {
+  process.env.WMATA_API_KEY = 'test-key'
+  const handlers = createTripHandlers(createTripPlanner(createMockRealtimeDeps().deps))
+  const directRoute = findRoutePair(true)
+  const req = makeMockRequest({
+    originalUrl: '/api/trips?conflicting-times',
+    query: {
+      from: directRoute.from,
+      to: directRoute.to,
+      departAt: String(Date.now() + 60_000),
+      arriveBy: String(Date.now() + 120_000),
+    }
+  })
+
+  await assert.rejects(
+    () => handlers.getTrip(req, makeMockResponse() as unknown as Response),
+    /mutually exclusive/
+  )
+  console.log('✓ trip endpoint rejects simultaneous departAt and arriveBy constraints')
+}
+
 async function kingStTransferPlansKeepDivergingLinesInSeparateItineraries() {
   const controls = createMockRealtimeDeps()
   const planner = createTripPlanner(controls.deps)
@@ -577,6 +660,9 @@ await tripApiCacheAvoidsDuplicateRealtimeCallsWithinTtl()
 await staleRealtimeFallbackServesTripAfterUpstreamFailure()
 await leg2PipelineReturnsCatchableTrainsForTransferTrips()
 await futureDepartAtSkipsRealtimeCallsEntirely()
+await nearTermDepartAtStillUsesTheRequestedTimetable()
+await arriveByUsesScheduleWithoutRealtimeCalls()
+await rejectsConflictingExplicitTimes()
 await kingStTransferPlansKeepDivergingLinesInSeparateItineraries()
 await aliasEndpointsUseTheirLineSpecificRealtimePlatforms()
 await selectedLenfantTransferKeepsPlatformPredictionsSeparate()

@@ -1,4 +1,4 @@
-import type { PlaceResult, ResolveResponse } from '@transferhero/shared'
+import type { PlaceContext, PlaceResult, ResolveResponse } from '@transferhero/shared'
 
 const API_BASE = '/api'
 
@@ -12,10 +12,15 @@ export async function searchDestinations(query: string, session?: string): Promi
   return data.places || []
 }
 
-export async function resolveDestination(lat: number, lon: number): Promise<ResolveResponse> {
+export async function resolveDestination(
+  lat: number,
+  lon: number,
+  direction: PlaceContext['direction']
+): Promise<ResolveResponse> {
   const params = new URLSearchParams({
     lat: lat.toString(),
     lon: lon.toString(),
+    direction,
   })
   const res = await fetch(`${API_BASE}/destinations/resolve?${params}`)
   if (!res.ok) throw new Error('No stations within walking distance')

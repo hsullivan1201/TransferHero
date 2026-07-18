@@ -1,10 +1,24 @@
 // Google Directions API — walking mode
 // Follows the same patterns as geocodingService.ts: lazy API key, LRU cache, graceful fallback
 import { fetchWithTimeout } from '../utils/http.js'
+import { routedWalkMinutes } from './walkingTime.js'
 
-interface WalkingDirectionsResult {
+export interface WalkingDirectionsResult {
   walkTimeMinutes: number
   walkDistanceMeters: number
+}
+
+export interface GoogleWalkingLeg {
+  distance: { value: number }
+  duration?: { value: number }
+}
+
+export function walkingDirectionsResultFromLeg(leg: GoogleWalkingLeg): WalkingDirectionsResult {
+  const walkDistanceMeters = leg.distance.value
+  return {
+    walkTimeMinutes: routedWalkMinutes(walkDistanceMeters),
+    walkDistanceMeters,
+  }
 }
 
 interface CacheEntry {
@@ -89,11 +103,8 @@ export async function getWalkingDirections(
       return null
     }
 
-    const leg = data.routes[0].legs[0]
-    const result: WalkingDirectionsResult = {
-      walkTimeMinutes: Math.max(1, Math.round(leg.duration.value / 60)),
-      walkDistanceMeters: leg.distance.value,
-    }
+    const leg = data.routes[0].legs[0] as GoogleWalkingLeg
+    const result = walkingDirectionsResultFromLeg(leg)
 
     evictIfOverCapacity()
     cache.set(key, { result, ts: Date.now() })

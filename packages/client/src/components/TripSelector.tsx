@@ -51,11 +51,17 @@ function toLocalInputValue(d: Date): string {
 }
 
 /** scheduling is limited to the current service day on the server */
-const MAX_DEPART_HOURS = 10
+const MAX_SCHEDULE_HOURS = 10
 
 interface TripSelectorProps {
   stations: Station[]
-  onGo: (from: Station, to: Station, walkTime: number, departAt: number | null) => void
+  onGo: (
+    from: Station,
+    to: Station,
+    walkTime: number,
+    departAt: number | null,
+    arriveBy: number | null
+  ) => void
   isLoading?: boolean
   transfer?: TransferResult | null
   onSelectAlternative?: (alternative: TransferAlternative | null) => void
@@ -95,8 +101,8 @@ export function TripSelector({
   const [showSwapFx, setShowSwapFx] = useState(false)
   const [justSaved, setJustSaved] = useState(false)
 
-  // "Leave now" vs "Leave at <time>"
-  const [departMode, setDepartMode] = useState<'now' | 'later'>('now')
+  // "Leave now", "Leave at <time>", or "Arrive by <time>"
+  const [departMode, setDepartMode] = useState<'now' | 'later' | 'arrive'>('now')
   const [departAtValue, setDepartAtValue] = useState('')
 
   useEffect(() => {
@@ -105,9 +111,9 @@ export function TripSelector({
     return () => clearTimeout(timer)
   }, [justSaved])
 
-  const handleDepartModeChange = useCallback((mode: 'now' | 'later') => {
+  const handleDepartModeChange = useCallback((mode: 'now' | 'later' | 'arrive') => {
     setDepartMode(mode)
-    if (mode === 'later' && !departAtValue) {
+    if (mode !== 'now' && !departAtValue) {
       // sensible default: half an hour from now
       setDepartAtValue(toLocalInputValue(new Date(Date.now() + 30 * 60_000)))
     }
@@ -135,8 +141,17 @@ export function TripSelector({
       const sharedDeparture = loadTrip.departAt && loadTrip.departAt > Date.now()
         ? loadTrip.departAt
         : null
-      setDepartMode(sharedDeparture ? 'later' : 'now')
-      setDepartAtValue(sharedDeparture ? toLocalInputValue(new Date(sharedDeparture)) : '')
+      const sharedArrival = loadTrip.arriveBy && loadTrip.arriveBy > Date.now()
+        ? loadTrip.arriveBy
+        : null
+      setDepartMode(sharedArrival ? 'arrive' : sharedDeparture ? 'later' : 'now')
+      setDepartAtValue(
+        sharedArrival
+          ? toLocalInputValue(new Date(sharedArrival))
+          : sharedDeparture
+            ? toLocalInputValue(new Date(sharedDeparture))
+            : ''
+      )
       setPendingAutoGo(true)
       onTripLoaded?.()
     }
@@ -146,8 +161,16 @@ export function TripSelector({
   const fromPlace = fromSelection && fromSelection.type !== 'station' ? fromSelection.place : null
   const toPlace = toSelection && toSelection.type !== 'station' ? toSelection.place : null
 
-  const { data: fromResolved, error: fromResolveError } = useDestinationResolve(fromPlace?.lat ?? null, fromPlace?.lon ?? null)
-  const { data: toResolved, error: toResolveError } = useDestinationResolve(toPlace?.lat ?? null, toPlace?.lon ?? null)
+  const { data: fromResolved, error: fromResolveError } = useDestinationResolve(
+    fromPlace?.lat ?? null,
+    fromPlace?.lon ?? null,
+    'to_station'
+  )
+  const { data: toResolved, error: toResolveError } = useDestinationResolve(
+    toPlace?.lat ?? null,
+    toPlace?.lon ?? null,
+    'from_station'
+  )
 
   // Place/resolve change: reset override and build context in one pass (no cascade)
   useEffect(() => {
@@ -216,15 +239,20 @@ export function TripSelector({
       ? toSelection.station
       : destOverride?.station ?? toResolved?.station ?? null
 
+  const scheduledBusOnlyUnsupported = !!(fromResolved?.busOnly || toResolved?.busOnly)
   const canGo = fromStation && toStation && fromStation.code !== toStation.code
     && (departMode === 'now' || !!departAtValue)
+    && (departMode === 'now' || !scheduledBusOnlyUnsupported)
 
   const handleGo = useCallback(() => {
     if (fromStation && toStation) {
       const departAt = departMode === 'later' && departAtValue
         ? Math.floor(new Date(departAtValue).getTime() / 60_000) * 60_000 // minute-rounded for stable cache keys
         : null
-      onGo(fromStation, toStation, walkTime, departAt)
+      const arriveBy = departMode === 'arrive' && departAtValue
+        ? Math.floor(new Date(departAtValue).getTime() / 60_000) * 60_000
+        : null
+      onGo(fromStation, toStation, walkTime, departAt, arriveBy)
     }
   }, [fromStation, toStation, walkTime, onGo, departMode, departAtValue])
 
@@ -425,12 +453,12 @@ export function TripSelector({
         </div>
       </div>
 
-      {/* Departure time: leave now vs leave at */}
+      {/* Door-to-door planning time */}
       <div className="mt-3 flex flex-wrap items-center gap-2">
         <div
           className="inline-flex rounded-md border border-[var(--border-color)] overflow-hidden text-sm"
           role="group"
-          aria-label="Departure time"
+          aria-label="Trip time"
         >
           <button
             type="button"
@@ -447,8 +475,9 @@ export function TripSelector({
           <button
             type="button"
             onClick={() => handleDepartModeChange('later')}
+            disabled={scheduledBusOnlyUnsupported}
             aria-pressed={departMode === 'later'}
-            className={`px-3 py-1.5 font-medium transition-colors border-l border-[var(--border-color)] flex items-center gap-1.5 ${
+            className={`px-3 py-1.5 font-medium transition-colors border-l border-[var(--border-color)] flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
               departMode === 'later'
                 ? 'bg-[#E31837] text-white'
                 : 'bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
@@ -457,22 +486,41 @@ export function TripSelector({
             <Clock className="w-3.5 h-3.5" />
             Leave at
           </button>
+          <button
+            type="button"
+            onClick={() => handleDepartModeChange('arrive')}
+            disabled={scheduledBusOnlyUnsupported}
+            aria-pressed={departMode === 'arrive'}
+            className={`px-3 py-1.5 font-medium transition-colors border-l border-[var(--border-color)] flex items-center gap-1.5 disabled:opacity-50 disabled:cursor-not-allowed ${
+              departMode === 'arrive'
+                ? 'bg-[#E31837] text-white'
+                : 'bg-[var(--input-bg)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]'
+            }`}
+          >
+            <Clock className="w-3.5 h-3.5" />
+            Arrive by
+          </button>
         </div>
-        {departMode === 'later' && (
+        {departMode !== 'now' && (
           <>
             <input
               type="datetime-local"
               value={departAtValue}
               min={toLocalInputValue(new Date())}
-              max={toLocalInputValue(new Date(Date.now() + MAX_DEPART_HOURS * 3_600_000))}
+              max={toLocalInputValue(new Date(Date.now() + MAX_SCHEDULE_HOURS * 3_600_000))}
               onChange={(e) => setDepartAtValue(e.target.value)}
-              aria-label="Departure date and time"
+              aria-label={departMode === 'arrive' ? 'Arrival date and time' : 'Departure date and time'}
               className="px-3 py-1.5 bg-[var(--input-bg)] border border-[var(--border-color)] rounded text-sm text-[var(--text-primary)] focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
             <span className="text-xs text-[var(--text-secondary)]">
-              Today's schedule only — trains shown from the timetable
+              Door-to-door time · today’s timetable
             </span>
           </>
+        )}
+        {scheduledBusOnlyUnsupported && (
+          <span className="text-xs text-[var(--text-secondary)]">
+            Scheduled planning currently requires Metro-accessible endpoints
+          </span>
         )}
       </div>
 

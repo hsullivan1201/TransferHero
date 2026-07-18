@@ -54,6 +54,8 @@ export interface SharedTripPayload {
   accessible: boolean
   /** Planned departure selected by the sender. Null means leave now. */
   departAt: number | null
+  /** Planned arrival deadline selected by the sender. Absent on older v2 payloads. */
+  arriveBy?: number | null
   transferName: string | null
   legs: SharedTripLeg[]
   timing: SharedTripTiming
@@ -238,6 +240,7 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     'walkTime',
     'accessible',
     'departAt',
+    'arriveBy',
     'transferName',
     'legs',
     'timing',
@@ -260,6 +263,7 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
   const transferWalkSummary = displayString(value.transferWalkSummary, 240)
   const walkTime = finiteNumber(value.walkTime, 0, 180)
   const departAt = value.departAt === null ? null : epoch(value.departAt)
+  const arriveBy = value.arriveBy == null ? null : epoch(value.arriveBy)
   const transferName = value.transferName === null ? null : displayString(value.transferName, 100)
   const timing = parseTiming(value.timing)
   const sharedAtMs = epoch(value.sharedAtMs)
@@ -280,6 +284,8 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     || walkTime == null
     || typeof value.accessible !== 'boolean'
     || (value.departAt !== null && departAt == null)
+    || (value.arriveBy != null && arriveBy == null)
+    || (departAt != null && arriveBy != null)
     || (value.transferName !== null && transferName == null)
     || !Array.isArray(value.legs)
     || value.legs.length < 1
@@ -310,6 +316,7 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     walkTime,
     accessible: value.accessible,
     departAt,
+    ...('arriveBy' in value ? { arriveBy } : {}),
     transferName,
     legs: normalizedLegs,
     timing,

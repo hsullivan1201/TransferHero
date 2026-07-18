@@ -9,7 +9,11 @@ import {
 import { getPlatformForLine } from '../data/platformCodes.js'
 import { NotFoundError, ValidationError } from '../middleware/errorHandler.js'
 import { getDirectLinesForLeg, getInterlinedLinesForLeg, getStopsBeyondDestination, getStopsForLeg, getTerminusString } from './lineHelpers.js'
-import { getMetroDepartures, type ScheduledMetroTrain } from './metroScheduleIndex.js'
+import {
+  getMetroDepartures,
+  getMetroDeparturesBefore,
+  type ScheduledMetroTrain,
+} from './metroScheduleIndex.js'
 import { findTransfer, getAllTerminiForStation } from './pathfinding.js'
 import { calculateRouteTravelTime, getCanonicalTerminus, getTerminus, minutesToClockTime } from './travelTime.js'
 
@@ -34,7 +38,14 @@ export interface PlanScheduledTripInput {
   walkTime: number
   transferStation?: string
   accessible: boolean
-  departAtMs: number
+  /** Door-to-door departure requested by the rider. Mutually exclusive with arriveByMs. */
+  departAtMs?: number
+  /** Door-to-door arrival deadline requested by the rider. Mutually exclusive with departAtMs. */
+  arriveByMs?: number
+  /** Routed walk from the actual origin to the station entrance. */
+  originWalkMinutes?: number
+  /** Routed walk from the destination station exit to the actual destination. */
+  destinationWalkMinutes?: number
 }
 
 /** the schedule index only covers the current service day (plus tomorrow after 9 PM) */
@@ -45,11 +56,13 @@ const CATCH_THRESHOLD = -3
 
 interface ScheduledTripDeps {
   getMetroDepartures: typeof getMetroDepartures
+  getMetroDeparturesBefore: typeof getMetroDeparturesBefore
   now: () => number
 }
 
 const defaultDeps: ScheduledTripDeps = {
   getMetroDepartures,
+  getMetroDeparturesBefore,
   now: () => Date.now()
 }
 
@@ -94,9 +107,25 @@ export function planScheduledTrip(
   input: PlanScheduledTripInput,
   deps: ScheduledTripDeps = defaultDeps
 ): any {
-  const { from, to, walkTime, transferStation, accessible, departAtMs } = input
+  const {
+    from,
+    to,
+    walkTime,
+    transferStation,
+    accessible,
+    departAtMs,
+    arriveByMs,
+    originWalkMinutes = 0,
+    destinationWalkMinutes = 0,
+  } = input
   const nowMs = deps.now()
-  const offsetMin = Math.round((departAtMs - nowMs) / 60_000)
+  if ((departAtMs === undefined) === (arriveByMs === undefined)) {
+    throw new ValidationError('Provide exactly one of departAtMs or arriveByMs')
+  }
+
+  const planningMode = arriveByMs === undefined ? 'departAt' : 'arriveBy'
+  const plannedForMs = departAtMs ?? arriveByMs!
+  const offsetMin = Math.round((plannedForMs - nowMs) / 60_000)
 
   validateDepartureOffset(offsetMin)
 
@@ -122,7 +151,10 @@ export function planScheduledTrip(
     fetchedAt: new Date(nowMs).toISOString(),
     sources: ['schedule'],
     scheduleOnly: true,
-    plannedFor: new Date(departAtMs).toISOString(),
+    plannedFor: new Date(plannedForMs).toISOString(),
+    planningMode,
+    originWalkMinutes,
+    destinationWalkMinutes,
     walkTime,
   }
 
@@ -132,11 +164,37 @@ export function planScheduledTrip(
     const terminus = [...new Set(allTermini)]
     const originPlatforms = [...new Set(directLines.map(line => getPlatformForLine(from, line)))]
 
-    const departures = originPlatforms
-      .flatMap(platform => deps.getMetroDepartures(platform, terminus, offsetMin, TRAINS_PER_LEG))
-      .filter(dep => directLines.includes(dep.line))
-      .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
-      .slice(0, TRAINS_PER_LEG)
+    const departures = planningMode === 'departAt'
+      ? originPlatforms
+          .flatMap(platform => deps.getMetroDepartures(
+            platform,
+            terminus,
+            offsetMin + originWalkMinutes,
+            TRAINS_PER_LEG
+          ))
+          .filter(dep => directLines.includes(dep.line))
+          .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
+          .slice(0, TRAINS_PER_LEG)
+      : directLines
+          .flatMap(line => {
+            const rideMinutes = calculateRouteTravelTime(from, to, line)
+            const stationArrivalDeadline = offsetMin - destinationWalkMinutes
+            return deps.getMetroDeparturesBefore(
+              getPlatformForLine(from, line),
+              getTerminus(line, from, to),
+              stationArrivalDeadline - rideMinutes,
+              TRAINS_PER_LEG
+            ).filter(dep => dep.line === line)
+          })
+          .filter(dep => dep.minutesFromNow >= originWalkMinutes)
+          .filter(dep => (
+            dep.minutesFromNow
+            + calculateRouteTravelTime(from, to, dep.line)
+            + destinationWalkMinutes
+          ) <= offsetMin)
+          .sort((a, b) => b.minutesFromNow - a.minutesFromNow)
+          .filter((dep, index, all) => all.findIndex(candidate => candidate.tripId === dep.tripId) === index)
+          .slice(0, TRAINS_PER_LEG)
 
     const trains = departures.map(dep =>
       toScheduledTrain(dep, dep.minutesFromNow + calculateRouteTravelTime(from, to, dep.line), nowMs)
@@ -203,18 +261,90 @@ export function planScheduledTrip(
   const leg1OriginPlatforms = [...new Set(
     leg1AllowedLines.map(line => getPlatformForLine(from, line))
   )]
-  const leg1Departures = leg1OriginPlatforms
-    .flatMap(platform => deps.getMetroDepartures(platform, terminusFirst, offsetMin, TRAINS_PER_LEG))
-    .filter(dep => !leg1AllowedLines || leg1AllowedLines.includes(dep.line))
-    .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
-    .slice(0, TRAINS_PER_LEG)
+  const latestTheoreticalLeg1Departure = offsetMin
+    - destinationWalkMinutes
+    - leg2TravelTime
+    - walkTime
+    - leg1TravelTime
+  const connectionByLeg1Trip = new Map<string, ScheduledMetroTrain | undefined>()
+  const leg1Departures: ScheduledMetroTrain[] = []
+
+  if (planningMode === 'departAt') {
+    const rawLeg1Departures = leg1OriginPlatforms
+      .flatMap(platform => deps.getMetroDepartures(
+        platform,
+        terminusFirst,
+        offsetMin + originWalkMinutes,
+        TRAINS_PER_LEG
+      ))
+      .filter(dep => leg1AllowedLines.includes(dep.line))
+      .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
+
+    for (const departure of rawLeg1Departures) {
+      if (leg1Departures.some(candidate => candidate.tripId === departure.tripId)) continue
+      const transferArrivalMin = departure.minutesFromNow + leg1TravelTime
+      const connection = deps.getMetroDepartures(
+        transfer.toPlatform,
+        terminusSecond,
+        transferArrivalMin + walkTime,
+        TRAINS_PER_LEG
+      ).find(candidate => leg2AllowedLines.includes(candidate.line))
+
+      connectionByLeg1Trip.set(departure.tripId, connection)
+      leg1Departures.push(departure)
+      if (leg1Departures.length >= TRAINS_PER_LEG) break
+    }
+  } else {
+    // Work backward from scheduled second-leg trains that can still reach the
+    // destination station before the walking deadline. For each one, find the
+    // latest first-leg train that arrives with enough transfer-walk time.
+    const stationArrivalDeadline = offsetMin - destinationWalkMinutes
+    const leg2Candidates = deps.getMetroDeparturesBefore(
+      transfer.toPlatform,
+      terminusSecond,
+      stationArrivalDeadline - leg2TravelTime,
+      TRAINS_PER_LEG * 4
+    ).filter(candidate => leg2AllowedLines.includes(candidate.line))
+
+    const pairs: Array<{ leg1: ScheduledMetroTrain; leg2: ScheduledMetroTrain }> = []
+    for (const leg2Departure of leg2Candidates) {
+      const leg1Cutoff = leg2Departure.minutesFromNow - walkTime - leg1TravelTime
+      for (const platform of leg1OriginPlatforms) {
+        const leg1Departure = deps.getMetroDeparturesBefore(
+          platform,
+          terminusFirst,
+          leg1Cutoff,
+          TRAINS_PER_LEG
+        ).find(candidate => (
+          leg1AllowedLines.includes(candidate.line)
+          && candidate.minutesFromNow >= originWalkMinutes
+        ))
+        if (leg1Departure) pairs.push({ leg1: leg1Departure, leg2: leg2Departure })
+      }
+    }
+
+    const bestPairByLeg1Trip = new Map<string, { leg1: ScheduledMetroTrain; leg2: ScheduledMetroTrain }>()
+    for (const pair of pairs) {
+      const existing = bestPairByLeg1Trip.get(pair.leg1.tripId)
+      if (!existing || pair.leg2.minutesFromNow < existing.leg2.minutesFromNow) {
+        bestPairByLeg1Trip.set(pair.leg1.tripId, pair)
+      }
+    }
+
+    const uniquePairs = [...bestPairByLeg1Trip.values()]
+      .sort((a, b) => b.leg1.minutesFromNow - a.leg1.minutesFromNow)
+    for (const pair of uniquePairs) {
+      leg1Departures.push(pair.leg1)
+      connectionByLeg1Trip.set(pair.leg1.tripId, pair.leg2)
+      if (leg1Departures.length >= TRAINS_PER_LEG) break
+    }
+  }
 
   // leg1 trains carry both transfer arrival and (schedule-derived) final arrival
   const leg1Trains: Train[] = leg1Departures.map(dep => {
     const transferArrivalMin = dep.minutesFromNow + leg1TravelTime
     // first catchable leg2 departure after arriving + walking determines final arrival
-    const connection = deps.getMetroDepartures(transfer!.toPlatform, terminusSecond, transferArrivalMin + walkTime, 1)
-      .filter(d => !leg2AllowedLines || leg2AllowedLines.includes(d.line))[0]
+    const connection = connectionByLeg1Trip.get(dep.tripId)
     const finalArrivalMin = connection
       ? connection.minutesFromNow + leg2TravelTime
       : transferArrivalMin + walkTime + leg2TravelTime
@@ -232,9 +362,28 @@ export function planScheduledTrip(
   const firstLeg1 = leg1Departures[0]
   const arrivalAtTransfer = firstLeg1
     ? firstLeg1.minutesFromNow + leg1TravelTime + walkTime
-    : offsetMin + leg1TravelTime + walkTime
+    : (planningMode === 'departAt'
+        ? offsetMin + originWalkMinutes + leg1TravelTime + walkTime
+        : latestTheoreticalLeg1Departure + leg1TravelTime + walkTime)
 
-  const leg2Trains: CatchableTrain[] = deps.getMetroDepartures(transfer.toPlatform, terminusSecond, arrivalAtTransfer - 3, TRAINS_PER_LEG)
+  const recommendedConnection = firstLeg1
+    ? connectionByLeg1Trip.get(firstLeg1.tripId)
+    : undefined
+  const scheduledLeg2Departures = [
+    ...(recommendedConnection ? [recommendedConnection] : []),
+    ...deps.getMetroDepartures(
+      transfer.toPlatform,
+      terminusSecond,
+      arrivalAtTransfer - 3,
+      TRAINS_PER_LEG
+    ),
+  ]
+    .filter((departure, index, all) => (
+      all.findIndex(candidate => candidate.tripId === departure.tripId) === index
+    ))
+    .sort((a, b) => a.minutesFromNow - b.minutesFromNow)
+
+  const leg2Trains: CatchableTrain[] = scheduledLeg2Departures
     .filter(dep => !leg2AllowedLines || leg2AllowedLines.includes(dep.line))
     .map(dep => {
       const waitTime = dep.minutesFromNow - arrivalAtTransfer
@@ -249,6 +398,8 @@ export function planScheduledTrip(
       }
     })
     .filter(train => train._canCatch)
+    .filter(train => planningMode === 'departAt'
+      || train._totalTime + destinationWalkMinutes <= offsetMin)
 
   const carPositions = getTransferCarPosition(
     transfer.fromPlatform,

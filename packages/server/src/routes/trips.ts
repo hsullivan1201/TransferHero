@@ -18,8 +18,14 @@ const tripQuerySchema = z.object({
   transferStation: z.string().optional(),
   accessible: booleanFromString,
   includeDeparted: booleanFromString,
-  // epoch ms for "leave at" trips; minute-rounded by the client so cache keys don't fragment
-  departAt: z.coerce.number().int().positive().optional()
+  // epoch ms for explicit-time trips; minute-rounded by the client so cache keys don't fragment
+  departAt: z.coerce.number().int().positive().optional(),
+  arriveBy: z.coerce.number().int().positive().optional(),
+  originWalkMinutes: z.coerce.number().int().min(0).max(180).default(0),
+  destinationWalkMinutes: z.coerce.number().int().min(0).max(180).default(0),
+}).refine(data => !(data.departAt && data.arriveBy), {
+  message: 'departAt and arriveBy are mutually exclusive',
+  path: ['arriveBy'],
 })
 
 const leg2QuerySchema = z.object({
@@ -61,9 +67,20 @@ export function createTripHandlers(planner: TripPlanner): TripRouteHandlers {
       throw new ValidationError(result.error.issues.map(issue => issue.message).join(', '))
     }
 
-    const { from, to, walkTime, transferStation, accessible, includeDeparted, departAt } = result.data
+    const {
+      from,
+      to,
+      walkTime,
+      transferStation,
+      accessible,
+      includeDeparted,
+      departAt,
+      arriveBy,
+      originWalkMinutes,
+      destinationWalkMinutes,
+    } = result.data
     console.log(
-      `[Trip] Request: ${from} -> ${to} | walkTime=${walkTime}min${transferStation ? ` | transfer=${transferStation}` : ''}${accessible ? ' | accessible' : ''}${includeDeparted ? ' | includeDeparted' : ''}${departAt ? ` | departAt=${new Date(departAt).toISOString()}` : ''}`
+      `[Trip] Request: ${from} -> ${to} | walkTime=${walkTime}min${transferStation ? ` | transfer=${transferStation}` : ''}${accessible ? ' | accessible' : ''}${includeDeparted ? ' | includeDeparted' : ''}${departAt ? ` | departAt=${new Date(departAt).toISOString()}` : ''}${arriveBy ? ` | arriveBy=${new Date(arriveBy).toISOString()}` : ''} | endpointWalks=${originWalkMinutes}/${destinationWalkMinutes}min`
     )
 
     const payload = await planner.planTrip({

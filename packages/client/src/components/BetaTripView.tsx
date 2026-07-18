@@ -95,8 +95,9 @@ interface BetaTripViewProps {
   isRefreshing: boolean
   fetchedAt?: string
   scheduledLabel?: string
-  /** epoch ms of the planned departure for schedule-only trips; anchors durations */
+  /** epoch ms of the requested departure/arrival constraint for schedule-only trips */
   plannedForMs?: number | null
+  planningMode?: 'departAt' | 'arriveBy'
   isLoadingLeg2: boolean
   isDirect: boolean
   showDeparted: boolean
@@ -831,6 +832,7 @@ export function BetaTripView({
   fetchedAt,
   scheduledLabel,
   plannedForMs = null,
+  planningMode,
   isLoadingLeg2,
   isDirect,
   showDeparted,
@@ -985,7 +987,11 @@ export function BetaTripView({
   // schedule-only trips: the headline should show trip duration from the planned
   // departure, not minutes-from-now (which balloons for an evening trip)
   const scheduledWaitOffset = plannedForMs
-    ? Math.min(firstWait, Math.max(0, Math.round((plannedForMs - nowMinute) / 60_000)))
+    ? planningMode === 'arriveBy'
+      // An arrive-by result recommends the latest feasible train, so the
+      // door-to-door journey begins one origin walk before that departure.
+      ? firstWait
+      : Math.min(firstWait, Math.max(0, Math.round((plannedForMs - nowMinute) / 60_000)))
     : 0
   const displayTotalMinutes = Math.max(0, totalMinutes - scheduledWaitOffset)
   const displayFirstWait = Math.max(0, firstWait - scheduledWaitOffset)
@@ -1091,10 +1097,9 @@ export function BetaTripView({
   const shareCapturedAtMs = Number.isFinite(parsedFetchedAt) ? parsedFetchedAt : nowMinute
   const shareDepartureAtMs = departureTimestamp
     ?? (summaryTrain ? nowMinute + Math.max(0, departureFromNow) * 60_000 : null)
-  // Match the arrival clock shown in the trip view. For scheduled trips,
-  // plannedForMs is the station-departure search anchor—not the start of the
-  // full door-to-door trip—so adding the displayed duration double-counts the
-  // origin walk. totalMinutes already includes the wait until that train.
+  // Match the arrival clock shown in the trip view. totalMinutes is relative
+  // to the captured schedule time and already includes the wait until the
+  // recommended train, while displayTotalMinutes begins at the actual door.
   const shareArrivalAtMs = hasKnownRideTime
     ? nowMinute + totalMinutes * 60_000
     : null
@@ -1210,6 +1215,7 @@ export function BetaTripView({
                 legs={shareLegs}
                 timing={shareTiming}
                 plannedForMs={plannedForMs}
+                planningMode={planningMode}
               />
             )}
             <button type="button" onClick={onRefresh} disabled={isRefreshing}>

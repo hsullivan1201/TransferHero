@@ -94,6 +94,27 @@ function dedupesByDirectionAndKeepsBestWalkOption() {
   console.log('✓ dedupes by route+station+direction and keeps best walk candidate')
 }
 
+function doesNotAddOutsideWalkMinuteForZeroDistance() {
+  const trips = rankCandidates(
+    [makeCandidate()],
+    'bus-metro',
+    'A01',
+    0,
+    {
+      deps: makeDeps({
+        0: { tripId: 'trip-0', depSec: 3600, minutesFromNow: 12 },
+      }),
+      telemetryLabel: 'test-zero-outside-walk',
+    }
+  )
+
+  assert.equal(trips.length, 1)
+  assert.equal(trips[0].busLeg.boardWalkMinutes, 2)
+  assert.equal(trips[0].busLeg.alightWalkMinutes, 2)
+  assert.equal(trips[0].totalTimeMinutes, 30)
+  console.log('✓ zero-distance outside walk adds no phantom minute to hybrid trips')
+}
+
 function usesPathTimeForAliasDirectMetroLeg() {
   const expectedRideMinutes = Math.min(
     calculateRouteTravelTime('F03', 'K04', 'OR'),
@@ -112,6 +133,7 @@ function usesPathTimeForAliasDirectMetroLeg() {
 
 prunesCandidatesWithNoCatchableDeparture()
 dedupesByDirectionAndKeepsBestWalkOption()
+doesNotAddOutsideWalkMinuteForZeroDistance()
 usesPathTimeForAliasDirectMetroLeg()
 
 console.log('busRouteFinder tests passed')

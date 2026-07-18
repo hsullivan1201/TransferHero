@@ -34,6 +34,7 @@ export interface TripResponse {
     sources: string[]
     scheduleOnly?: boolean
     plannedFor?: string
+    planningMode?: 'departAt' | 'arriveBy'
   }
 }
 
@@ -67,20 +68,28 @@ export async function fetchTrip(
   transferStation?: string,
   accessible: boolean = false,
   includeDeparted: boolean = false,
-  departAt?: number | null
+  departAt?: number | null,
+  arriveBy?: number | null,
+  originWalkMinutes: number = 0,
+  destinationWalkMinutes: number = 0
 ): Promise<TripResponse> {
   const params = new URLSearchParams({
     from,
     to,
     walkTime: walkTime.toString(),
     accessible: accessible.toString(),
-    includeDeparted: includeDeparted.toString()
+    includeDeparted: includeDeparted.toString(),
+    originWalkMinutes: originWalkMinutes.toString(),
+    destinationWalkMinutes: destinationWalkMinutes.toString(),
   })
   if (transferStation) {
     params.set('transferStation', transferStation)
   }
   if (departAt) {
     params.set('departAt', departAt.toString())
+  }
+  if (arriveBy) {
+    params.set('arriveBy', arriveBy.toString())
   }
   const res = await fetch(`${API_BASE}/trips?${params}`, FETCH_INIT)
   if (!res.ok) throw new Error('Failed to fetch trip')

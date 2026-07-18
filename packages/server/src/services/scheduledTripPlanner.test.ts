@@ -48,6 +48,27 @@ function makeDeps(nowMs: number) {
         }
         return result
       },
+      getMetroDeparturesBefore: (
+        stationCode: string,
+        terminus: string | string[],
+        endAtMinutes: number,
+        limit = 10
+      ): ScheduledMetroTrain[] => {
+        calls.push({ station: stationCode, startFrom: endAtMinutes, limit })
+        const headsign = Array.isArray(terminus) ? terminus[0] ?? 'Terminus' : terminus
+        const result: ScheduledMetroTrain[] = []
+        for (let i = 0; i < limit * 3; i++) {
+          if (result.length >= limit) break
+          result.push({
+            depSec: 0,
+            minutesFromNow: Math.floor(endAtMinutes) - 2 - i * 6,
+            tripId: `sched-before-${stationCode}-${i}`,
+            line: LINES[i % LINES.length],
+            headsign,
+          })
+        }
+        return result
+      },
       now: () => nowMs,
     },
   }
@@ -76,6 +97,7 @@ function makeKingStreetDeps(nowMs: number) {
         headsign,
       }))
     },
+    getMetroDeparturesBefore: () => [],
     now: () => nowMs,
   }
 }
@@ -107,6 +129,7 @@ function makeAliasPlatformDeps(nowMs: number) {
           headsign,
         }))
       },
+      getMetroDeparturesBefore: () => [],
       now: () => nowMs,
     },
   }
@@ -297,6 +320,124 @@ function transferAliasOriginQueriesTheFirstLegPlatform() {
   console.log('✓ transfer alias origin queries its first-leg platform')
 }
 
+function leaveAtStartsAfterTheOriginWalk() {
+  const nowMs = Date.UTC(2026, 6, 17, 15, 0, 0)
+  const { calls, deps } = makeDeps(nowMs)
+  const route = findRoutePair(true)
+  const requestedOffset = 60
+  const originWalkMinutes = 11
+  const departAtMs = nowMs + requestedOffset * 60_000
+
+  const payload = planScheduledTrip({
+    ...route,
+    walkTime: 2,
+    accessible: false,
+    departAtMs,
+    originWalkMinutes,
+  }, deps)
+
+  assert.equal(payload.meta.planningMode, 'departAt')
+  assert.equal(payload.meta.plannedFor, new Date(departAtMs).toISOString())
+  assert.ok(calls.length > 0)
+  assert.ok(
+    calls.every(call => call.startFrom === requestedOffset + originWalkMinutes),
+    'every origin-platform lookup should begin only after the rider reaches the station'
+  )
+  assert.ok(
+    payload.trip.leg1.trains.every((train: { Min: string }) => Number(train.Min) >= requestedOffset + originWalkMinutes)
+  )
+  console.log('✓ leave-at keeps the requested door time and searches after the origin walk')
+}
+
+function directArriveByChoosesLatestOnTimeDeparture() {
+  const nowMs = Date.UTC(2026, 6, 17, 15, 0, 0)
+  const { deps } = makeDeps(nowMs)
+  const route = findRoutePair(true)
+  const requestedOffset = 120
+  const originWalkMinutes = 11
+  const destinationWalkMinutes = 8
+  const arriveByMs = nowMs + requestedOffset * 60_000
+
+  const payload = planScheduledTrip({
+    ...route,
+    walkTime: 2,
+    accessible: false,
+    arriveByMs,
+    originWalkMinutes,
+    destinationWalkMinutes,
+  }, deps)
+
+  assert.equal(payload.meta.planningMode, 'arriveBy')
+  assert.equal(payload.meta.plannedFor, new Date(arriveByMs).toISOString())
+  assert.ok(payload.trip.leg1.trains.length > 0)
+  let previousDeparture = Infinity
+  for (const train of payload.trip.leg1.trains) {
+    const departure = Number(train.Min)
+    assert.ok(departure >= originWalkMinutes, 'the origin walk must be reachable from now')
+    assert.ok(train._destArrivalMin + destinationWalkMinutes <= requestedOffset)
+    assert.ok(departure <= previousDeparture, 'arrive-by trains should be latest-first')
+    previousDeparture = departure
+  }
+  console.log('✓ direct arrive-by returns latest-first departures that reach the final place on time')
+}
+
+function transferLeaveAtAlsoStartsAfterTheOriginWalk() {
+  const nowMs = Date.UTC(2026, 6, 17, 15, 0, 0)
+  const { calls, deps } = makeDeps(nowMs)
+  const route = findRoutePair(false)
+  const requestedOffset = 70
+  const originWalkMinutes = 9
+
+  const payload = planScheduledTrip({
+    ...route,
+    walkTime: 2,
+    accessible: false,
+    departAtMs: nowMs + requestedOffset * 60_000,
+    originWalkMinutes,
+  }, deps)
+
+  assert.ok(payload.trip.leg1.trains.length > 0)
+  assert.equal(calls[0]?.startFrom, requestedOffset + originWalkMinutes)
+  assert.ok(
+    payload.trip.leg1.trains.every(
+      (train: { Min: string }) => Number(train.Min) >= requestedOffset + originWalkMinutes
+    )
+  )
+  console.log('✓ transfer leave-at also searches first-leg trains after the origin walk')
+}
+
+function transferArriveByIncludesTheCompleteConnection() {
+  const nowMs = Date.UTC(2026, 6, 17, 15, 0, 0)
+  const { deps } = makeDeps(nowMs)
+  const route = findRoutePair(false)
+  const requestedOffset = 180
+  const destinationWalkMinutes = 7
+
+  const payload = planScheduledTrip({
+    ...route,
+    walkTime: 3,
+    accessible: false,
+    arriveByMs: nowMs + requestedOffset * 60_000,
+    originWalkMinutes: 9,
+    destinationWalkMinutes,
+  }, deps)
+
+  assert.equal(payload.meta.planningMode, 'arriveBy')
+  assert.ok(payload.trip.leg1.trains.length > 0)
+  assert.ok(payload.trip.leg2.trains.length > 0)
+  assert.ok(
+    payload.trip.leg1.trains.every(
+      (train: { _destArrivalMin: number }) => train._destArrivalMin + destinationWalkMinutes <= requestedOffset
+    )
+  )
+  assert.ok(
+    payload.trip.leg2.trains.every(
+      (train: { _totalTime: number }) => train._totalTime + destinationWalkMinutes <= requestedOffset
+    )
+  )
+  console.log('✓ transfer arrive-by keeps only complete schedule-valid connections that meet the deadline')
+}
+
 rejectsPastDepartures()
 rejectsDeparturesBeyondServiceDay()
 directTripReturnsScheduledTrainsFromOffset()
@@ -304,5 +445,9 @@ transferTripIncludesInlineCatchableLeg2()
 kingStreetBranchRoutesFilterLeg1AndExposeLenfantAlternative()
 directAliasOriginsQueryTheLineSpecificPlatform()
 transferAliasOriginQueriesTheFirstLegPlatform()
+leaveAtStartsAfterTheOriginWalk()
+directArriveByChoosesLatestOnTimeDeparture()
+transferLeaveAtAlsoStartsAfterTheOriginWalk()
+transferArriveByIncludesTheCompleteConnection()
 
 console.log('scheduledTripPlanner tests passed')
