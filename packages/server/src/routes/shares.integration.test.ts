@@ -7,9 +7,11 @@ import { createShareToken } from '../services/shareToken.js'
 
 const now = Date.now()
 const originalShareDatabasePath = process.env.SHARE_LINK_DB_PATH
+const originalWmataApiKey = process.env.WMATA_API_KEY
 process.env.SHARE_LINK_DB_PATH = ':memory:'
+delete process.env.WMATA_API_KEY
 const trip: SharedTripPayload = {
-  v: 2,
+  v: 3,
   origin: { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
   destination: { code: 'F05', name: 'Navy Yard-Ballpark', lines: ['GR'] },
   lines: ['RD', 'GR'],
@@ -33,6 +35,26 @@ const trip: SharedTripPayload = {
     source: 'live',
   },
   sharedAtMs: now,
+  tracking: {
+    trains: [{
+      id: 'leg-1-trip-test',
+      leg: 1,
+      line: 'RD',
+      toward: 'Glenmont',
+      tripId: 'trip-test',
+      from: { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
+      to: { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      stops: [
+        { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
+        { code: 'A02', name: 'Farragut North', lines: ['RD'] },
+        { code: 'A01', name: 'Metro Center', lines: ['RD', 'OR', 'SV', 'BL'] },
+        { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      ],
+      departureAtMs: now + 3 * 60_000,
+      arrivalAtMs: now + 10 * 60_000,
+    }],
+    expiresAtMs: now + 40 * 60_000,
+  },
 }
 
 const app = createApp({ isProduction: false })
@@ -53,10 +75,12 @@ try {
     body: JSON.stringify({ trip }),
   })
   assert.equal(created.status, 201)
-  const body = await created.json() as { token: string; url: string }
+  const body = await created.json() as { token: string; url: string; trip: SharedTripPayload }
   assert.match(body.token, /^[A-Za-z0-9_-]{16}$/u)
   assert.equal(body.url, `${baseUrl}/t/${body.token}`)
   assert.ok(body.url.length < 60)
+  assert.equal(body.trip.v, 3)
+  assert.equal(body.trip.tracking?.expiresAtMs, now + 40 * 60_000)
 
   const htmlResponse = await fetch(body.url, { headers: { 'User-Agent': 'Twitterbot/1.0' } })
   assert.equal(htmlResponse.status, 200)
@@ -64,10 +88,10 @@ try {
   const html = await htmlResponse.text()
   assert.ok(html.includes('property="og:image"'))
   assert.ok(html.includes('name="twitter:card" content="summary_large_image"'))
-  assert.ok(html.includes(`${body.url}/card.png?v=2`))
+  assert.ok(html.includes(`${body.url}/card.png?v=3`))
   assert.ok(html.includes('name="robots" content="noindex,noarchive"'))
 
-  const imageResponse = await fetch(`${body.url}/card.png?v=2`)
+  const imageResponse = await fetch(`${body.url}/card.png?v=3`)
   assert.equal(imageResponse.status, 200)
   assert.equal(imageResponse.headers.get('content-type'), 'image/png')
   assert.equal(imageResponse.headers.get('cross-origin-resource-policy'), 'cross-origin')
@@ -82,7 +106,15 @@ try {
   assert.equal(resolvedBody.trip.origin.code, 'A03')
   assert.equal(resolvedBody.trip.destination.code, 'F05')
 
-  const legacyToken = createShareToken(trip)
+  const liveResponse = await fetch(`${baseUrl}/api/shares/${body.token}/live`)
+  assert.equal(liveResponse.status, 200)
+  const liveBody = await liveResponse.json() as { expired: boolean; trains: Array<{ id: string; position: { source: string } | null }> }
+  assert.equal(liveBody.expired, false)
+  assert.equal(liveBody.trains[0].id, 'leg-1-trip-test')
+  assert.equal(liveBody.trains[0].position?.source, 'schedule')
+
+  const legacyTrip: SharedTripPayload = { ...trip, v: 2, tracking: undefined }
+  const legacyToken = createShareToken(legacyTrip)
   const legacyUrl = `${baseUrl}/t/${legacyToken}`
   assert.equal((await fetch(`${baseUrl}/api/shares/${legacyToken}`)).status, 200)
   assert.equal((await fetch(legacyUrl, { headers: { 'User-Agent': 'Twitterbot/1.0' } })).status, 200)
@@ -101,4 +133,6 @@ try {
   closeShareLinkStoreForTests()
   if (originalShareDatabasePath == null) delete process.env.SHARE_LINK_DB_PATH
   else process.env.SHARE_LINK_DB_PATH = originalShareDatabasePath
+  if (originalWmataApiKey == null) delete process.env.WMATA_API_KEY
+  else process.env.WMATA_API_KEY = originalWmataApiKey
 }

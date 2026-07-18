@@ -42,6 +42,44 @@ const arriveByTrip: SharedTripPayload = {
 const arriveByToken = createShareToken(arriveByTrip, secret)
 assert.deepEqual(decodeShareToken(arriveByToken, secret), arriveByTrip)
 
+const liveTrip: SharedTripPayload = {
+  ...trip,
+  v: 3,
+  tracking: {
+    trains: [{
+      id: 'leg-1-trip-test',
+      leg: 1,
+      line: 'RD',
+      toward: 'Glenmont',
+      tripId: 'trip-test',
+      from: { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
+      to: { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      stops: [
+        { code: 'A03', name: 'Dupont Circle', lines: ['RD'] },
+        { code: 'A02', name: 'Farragut North', lines: ['RD'] },
+        { code: 'A01', name: 'Metro Center', lines: ['RD', 'OR', 'SV', 'BL'] },
+        { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      ],
+      departureAtMs: now + 3 * 60_000,
+      arrivalAtMs: now + 10 * 60_000,
+    }],
+    expiresAtMs: now + 40 * 60_000,
+  },
+}
+const liveToken = createShareToken(liveTrip, secret)
+assert.deepEqual(decodeShareToken(liveToken, secret), liveTrip)
+assert.throws(
+  () => createShareToken({
+    ...liveTrip,
+    tracking: {
+      ...liveTrip.tracking!,
+      trains: liveTrip.tracking!.trains.map(train => ({ ...train, tripId: undefined })),
+    },
+  }, secret),
+  /invalid shared trip/u,
+  'a tracked train needs an upstream-stable identity'
+)
+
 assert.throws(
   () => createShareToken({ ...arriveByTrip, departAt: now + 5 * 60_000 }, secret),
   /invalid shared trip/u

@@ -14,6 +14,98 @@ export interface MergeTrainDataOptions {
   scheduleThreshold?: number
 }
 
+function isUnknownDestination(destination: string): boolean {
+  return !destination || destination.includes('check board')
+}
+
+function identityCompatible(left: Train, right: Train): boolean {
+  const leftDestination = normalizeDestination(left.DestinationName || '')
+  const rightDestination = normalizeDestination(right.DestinationName || '')
+  return isUnknownDestination(leftDestination)
+    || isUnknownDestination(rightDestination)
+    || leftDestination === rightDestination
+}
+
+interface IdentityMatchPlan {
+  matches: number
+  distance: number
+  pairs: Array<[apiIndex: number, gtfsIndex: number]>
+}
+
+function betterIdentityPlan(left: IdentityMatchPlan, right: IdentityMatchPlan): IdentityMatchPlan {
+  if (left.matches !== right.matches) return left.matches > right.matches ? left : right
+  if (left.distance !== right.distance) return left.distance < right.distance ? left : right
+  return left.pairs.length >= right.pairs.length ? left : right
+}
+
+/**
+ * Match the two ordered prediction streams one-to-one before display dedupe.
+ * Maximizing matches first prevents a nearby GTFS row from consuming the only
+ * API row that a later train can use; minimizing total distance then chooses
+ * the closest stable identities without letting trains cross in sequence.
+ */
+function enrichApiTripIds(
+  apiTrains: Train[],
+  gtfsTrains: Train[],
+  threshold: number
+): Train[] {
+  const enriched = apiTrains.map(train => ({ ...train }))
+  const lines = new Set(apiTrains.map(train => train.Line))
+
+  for (const line of lines) {
+    const apiIndices = apiTrains
+      .map((train, index) => ({ train, index }))
+      .filter(item => item.train.Line === line)
+      .sort((a, b) => getTrainMinutes(a.train.Min) - getTrainMinutes(b.train.Min) || a.index - b.index)
+      .map(item => item.index)
+    const gtfsIndices = gtfsTrains
+      .map((train, index) => ({ train, index }))
+      .filter(item => item.train.Line === line && !!item.train._tripId)
+      .sort((a, b) => getTrainMinutes(a.train.Min) - getTrainMinutes(b.train.Min) || a.index - b.index)
+      .map(item => item.index)
+    const memo = new Map<string, IdentityMatchPlan>()
+
+    const planFrom = (apiOffset: number, gtfsOffset: number): IdentityMatchPlan => {
+      if (apiOffset >= apiIndices.length || gtfsOffset >= gtfsIndices.length) {
+        return { matches: 0, distance: 0, pairs: [] }
+      }
+      const key = `${apiOffset}:${gtfsOffset}`
+      const cached = memo.get(key)
+      if (cached) return cached
+
+      let best = betterIdentityPlan(
+        planFrom(apiOffset + 1, gtfsOffset),
+        planFrom(apiOffset, gtfsOffset + 1)
+      )
+      const apiIndex = apiIndices[apiOffset]
+      const gtfsIndex = gtfsIndices[gtfsOffset]
+      const apiTrain = apiTrains[apiIndex]
+      const gtfsTrain = gtfsTrains[gtfsIndex]
+      const distance = Math.abs(getTrainMinutes(apiTrain.Min) - getTrainMinutes(gtfsTrain.Min))
+
+      if (distance <= threshold && identityCompatible(apiTrain, gtfsTrain)) {
+        const remainder = planFrom(apiOffset + 1, gtfsOffset + 1)
+        best = betterIdentityPlan({
+          matches: remainder.matches + 1,
+          distance: remainder.distance + distance,
+          pairs: [[apiIndex, gtfsIndex], ...remainder.pairs],
+        }, best)
+      }
+
+      memo.set(key, best)
+      return best
+    }
+
+    for (const [apiIndex, gtfsIndex] of planFrom(0, 0).pairs) {
+      if (!enriched[apiIndex]._tripId) {
+        enriched[apiIndex]._tripId = gtfsTrains[gtfsIndex]._tripId
+      }
+    }
+  }
+
+  return enriched
+}
+
 /**
  * merge train data from API/GTFS-RT/schedule
  * dedupe on arrival time + line so we don't double-count
@@ -29,7 +121,8 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
     scheduleThreshold = 4
   } = options
 
-  const merged: Train[] = [...apiTrains]
+  // Prediction cache entries can be reused elsewhere, so enrich copies only.
+  const merged: Train[] = enrichApiTripIds(apiTrains, gtfsTrains, gtfsThreshold)
 
   // pull in gtfs-rt trains, skipping near-duplicates (api wins)
   gtfsTrains.forEach(gTrain => {
@@ -37,7 +130,7 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
     const gDest = normalizeDestination(gTrain.DestinationName || '')
 
     // dedupe against any existing train (api first, then gtfs already added)
-    const duplicate = merged.some(mTrain => {
+    const duplicateIndex = merged.findIndex(mTrain => {
       const mMin = getTrainMinutes(mTrain.Min)
       const mDest = normalizeDestination(mTrain.DestinationName || '')
 
@@ -61,7 +154,13 @@ export function mergeTrainData(options: MergeTrainDataOptions): Train[] {
       )
     })
 
-    if (!duplicate) merged.push(gTrain)
+    if (duplicateIndex === -1) {
+      merged.push(gTrain)
+      return
+    }
+
+    // Stable ids were assigned one-to-one above. Display dedupe can remain
+    // intentionally loose without binding the wrong GTFS trip to its winner.
   })
 
   // now sprinkle in scheduled trains, still avoiding near-duplicates

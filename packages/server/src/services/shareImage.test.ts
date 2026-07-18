@@ -68,4 +68,38 @@ assert.equal(png.readUInt32BE(20), 630)
 assert.ok(png.byteLength > noFontPng.byteLength * 1.25, 'share card should contain rendered text glyphs')
 assert.ok(png.byteLength < 500_000)
 
+const liveTrip: SharedTripPayload = {
+  ...trip,
+  v: 3,
+  tracking: {
+    trains: [{
+      id: 'leg-1',
+      leg: 1,
+      line: 'RD',
+      toward: 'Glenmont',
+      tripId: 'trip-preview',
+      from: trip.origin,
+      to: { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      stops: [
+        trip.origin,
+        { code: 'A02', name: 'Farragut North', lines: ['RD'] },
+        { code: 'A01', name: 'Metro Center', lines: ['RD', 'OR', 'SV', 'BL'] },
+        { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'] },
+      ],
+      departureAtMs: now + 3 * 60_000,
+      arrivalAtMs: now + 10 * 60_000,
+    }],
+    expiresAtMs: now + 40 * 60_000,
+  },
+}
+const liveSvg = renderShareCardSvg(liveTrip)
+assert.ok(liveSvg.includes('LIVE TRAIN TRACKER'))
+assert.ok(liveSvg.includes('FOLLOW THIS TRAIN LIVE'))
+assert.ok(liveSvg.includes('OPEN LIVE TRACKER'))
+assert.ok(liveSvg.includes('>T</text>'))
+const livePng = renderShareCardPng(liveTrip)
+assert.equal(livePng.readUInt32BE(16), 1200)
+assert.equal(livePng.readUInt32BE(20), 630)
+assert.ok(livePng.byteLength < 500_000)
+
 console.log('share image tests passed')

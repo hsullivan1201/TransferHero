@@ -1,6 +1,8 @@
 import type { Line, PlaceContext, Station } from './index.js'
+import { parseSharedTripTracking, type SharedTripTracking } from './liveTracker.js'
 
-export const SHARE_TRIP_VERSION = 2 as const
+export const LEGACY_SHARE_TRIP_VERSION = 2 as const
+export const SHARE_TRIP_VERSION = 3 as const
 export const SHARE_IMAGE_WIDTH = 1200
 export const SHARE_IMAGE_HEIGHT = 630
 
@@ -40,7 +42,7 @@ export interface SharedTripTiming {
 }
 
 export interface SharedTripPayload {
-  v: typeof SHARE_TRIP_VERSION
+  v: typeof LEGACY_SHARE_TRIP_VERSION | typeof SHARE_TRIP_VERSION
   origin: Station
   destination: Station
   originPlaceContext?: SharedPlaceContext
@@ -61,6 +63,8 @@ export interface SharedTripPayload {
   timing: SharedTripTiming
   /** Stamped by the server when it creates the signed share token. */
   sharedAtMs: number
+  /** Present only on v3 shares whose sender selected trains for live tracking. */
+  tracking?: SharedTripTracking
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -245,8 +249,9 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     'legs',
     'timing',
     'sharedAtMs',
+    'tracking',
   ])) return null
-  if (value.v !== SHARE_TRIP_VERSION) return null
+  if (value.v !== LEGACY_SHARE_TRIP_VERSION && value.v !== SHARE_TRIP_VERSION) return null
 
   const origin = parseStation(value.origin)
   const destination = parseStation(value.destination)
@@ -267,6 +272,7 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
   const transferName = value.transferName === null ? null : displayString(value.transferName, 100)
   const timing = parseTiming(value.timing)
   const sharedAtMs = epoch(value.sharedAtMs)
+  const tracking = value.tracking == null ? undefined : parseSharedTripTracking(value.tracking)
 
   if (
     !origin
@@ -292,6 +298,8 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     || value.legs.length > 8
     || !timing
     || sharedAtMs == null
+    || (value.tracking != null && !tracking)
+    || (value.v === LEGACY_SHARE_TRIP_VERSION && value.tracking != null)
   ) return null
 
   const legs = value.legs.map(parseLeg)
@@ -303,7 +311,7 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
   if (railLines.length < 1 || railLines.some(line => !lines.includes(line))) return null
 
   return {
-    v: SHARE_TRIP_VERSION,
+    v: value.v,
     origin,
     destination,
     ...(originPlaceContext ? { originPlaceContext } : {}),
@@ -321,5 +329,6 @@ export function parseSharedTripPayload(value: unknown): SharedTripPayload | null
     legs: normalizedLegs,
     timing,
     sharedAtMs,
+    ...(tracking ? { tracking } : {}),
   }
 }

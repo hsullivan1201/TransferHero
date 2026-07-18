@@ -13,6 +13,7 @@ import {
   type Line,
   type PlaceContext,
   type SharedPlaceContext,
+  type SharedTrackedTrain,
   type SharedTripLeg,
   type SharedTripPayload,
   type SharedTripTiming,
@@ -57,6 +58,8 @@ export interface TripShareData {
   transferName: string | null
   plannedForMs?: number | null
   planningMode?: 'departAt' | 'arriveBy'
+  /** Exact trains the sender selected for the recipient-facing live map. */
+  trackedTrains?: SharedTrackedTrain[]
 }
 
 export interface TripShareProps extends TripShareData {
@@ -93,6 +96,18 @@ function compactPlaceContext(context: PlaceContext): SharedPlaceContext {
 
 /** Creates the exact, versioned data stored in a shared trip URL. */
 export function createTripSharePayload(data: TripShareData): SharedTripPayload {
+  const trackingArrivalMs = Math.max(
+    data.timing.arrivalAtMs ?? data.timing.capturedAtMs,
+    ...(data.trackedTrains ?? []).map(train => train.arrivalAtMs ?? data.timing.capturedAtMs)
+  )
+  const trackingExpiresAtMs = Math.min(
+    data.timing.capturedAtMs + 12 * 60 * 60 * 1000,
+    Math.max(
+      data.timing.capturedAtMs + 2 * 60 * 60 * 1000,
+      trackingArrivalMs + 2 * 60 * 60 * 1000
+    )
+  )
+
   return {
     v: SHARE_PAYLOAD_VERSION,
     origin: {
@@ -123,6 +138,19 @@ export function createTripSharePayload(data: TripShareData): SharedTripPayload {
     departAt: data.planningMode === 'departAt' ? data.plannedForMs ?? null : null,
     arriveBy: data.planningMode === 'arriveBy' ? data.plannedForMs ?? null : null,
     transferName: data.transferName,
+    ...((data.trackedTrains?.length ?? 0) > 0
+      ? {
+          tracking: {
+            trains: data.trackedTrains!.map(train => ({
+              ...train,
+              from: { ...train.from, lines: [...train.from.lines] },
+              to: { ...train.to, lines: [...train.to.lines] },
+              stops: train.stops.map(stop => ({ ...stop, lines: [...stop.lines] })),
+            })),
+            expiresAtMs: trackingExpiresAtMs,
+          },
+        }
+      : {}),
     // The server replaces this with the exact share-creation time before signing.
     sharedAtMs: data.timing.capturedAtMs,
   }
@@ -358,11 +386,13 @@ export function drawTripShareImage(
   const leaveAtMs = payload.departAt ?? (payload.timing.departureAtMs == null
     ? null
     : payload.timing.departureAtMs - originWalk * 60_000)
-  const statusLabel = payload.timing.source === 'live'
-    ? 'LIVE SNAPSHOT'
-    : payload.timing.source === 'mixed'
-      ? 'LIVE + SCHEDULED'
-      : 'SCHEDULED'
+  const statusLabel = payload.tracking?.trains.length
+    ? 'LIVE TRAIN TRACKER'
+    : payload.timing.source === 'live'
+      ? 'LIVE SNAPSHOT'
+      : payload.timing.source === 'mixed'
+        ? 'LIVE + SCHEDULED'
+        : 'SCHEDULED'
 
   context.clearRect(0, 0, SHARE_IMAGE_WIDTH, SHARE_IMAGE_HEIGHT)
   context.fillStyle = cream
@@ -419,7 +449,7 @@ export function drawTripShareImage(
   context.lineTo(1122, 144)
   context.stroke()
 
-  drawLabel(context, 'Shared trip', 78, 179)
+  drawLabel(context, payload.tracking?.trains.length ? 'Follow this train live' : 'Shared trip', 78, 179)
   drawFittedText(context, `${originLabel} → ${destinationLabel}`, 78, 222, 1044, {
     color: paper,
     fontSize: 39,
@@ -527,6 +557,38 @@ export function drawTripShareImage(
     })
   }
 
+  if (payload.tracking?.trains.length) {
+    const capturedAt = payload.timing.capturedAtMs
+    const activeTrain = payload.tracking.trains.find(
+      train => train.arrivalAtMs == null || train.arrivalAtMs >= capturedAt
+    ) ?? payload.tracking.trains.at(-1)!
+    const startX = activeTrain.leg === 2 && hasTransfer ? transferX : originStationX
+    const endX = activeTrain.leg === 1 && hasTransfer ? transferX : destinationStationX
+    const departureAt = activeTrain.departureAtMs ?? capturedAt
+    const arrivalAt = activeTrain.arrivalAtMs ?? departureAt + 30 * 60_000
+    const progress = arrivalAt <= departureAt
+      ? 0
+      : Math.max(0, Math.min(1, (capturedAt - departureAt) / (arrivalAt - departureAt)))
+    const markerX = startX + (endX - startX) * progress
+
+    context.fillStyle = 'rgba(250, 243, 235, 0.18)'
+    context.beginPath()
+    context.arc(markerX, diagramY, 25, 0, Math.PI * 2)
+    context.fill()
+    context.fillStyle = paper
+    context.strokeStyle = sign
+    context.lineWidth = 4
+    context.beginPath()
+    context.arc(markerX, diagramY, 15, 0, Math.PI * 2)
+    context.fill()
+    context.stroke()
+    context.fillStyle = sign
+    context.font = '900 14px Arial, Helvetica, sans-serif'
+    context.textAlign = 'center'
+    context.textBaseline = 'middle'
+    context.fillText('T', markerX, diagramY + 1)
+  }
+
   for (const [x, stationName] of [
     [originStationX, payload.origin.name],
     [destinationStationX, payload.destination.name],
@@ -544,7 +606,7 @@ export function drawTripShareImage(
   }
 
   fillRoundedRect(context, 850, 526, 272, 42, 21, paper)
-  drawFittedText(context, 'OPEN TRIP DETAILS', 872, 553, 188, {
+  drawFittedText(context, payload.tracking?.trains.length ? 'OPEN LIVE TRACKER' : 'OPEN TRIP DETAILS', 872, 553, 188, {
     color: sign,
     fontSize: 15,
     minFontSize: 13,
@@ -747,6 +809,9 @@ const TRIP_SHARE_STYLES = `
     text-align: center;
   }
   .trip-share-canvas { display: none; }
+  @media (min-width: 521px) {
+    .trip-share-actions { grid-template-columns: minmax(0, 1.35fr) minmax(0, .8fr); }
+  }
   @media (max-width: 520px) {
     .trip-share-panel { padding: 16px; }
     .trip-share-header h2 { font-size: 19px; }
@@ -775,6 +840,7 @@ export function TripShare({
   timing,
   plannedForMs,
   planningMode,
+  trackedTrains,
   className,
 }: TripShareProps) {
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -803,6 +869,7 @@ export function TripShare({
     timing,
     plannedForMs,
     planningMode,
+    trackedTrains,
   }), [
     origin,
     destination,
@@ -820,15 +887,20 @@ export function TripShare({
     timing,
     plannedForMs,
     planningMode,
+    trackedTrains,
   ])
+
+  const isLiveTracker = !!payload.tracking?.trains.length
 
   const originLabel = getEndpointLabel(payload.origin, payload.originPlaceContext)
   const destinationLabel = getEndpointLabel(payload.destination, payload.destPlaceContext)
-  const previewStatus = payload.timing.source === 'live'
-    ? 'live snapshot'
-    : payload.timing.source === 'mixed'
-      ? 'live and scheduled snapshot'
-      : 'scheduled snapshot'
+  const previewStatus = isLiveTracker
+    ? `live tracker for ${payload.tracking!.trains.length} selected ${payload.tracking!.trains.length === 1 ? 'train' : 'trains'}`
+    : payload.timing.source === 'live'
+      ? 'live snapshot'
+      : payload.timing.source === 'mixed'
+        ? 'live and scheduled snapshot'
+        : 'scheduled snapshot'
   const previewAlt = `TransferHero trip diagram from ${originLabel} to ${destinationLabel}, ${formatMinutes(durationMinutes)} minutes via ${routeSummary}${arrivalClock ? `, arriving ${arrivalClock}` : ''}; ${previewStatus} as of ${formatEasternClock(payload.timing.capturedAtMs)}.`
 
   useEffect(() => {
@@ -881,14 +953,54 @@ export function TripShare({
     }
   }
 
+  const handleOpenDialog = () => {
+    setIsOpen(true)
+    if (shareUrl || shareRequestRef.current) return
+    setStatus(isLiveTracker ? 'Preparing the live tracker…' : 'Preparing the share link…')
+    void ensureShareUrl()
+      .then(() => setStatus(isLiveTracker ? 'Live tracker ready to share.' : 'Share link ready.'))
+      .catch(() => setStatus('Could not prepare the share link. You can retry below.'))
+  }
+
   const handleCopyLink = async () => {
     try {
-      setStatus('Preparing the messaging preview…')
+      setStatus(isLiveTracker ? 'Preparing the live tracker…' : 'Preparing the messaging preview…')
       const url = await ensureShareUrl()
       await copyText(url)
-      setStatus('Link copied — its trip card will preview in messages.')
+      setStatus(isLiveTracker
+        ? 'Link copied — friends can follow the selected train live.'
+        : 'Link copied — its trip card will preview in messages.')
     } catch {
       setStatus('Could not create the preview link. Please try again.')
+    }
+  }
+
+  const handleShare = async () => {
+    try {
+      setStatus(isLiveTracker ? 'Preparing the live tracker…' : 'Preparing the messaging preview…')
+      const canUseNativeShare = !!shareUrl && !!navigator.share
+      const url = await ensureShareUrl()
+      if (canUseNativeShare && navigator.share) {
+        await navigator.share({
+          title: isLiveTracker
+            ? `${originLabel} to ${destinationLabel} · live train tracker`
+            : `${originLabel} to ${destinationLabel} · TransferHero`,
+          text: isLiveTracker
+            ? `Follow my selected Metro ${payload.tracking!.trains.length === 1 ? 'train' : 'trains'} live.`
+            : `Here’s my Metro trip from ${originLabel} to ${destinationLabel}.`,
+          url,
+        })
+        setStatus('Ready — the link was shared.')
+        return
+      }
+      await copyText(url)
+      setStatus('Link copied — ready to send.')
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        setStatus('')
+        return
+      }
+      setStatus('Could not create the share link. Please try again.')
     }
   }
 
@@ -898,11 +1010,11 @@ export function TripShare({
       <button
         type="button"
         className="trip-share-trigger"
-        onClick={() => setIsOpen(true)}
+        onClick={handleOpenDialog}
         aria-haspopup="dialog"
       >
         <Share2 aria-hidden="true" />
-        Share trip
+        {isLiveTracker ? `Share live ${payload.tracking!.trains.length === 1 ? 'train' : 'trains'}` : 'Share trip'}
       </button>
 
       <dialog
@@ -919,10 +1031,12 @@ export function TripShare({
         <div className="trip-share-panel">
           <header className="trip-share-header">
             <div>
-              <span className="trip-share-eyebrow">Ready to send</span>
-              <h2 id="trip-share-title">Share this trip</h2>
+              <span className="trip-share-eyebrow">{isLiveTracker ? 'Live map ready' : 'Ready to send'}</span>
+              <h2 id="trip-share-title">{isLiveTracker ? 'Share live train tracking' : 'Share this trip'}</h2>
               <p id="trip-share-description">
-                Copy a live trip link with a message-sized preview.
+                {isLiveTracker
+                  ? `Friends get a focused live map for the ${payload.tracking!.trains.length === 1 ? 'train' : 'trains'} you selected.`
+                  : 'Copy a live trip link with a message-sized preview.'}
               </p>
             </div>
             <button
@@ -949,16 +1063,29 @@ export function TripShare({
             <button
               type="button"
               className="trip-share-action is-primary"
+              onClick={handleShare}
+              disabled={isCreatingLink}
+            >
+              {status.startsWith('Ready') || status.startsWith('Link copied')
+                ? <Check aria-hidden="true" />
+                : <Share2 aria-hidden="true" />}
+              {isCreatingLink ? 'Preparing…' : isLiveTracker ? 'Share live tracker' : 'Share trip'}
+            </button>
+            <button
+              type="button"
+              className="trip-share-action"
               onClick={handleCopyLink}
               disabled={isCreatingLink}
             >
-              {status.startsWith('Link copied')
-                ? <Check aria-hidden="true" />
-                : <Link2 aria-hidden="true" />}
-              {isCreatingLink ? 'Preparing…' : 'Copy link'}
+              <Link2 aria-hidden="true" />
+              Copy link
             </button>
           </div>
-          {(originPlaceContext || destPlaceContext) && (
+          {isLiveTracker ? (
+            <p className="trip-share-privacy">
+              Anyone with this link can follow {payload.tracking!.trains.length === 1 ? 'this train' : 'these trains'}. Live tracking automatically stops after the trip.
+            </p>
+          ) : (originPlaceContext || destPlaceContext) && (
             <p className="trip-share-privacy">
               Anyone with this link can see the trip endpoints. Shared links do not currently expire.
             </p>

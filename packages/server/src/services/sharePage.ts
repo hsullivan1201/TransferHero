@@ -5,7 +5,7 @@ import type { SharedTripPayload } from '@transferhero/shared'
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
-const SHARE_CARD_RENDER_VERSION = 2
+const SHARE_CARD_RENDER_VERSION = 3
 let cachedClientIndex: string | null = null
 
 function escapeHtml(value: string): string {
@@ -52,17 +52,24 @@ export function renderSharePage(trip: SharedTripPayload, token: string, baseUrl:
   const origin = endpointLabel(trip, 'origin')
   const destination = endpointLabel(trip, 'destination')
   const arrival = formatClock(trip.timing.arrivalAtMs)
-  const title = `${origin} to ${destination}${arrival ? ` · arrive ${arrival}` : ''}`
-  const description = `${Math.round(trip.durationMinutes)} min · ${trip.routeSummary}`
+  const isLiveTracker = !!trip.tracking?.trains.length
+  const title = isLiveTracker
+    ? `${origin} to ${destination} · Live train tracker`
+    : `${origin} to ${destination}${arrival ? ` · arrive ${arrival}` : ''}`
+  const description = isLiveTracker
+    ? `Follow ${trip.tracking!.trains.length === 1 ? 'this Metro train' : 'these Metro trains'} live · ${trip.routeSummary}`
+    : `${Math.round(trip.durationMinutes)} min · ${trip.routeSummary}`
   const shareUrl = `${baseUrl}/t/${token}`
   // Keep crawler caches from reusing a card produced by an older renderer.
   const imageUrl = `${shareUrl}/card.png?v=${SHARE_CARD_RENDER_VERSION}`
   const capturedAt = formatClock(trip.timing.capturedAtMs)
-  const status = trip.timing.source === 'live'
-    ? 'live snapshot'
-    : trip.timing.source === 'mixed'
-      ? 'live and scheduled snapshot'
-      : 'scheduled snapshot'
+  const status = isLiveTracker
+    ? `live tracker for ${trip.tracking!.trains.length} selected ${trip.tracking!.trains.length === 1 ? 'train' : 'trains'}`
+    : trip.timing.source === 'live'
+      ? 'live snapshot'
+      : trip.timing.source === 'mixed'
+        ? 'live and scheduled snapshot'
+        : 'scheduled snapshot'
   const imageAlt = `Trip diagram from ${origin} to ${destination}, ${Math.round(trip.durationMinutes)} minutes via ${trip.routeSummary}${arrival ? `, arriving ${arrival}` : ''}; ${status}${capturedAt ? ` as of ${capturedAt}` : ''}`
   const tags = `
     <meta name="robots" content="noindex,noarchive" />

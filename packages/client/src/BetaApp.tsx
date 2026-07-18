@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { QueryClientProvider } from '@tanstack/react-query'
 import { Accessibility, Bus, Moon, Sun, TrainFront } from 'lucide-react'
-import type { Line, PlaceContext, SharedTripPayload, Station } from '@transferhero/shared'
+import type { Line, PlaceContext, SharedTripPayload, Station, Train } from '@transferhero/shared'
 import { resolveTripShareToken } from './api/shares'
 import {
   Footer,
@@ -12,6 +12,7 @@ import { AlertsBanner } from './components/AlertsBanner'
 import { BetaBusTripList } from './components/BetaBusTripView'
 import { BetaTripView } from './components/BetaTripView'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { LiveTrackerPage } from './components/LiveTrackerPage'
 import { OfflineBanner } from './components/OfflineBanner'
 import { parseTripShareUrl } from './components/TripShare'
 import { useAlerts } from './hooks/useAlerts'
@@ -136,17 +137,30 @@ function BetaLoading() {
   )
 }
 
-function BetaContent() {
+function BetaContent({
+  initialSharedTrip = null,
+  initialSharedTripError = false,
+}: {
+  initialSharedTrip?: SharedTripPayload | null
+  initialSharedTripError?: boolean
+} = {}) {
   const { data: stations = [], isLoading: stationsLoading, error: stationsError, refetch: refetchStations } = useStations()
   const isOnline = useOnlineStatus()
   const tripState = useTripState()
   const { savedTrips, saveTrip, deleteTrip, isSaved } = useSavedTrips()
   const [loadTrip, setLoadTrip] = useState<SavedTrip | null>(null)
-  const [sharedTrip, setSharedTrip] = useState<SharedTripPayload | null>(() => parseTripShareUrl())
-  const [sharedTripError, setSharedTripError] = useState(false)
-  const shareResolveStartedRef = useRef(false)
+  const [selectedLeg2Train, setSelectedLeg2Train] = useState<Train | null>(null)
+  const [sharedTrip, setSharedTrip] = useState<SharedTripPayload | null>(
+    () => initialSharedTrip ?? parseTripShareUrl()
+  )
+  const [sharedTripError, setSharedTripError] = useState(initialSharedTripError)
+  const shareResolveStartedRef = useRef(!!initialSharedTrip || initialSharedTripError)
   const sharedTripLoadedRef = useRef(false)
   const handleTripLoaded = useCallback(() => setLoadTrip(null), [])
+
+  useEffect(() => {
+    if (!tripState.selectedLeg1Train) setSelectedLeg2Train(null)
+  }, [tripState.selectedLeg1Train])
 
   useEffect(() => {
     if (sharedTrip || shareResolveStartedRef.current) return
@@ -281,7 +295,18 @@ function BetaContent() {
   ) => {
     // each plan starts fresh on Metro unless an endpoint truly needs the bus
     setTripMode(busOnlyLock ? 'metro-bus' : 'metro')
+    setSelectedLeg2Train(null)
     tripState.startTrip(from, to, walkTime, departAt, arriveBy)
+  }
+
+  const handleSelectLeg1Train = (train: Train, index: number) => {
+    setSelectedLeg2Train(null)
+    tripState.selectLeg1Train(train, index)
+  }
+
+  const handleClearLeg1Selection = () => {
+    setSelectedLeg2Train(null)
+    tripState.clearLeg1Selection()
   }
 
   type WalkingAlt = NonNullable<PlaceContext['alternatives']>[number]
@@ -501,9 +526,12 @@ function BetaContent() {
                 leg1Time={activeTransfer?.leg1Time ?? tripData.trip.transfer?.leg1Time ?? 0}
                 leg2Time={activeTransfer?.leg2Time ?? tripData.trip.transfer?.leg2Time ?? 0}
                 walkTime={tripState.walkTime}
-                onSelectLeg1Train={tripState.selectLeg1Train}
-                onClearLeg1Selection={tripState.clearLeg1Selection}
+                onSelectLeg1Train={handleSelectLeg1Train}
+                onClearLeg1Selection={handleClearLeg1Selection}
                 selectedLeg1Train={tripState.selectedLeg1Train}
+                selectedLeg2Train={selectedLeg2Train}
+                onSelectLeg2Train={(train) => setSelectedLeg2Train(train)}
+                onClearLeg2Selection={() => setSelectedLeg2Train(null)}
                 departureTimestamp={tripState.departureTimestamp}
                 onRefresh={() => {
                   refetchTrip()
@@ -562,11 +590,59 @@ function BetaContent() {
   )
 }
 
+function SharedTokenRoute({ token }: { token: string }) {
+  const [trip, setTrip] = useState<SharedTripPayload | null>(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setError(false)
+    resolveTripShareToken(token)
+      .then((resolved) => {
+        if (active) setTrip(resolved)
+      })
+      .catch(() => {
+        if (active) setError(true)
+      })
+    return () => {
+      active = false
+    }
+  }, [token])
+
+  if (trip?.tracking) return <LiveTrackerPage token={token} trip={trip} />
+  if (trip || error) {
+    return <BetaContent initialSharedTrip={trip} initialSharedTripError={error} />
+  }
+
+  return (
+    <main className="live-tracker-page">
+      <div className="live-tracker-wrap">
+        <header className="live-tracker-brand">
+          <span className="live-tracker-brand-link">
+            <span className="live-tracker-brand-mark" aria-hidden="true">T</span>
+            <span><strong>TransferHero</strong><small>Opening shared trip</small></span>
+          </span>
+        </header>
+        <section className="live-tracker-map-card" aria-label="Opening shared trip">
+          <div className="live-map-loading" role="status">
+            <div className="live-map-loading-lines" aria-hidden="true"><i /><i /><i /></div>
+            <span>Connecting to the live trip…</span>
+          </div>
+        </section>
+      </div>
+    </main>
+  )
+}
+
 export default function BetaApp() {
+  const token = typeof window === 'undefined'
+    ? null
+    : /^\/t\/([^/]+)$/u.exec(window.location.pathname)?.[1] ?? null
+
   return (
     <ErrorBoundary>
       <QueryClientProvider client={queryClient}>
-        <BetaContent />
+        {token ? <SharedTokenRoute token={token} /> : <BetaContent />}
       </QueryClientProvider>
     </ErrorBoundary>
   )

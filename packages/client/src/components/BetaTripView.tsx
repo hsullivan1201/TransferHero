@@ -24,6 +24,7 @@ import type {
   Line,
   PlaceContext,
   SharedTripLeg,
+  SharedTrackedTrain,
   SharedTripTiming,
   Station,
   Train,
@@ -1172,6 +1173,97 @@ export function BetaTripView({
         _departed: alreadyOnTrain,
       }
     : null
+  const shareTrackedTrains = useMemo<SharedTrackedTrain[]>(() => {
+    const output: SharedTrackedTrain[] = []
+    const hasStableIdentity = (train: Train) =>
+      !!train._tripId || train.TrainId != null || train.TrainNumber != null
+    const identity = (train: Train) => ({
+      ...(train._tripId ? { tripId: train._tripId } : {}),
+      ...(train.TrainId != null ? { trainId: String(train.TrainId) } : {}),
+      ...(train.TrainNumber != null ? { trainNumber: String(train.TrainNumber) } : {}),
+    })
+
+    if (!plannedForMs && liveSelectedTrain && primaryLine && hasStableIdentity(liveSelectedTrain)) {
+      const firstDestination: Station = isDirect
+        ? destination
+        : firstLegStops.at(-1) ?? {
+            code: transfer?.fromPlatform ?? destination.code,
+            name: transfer?.name ?? destination.name,
+            lines: [primaryLine],
+          }
+      const firstRouteStops = isDirect ? finalLegStops : firstLegStops
+      const firstStops = firstRouteStops.length >= 2
+        ? firstRouteStops
+        : [origin, firstDestination]
+      const departureAtMs = departureTimestamp
+        ?? nowMinute + getTrainMinutes(liveSelectedTrain.Min) * 60_000
+      const arrivalAtMs = isDirect
+        ? liveSelectedTrain._destArrivalTimestamp ?? departureAtMs + effectiveLeg1Time * 60_000
+        : liveSelectedTrain._transferArrivalTimestamp ?? departureAtMs + effectiveLeg1Time * 60_000
+
+      output.push({
+        id: 'leg-1',
+        leg: 1,
+        line: primaryLine,
+        toward: firstDirectionLabel,
+        ...identity(liveSelectedTrain),
+        from: origin,
+        to: firstDestination,
+        stops: firstStops,
+        departureAtMs,
+        arrivalAtMs,
+      })
+    }
+
+    if (
+      liveSelectedLeg2Train
+      && finalLine
+      && !isDirect
+      && !plannedForMs
+      && hasStableIdentity(liveSelectedLeg2Train)
+    ) {
+      const secondStops = finalLegStops.length >= 2
+        ? finalLegStops
+        : [finalLegOrigin, destination]
+      const departureAtMs = nowMinute + getTrainMinutes(liveSelectedLeg2Train.Min) * 60_000
+      const arrivalAtMs = liveSelectedLeg2Train._destArrivalTimestamp
+        ?? departureAtMs + leg2Time * 60_000
+
+      output.push({
+        id: 'leg-2',
+        leg: 2,
+        line: finalLine,
+        toward: secondDirectionLabel,
+        ...identity(liveSelectedLeg2Train),
+        from: finalLegOrigin,
+        to: destination,
+        stops: secondStops,
+        departureAtMs,
+        arrivalAtMs,
+      })
+    }
+
+    return output
+  }, [
+    liveSelectedTrain,
+    liveSelectedLeg2Train,
+    primaryLine,
+    finalLine,
+    isDirect,
+    origin,
+    destination,
+    firstLegStops,
+    finalLegStops,
+    finalLegOrigin,
+    transfer,
+    departureTimestamp,
+    nowMinute,
+    effectiveLeg1Time,
+    leg2Time,
+    firstDirectionLabel,
+    secondDirectionLabel,
+    plannedForMs,
+  ])
   let step = 1 + stepOffset
   const originWalkStep = originPlaceContext ? step++ : null
   const originStationStep = step++
@@ -1224,6 +1316,7 @@ export function BetaTripView({
                 timing={shareTiming}
                 plannedForMs={plannedForMs}
                 planningMode={planningMode}
+                trackedTrains={shareTrackedTrains}
               />
             )}
             <button type="button" onClick={onRefresh} disabled={isRefreshing}>
@@ -1342,11 +1435,14 @@ export function BetaTripView({
         <BetaStep
           number={transferStep}
           title={`Off the train at ${transferName}${transferArrivalClock ? ` — arrives ${transferArrivalClock}` : ''}`}
-          trailing={(accessible || liveSelectedLeg2Train) ? (
+          trailing={(accessible || liveSelectedLeg2Train || onSelectLeg2Train) ? (
             <span className="beta-step-actions">
               {accessible && <span className="beta-accessible-note"><Accessibility /> elevator-aware</span>}
               {liveSelectedLeg2Train && onClearLeg2Selection && (
                 <button type="button" className="beta-change-link" onClick={onClearLeg2Selection}>Change train</button>
+              )}
+              {!liveSelectedLeg2Train && onSelectLeg2Train && (
+                <span className="beta-select-note">Optional · select exact connection</span>
               )}
             </span>
           ) : undefined}

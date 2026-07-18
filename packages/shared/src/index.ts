@@ -2,6 +2,7 @@
 
 export type Line = 'RD' | 'OR' | 'SV' | 'BL' | 'YL' | 'GR'
 
+export * from './liveTracker.js'
 export * from './shareTrip.js'
 
 // Maps WMATA/GTFS route names to our line codes

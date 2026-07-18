@@ -6,6 +6,8 @@ import {
   fetchDestinationArrivals,
   findDepartedTrains,
   getWmataUpstreamStats,
+  getGTFSTripProgress,
+  parseGTFSVehiclePositions,
   resetWmataUpstreamStats,
 } from './wmata.js'
 
@@ -126,12 +128,55 @@ function upstreamStatsExposeRollingCallCounters() {
   assert.equal(stats.gtfs.callsLastMinute, 0)
   assert.equal(stats.gtfs.callsLastFiveMinutes, 0)
   assert.equal(stats.gtfs.failures, 0)
+  assert.equal(stats.vehiclePositions.callsTotal, 0)
+  assert.equal(stats.vehiclePositions.callsLastMinute, 0)
+  assert.equal(stats.vehiclePositions.callsLastFiveMinutes, 0)
+  assert.equal(stats.vehiclePositions.failures, 0)
   console.log('✓ WMATA upstream stats expose rolling counters with zeroed baseline')
+}
+
+function vehiclePositionsAreNormalizedAndTripProgressIsOrdered() {
+  const nowMs = Date.now()
+  const positions = parseGTFSVehiclePositions([{
+    id: 'entity-42',
+    vehicle: {
+      trip: { tripId: 'trip-42', routeId: 'RED', directionId: 1 },
+      vehicle: { id: 'vehicle-42', label: 'Train 42' },
+      position: { latitude: 38.9, longitude: -77.03, bearing: 180, speed: 12.5 },
+      currentStopSequence: 2,
+      currentStatus: 'IN_TRANSIT_TO',
+      stopId: 'PF_A01_1',
+      timestamp: String(Math.floor(nowMs / 1000)),
+      occupancyStatus: 'MANY_SEATS_AVAILABLE',
+    },
+  }])
+
+  assert.equal(positions.length, 1)
+  assert.equal(positions[0].tripId, 'trip-42')
+  assert.equal(positions[0].vehicleId, 'vehicle-42')
+  assert.equal(positions[0].line, 'RD')
+  assert.equal(positions[0].stopCode, 'A01')
+  assert.equal(positions[0].latitude, 38.9)
+  assert.equal(positions[0].occupancyStatus, 'MANY_SEATS_AVAILABLE')
+
+  const progress = getGTFSTripProgress([
+    makeEntity('trip-42', 'RED', [
+      { stopId: 'PF_A03_1', timeSec: Math.floor(nowMs / 1000) - 120, seq: 1 },
+      { stopId: 'PF_A02_1', timeSec: Math.floor(nowMs / 1000) + 60, seq: 2 },
+      { stopId: 'PF_A01_1', timeSec: Math.floor(nowMs / 1000) + 240, seq: 3 },
+    ]),
+  ], 'trip-42', nowMs)
+  assert.ok(progress)
+  assert.equal(progress.previousStop?.stopCode, 'A03')
+  assert.equal(progress.nextStop?.stopCode, 'A02')
+  assert.deepEqual(progress.stops.map(stop => stop.stopCode), ['A03', 'A02', 'A01'])
+  console.log('✓ vehicle positions and ordered trip progress are normalized for live tracking')
 }
 
 parseUpdatesUsesStationIndexAndFiltersCorrectly()
 await destinationArrivalPrefersGtfsTripMatch()
 findDepartedTrainsUsesIndexedStationLookup()
 upstreamStatsExposeRollingCallCounters()
+vehiclePositionsAreNormalizedAndTripProgressIsOrdered()
 
 console.log('wmata tests passed')

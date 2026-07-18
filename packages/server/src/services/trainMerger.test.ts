@@ -30,7 +30,30 @@ function dedupesGtfsAgainstApi() {
 
   assert.equal(result.length, 1)
   assert.equal(result[0]._gtfs, undefined)
+  assert.equal(result[0]._tripId, 'trip-1')
   console.log('✓ dedupes gtfs trains when a wmata prediction is nearby')
+}
+
+function preservesApiPredictionWhileAddingGtfsTripId() {
+  const source = apiTrain({
+    TrainId: 'wmata-42',
+    TrainNumber: '042',
+    DestinationName: 'Vienna/Fairfax-GMU',
+    Min: '4',
+  })
+  const result = mergeTrainData({
+    apiTrains: [source],
+    gtfsTrains: [gtfsTrain({ _tripId: 'gtfs-trip-42', Min: '5' })],
+    gtfsThreshold: 3,
+  })
+
+  assert.equal(result.length, 1)
+  assert.equal(result[0].TrainId, 'wmata-42')
+  assert.equal(result[0].TrainNumber, '042')
+  assert.equal(result[0].Min, '4')
+  assert.equal(result[0]._tripId, 'gtfs-trip-42')
+  assert.equal(source._tripId, undefined, 'source prediction must not be mutated')
+  console.log('✓ enriches the WMATA winner with the matching GTFS trip id')
 }
 
 function keepsGtfsWhenFarApart() {
@@ -68,6 +91,7 @@ function dedupesWhenTimesAreWithinOneMinuteDifferentDest() {
 
   assert.equal(result.length, 1)
   assert.equal(result[0]._gtfs, undefined)
+  assert.equal(result[0]._tripId, undefined)
   console.log('✓ dedupes gtfs when same line within one minute even if dest differs')
 }
 
@@ -82,10 +106,48 @@ function preservesNearSimultaneousScheduledTrainOnAnotherLine() {
   console.log('✓ keeps near-simultaneous scheduled trains on different interlined services')
 }
 
+function assignsDenseGtfsIdentitiesOneToOne() {
+  const result = mergeTrainData({
+    apiTrains: [
+      apiTrain({ Min: '2', DestinationName: 'Vienna/Fairfax-GMU' }),
+      apiTrain({ Min: '4', DestinationName: 'Vienna/Fairfax-GMU' }),
+    ],
+    gtfsTrains: [
+      gtfsTrain({ Min: '3', _tripId: 'dense-trip-1' }),
+      gtfsTrain({ Min: '5', _tripId: 'dense-trip-2' }),
+    ],
+    gtfsThreshold: 3,
+  })
+
+  assert.equal(result.length, 2)
+  assert.deepEqual(result.map(train => train._tripId), ['dense-trip-1', 'dense-trip-2'])
+  console.log('✓ assigns dense-service GTFS trip ids one-to-one in train order')
+}
+
+function maximizesIdentityMatchesBeforeDistance() {
+  const result = mergeTrainData({
+    apiTrains: [
+      apiTrain({ Min: '0', DestinationName: 'Vienna/Fairfax-GMU' }),
+      apiTrain({ Min: '4', DestinationName: 'Vienna/Fairfax-GMU' }),
+    ],
+    gtfsTrains: [
+      gtfsTrain({ Min: '3', _tripId: 'edge-trip-1' }),
+      gtfsTrain({ Min: '6', _tripId: 'edge-trip-2' }),
+    ],
+    gtfsThreshold: 3,
+  })
+
+  assert.deepEqual(result.slice(0, 2).map(train => train._tripId), ['edge-trip-1', 'edge-trip-2'])
+  console.log('✓ preserves the maximum number of stable identities at threshold edges')
+}
+
 dedupesGtfsAgainstApi()
+preservesApiPredictionWhileAddingGtfsTripId()
 keepsGtfsWhenFarApart()
 dedupesWhenGtfsHasCheckBoardHeadSign()
 dedupesWhenTimesAreWithinOneMinuteDifferentDest()
 preservesNearSimultaneousScheduledTrainOnAnotherLine()
+assignsDenseGtfsIdentitiesOneToOne()
+maximizesIdentityMatchesBeforeDistance()
 
 console.log('trainMerger tests passed')

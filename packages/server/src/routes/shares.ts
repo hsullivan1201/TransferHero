@@ -1,7 +1,15 @@
 import { Router } from 'express'
-import type { SharedPlaceContext, SharedTripPayload } from '@transferhero/shared'
-import { parseSharedTripPayload } from '@transferhero/shared'
-import { findStationByCode } from '../data/stations.js'
+import type {
+  SharedPlaceContext,
+  SharedTrackedTrain,
+  SharedTripPayload,
+  SharedTripTracking,
+  Station,
+} from '@transferhero/shared'
+import { parseSharedTripPayload, SHARE_TRIP_VERSION } from '@transferhero/shared'
+import { LINE_PATHS } from '../data/lineConfig.js'
+import { normalizePlatformCode, STATION_ALIASES } from '../data/platformCodes.js'
+import { ALL_STATIONS, findStationByCode } from '../data/stations.js'
 import { shareCreateRateLimit } from '../middleware/rateLimit.js'
 import { renderShareCardPng } from '../services/shareImage.js'
 import { renderSharePage } from '../services/sharePage.js'
@@ -12,9 +20,13 @@ import {
 } from '../services/shareLinkStore.js'
 import { createShareToken, decodeShareToken } from '../services/shareToken.js'
 import { getExitsForStation } from '../services/stationService.js'
+import { getLiveTrackerResponse } from '../services/liveTracker.js'
 
 const MAX_CARD_CACHE_ENTRIES = 64
+const TRACKING_ARRIVAL_GRACE_MS = 30 * 60 * 1000
+const MAX_TRACKING_FUTURE_MS = 24 * 60 * 60 * 1000
 const cardCache = new Map<string, Promise<Buffer>>()
+const CANONICAL_STATION_CODES = Object.values(LINE_PATHS).flat(2)
 
 function publicBaseUrl(): string {
   const raw = process.env.PUBLIC_BASE_URL?.trim()
@@ -44,9 +56,109 @@ function canonicalPlaceContext(
   return { ...context, station }
 }
 
-function normalizeCreatedTrip(value: unknown): SharedTripPayload | null {
+function canonicalStation(station: Station): Station | null {
+  const code = normalizePlatformCode(station.code, CANONICAL_STATION_CODES)
+  return findStationByCode(code) ?? null
+}
+
+function followsCanonicalPath(train: SharedTrackedTrain): boolean {
+  const codes = train.stops.map(stop => stop.code)
+  return LINE_PATHS[train.line].some(path => {
+    const normalizedCodes = codes.map(code => normalizePlatformCode(code, path))
+    const fromIndex = path.indexOf(normalizedCodes[0])
+    const toIndex = path.indexOf(normalizedCodes[normalizedCodes.length - 1])
+    if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) return false
+    const step = fromIndex < toIndex ? 1 : -1
+    const expected: string[] = []
+    for (let index = fromIndex; ; index += step) {
+      expected.push(path[index])
+      if (index === toIndex) break
+    }
+    return expected.length === normalizedCodes.length
+      && expected.every((code, index) => code === normalizedCodes[index])
+  })
+}
+
+function canonicalTrackedTrain(train: SharedTrackedTrain): SharedTrackedTrain | null {
+  const stops = train.stops.map(canonicalStation)
+  const from = canonicalStation(train.from)
+  const to = canonicalStation(train.to)
+  if (stops.some(stop => stop == null) || !from || !to) return null
+  const normalizedStops = stops as Station[]
+  const normalized: SharedTrackedTrain = { ...train, from, to, stops: normalizedStops }
+  if (
+    normalizedStops[0].code !== from.code
+    || normalizedStops[normalizedStops.length - 1].code !== to.code
+    || normalizedStops.some(stop => !stop.lines.includes(train.line))
+    || !followsCanonicalPath(normalized)
+  ) return null
+  return normalized
+}
+
+function normalizedStationName(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]/gu, '')
+}
+
+function samePhysicalStation(left: Station, right: Station): boolean {
+  return left.code === right.code
+    || STATION_ALIASES[left.code] === right.code
+    || STATION_ALIASES[right.code] === left.code
+}
+
+function trackingMatchesTrip(
+  trains: SharedTrackedTrain[],
+  trip: SharedTripPayload
+): boolean {
+  const railLegs = trip.legs.filter(leg => leg.kind === 'rail')
+  if (railLegs.length < 1 || railLegs.length > 2) return false
+  const transferName = trip.transferName ? normalizedStationName(trip.transferName) : null
+  const transferStations = transferName
+    ? ALL_STATIONS.filter(station => normalizedStationName(station.name) === transferName)
+    : []
+
+  for (const train of trains) {
+    const railLeg = railLegs[train.leg - 1]
+    if (!railLeg || railLeg.line !== train.line || !trip.lines.includes(train.line)) return false
+    if (railLeg.toward && normalizedStationName(railLeg.toward) !== normalizedStationName(train.toward)) {
+      return false
+    }
+
+    if (train.leg === 1 && !samePhysicalStation(train.from, trip.origin)) return false
+    if (train.leg === railLegs.length && !samePhysicalStation(train.to, trip.destination)) return false
+
+    if (railLegs.length === 2) {
+      const transferEndpoint = train.leg === 1 ? train.to : train.from
+      if (!transferStations.some(station => samePhysicalStation(station, transferEndpoint))) return false
+    }
+  }
+
+  const first = trains.find(train => train.leg === 1)
+  const second = trains.find(train => train.leg === 2)
+  return !first || !second || samePhysicalStation(first.to, second.from)
+}
+
+function canonicalTracking(
+  tracking: SharedTripTracking | undefined,
+  trip: SharedTripPayload,
+  nowMs: number
+): SharedTripTracking | undefined | null {
+  if (!tracking) return undefined
+  const trains = tracking.trains.map(canonicalTrackedTrain)
+  if (trains.some(train => train == null)) return null
+  const normalizedTrains = trains as SharedTrackedTrain[]
+  if (!trackingMatchesTrip(normalizedTrains, trip)) return null
+  const tripEndMs = Math.max(...normalizedTrains.map(train => train.arrivalAtMs))
+  if (tripEndMs > nowMs + MAX_TRACKING_FUTURE_MS) return null
+  return {
+    trains: normalizedTrains,
+    expiresAtMs: Math.min(tripEndMs + TRACKING_ARRIVAL_GRACE_MS, nowMs + MAX_TRACKING_FUTURE_MS),
+  }
+}
+
+function normalizeCreatedTrip(value: unknown, nowMs = Date.now()): SharedTripPayload | null {
   const parsed = parseSharedTripPayload(value)
-  if (!parsed) return null
+  // Creation always upgrades to the current contract. Decoding still accepts v2.
+  if (!parsed || parsed.v !== SHARE_TRIP_VERSION) return null
   const origin = findStationByCode(parsed.origin.code)
   const destination = findStationByCode(parsed.destination.code)
   if (!origin || !destination || origin.code === destination.code) return null
@@ -55,6 +167,8 @@ function normalizeCreatedTrip(value: unknown): SharedTripPayload | null {
   const destPlaceContext = canonicalPlaceContext(parsed.destPlaceContext, destination.code)
   if (parsed.originPlaceContext && !originPlaceContext) return null
   if (parsed.destPlaceContext && !destPlaceContext) return null
+  const tracking = canonicalTracking(parsed.tracking, parsed, nowMs)
+  if (tracking === null) return null
 
   return {
     ...parsed,
@@ -62,7 +176,8 @@ function normalizeCreatedTrip(value: unknown): SharedTripPayload | null {
     destination,
     ...(originPlaceContext ? { originPlaceContext } : {}),
     ...(destPlaceContext ? { destPlaceContext } : {}),
-    sharedAtMs: Date.now(),
+    sharedAtMs: nowMs,
+    ...(tracking ? { tracking } : {}),
   }
 }
 
@@ -117,6 +232,31 @@ sharesApiRouter.post('/', shareCreateRateLimit, (req, res) => {
     .set('Cache-Control', 'no-store')
     .set('Location', url)
     .json({ token: reference, url, trip })
+})
+
+sharesApiRouter.get('/:token/live', async (req, res, next) => {
+  try {
+    const trip = resolveShareReference(req.params.token)
+    if (!trip) {
+      res.status(404).set('Cache-Control', 'no-store').json({ error: 'Shared trip not found' })
+      return
+    }
+    if (!trip.tracking) {
+      res.status(404).set('Cache-Control', 'no-store').json({ error: 'Live tracking is not available for this share' })
+      return
+    }
+
+    const live = await getLiveTrackerResponse(trip)
+    res.set('Cache-Control', 'no-store').json(live)
+  } catch (error) {
+    // Persistent short-link reads have a more actionable response than a generic 500.
+    if (SHORT_SHARE_CODE_PATTERN.test(req.params.token)) {
+      logShareStoreError('read', error)
+      res.status(503).set('Cache-Control', 'no-store').json({ error: 'Shared trip temporarily unavailable' })
+    } else {
+      next(error)
+    }
+  }
 })
 
 sharesApiRouter.get('/:token', (req, res) => {

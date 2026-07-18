@@ -106,9 +106,31 @@ function diagramSvg(trip: SharedTripPayload): string {
     ${lineBadge(firstLine, (originStationX + destinationStationX) / 2 - 46, y - 60)}
   `
 
+  const liveMarker = (() => {
+    const trains = trip.tracking?.trains
+    if (!trains?.length) return ''
+    const capturedAt = trip.timing.capturedAtMs
+    const active = trains.find(train => train.arrivalAtMs == null || train.arrivalAtMs >= capturedAt)
+      ?? trains.at(-1)!
+    const startX = active.leg === 2 && hasTransfer ? transferX : originStationX
+    const endX = active.leg === 1 && hasTransfer ? transferX : destinationStationX
+    const departureAt = active.departureAtMs ?? capturedAt
+    const arrivalAt = active.arrivalAtMs ?? departureAt + 30 * 60_000
+    const progress = arrivalAt <= departureAt
+      ? 0
+      : Math.max(0, Math.min(1, (capturedAt - departureAt) / (arrivalAt - departureAt)))
+    const markerX = startX + (endX - startX) * progress
+    return `
+      <circle cx="${markerX}" cy="${y}" r="25" fill="#faf3eb" fill-opacity="0.18" />
+      <circle cx="${markerX}" cy="${y}" r="15" fill="#faf3eb" stroke="#372c24" stroke-width="4" />
+      <text x="${markerX}" y="${y + 5}" text-anchor="middle" font-size="14" font-weight="900" fill="#372c24">T</text>
+    `
+  })()
+
   return `
     ${walkingStart}
     ${rail}
+    ${liveMarker}
     ${walkingEnd}
     <circle cx="${originStationX}" cy="${y}" r="13" fill="#faf3eb" stroke="#2c231d" stroke-width="4" />
     <circle cx="${destinationStationX}" cy="${y}" r="13" fill="#faf3eb" stroke="#2c231d" stroke-width="4" />
@@ -127,11 +149,14 @@ export function renderShareCardSvg(trip: SharedTripPayload): string {
     ? null
     : trip.timing.departureAtMs - originWalk * 60_000)
   const departureLabel = originWalk > 0 ? 'LEAVE' : 'TRAIN'
-  const status = trip.timing.source === 'live'
-    ? 'LIVE SNAPSHOT'
-    : trip.timing.source === 'mixed'
-      ? 'LIVE + SCHEDULED'
-      : 'SCHEDULED'
+  const isLiveTracker = !!trip.tracking?.trains.length
+  const status = isLiveTracker
+    ? 'LIVE TRAIN TRACKER'
+    : trip.timing.source === 'live'
+      ? 'LIVE SNAPSHOT'
+      : trip.timing.source === 'mixed'
+        ? 'LIVE + SCHEDULED'
+        : 'SCHEDULED'
   const title = `${truncate(origin, 28)} → ${truncate(destination, 28)}`
   const titleSize = title.length > 54 ? 30 : title.length > 40 ? 34 : 39
 
@@ -157,7 +182,7 @@ export function renderShareCardSvg(trip: SharedTripPayload): string {
     <text x="989" y="103" text-anchor="middle" font-family="Inter" font-size="15" font-weight="800" fill="#faf3eb">${status} · ${escapeXml(formatClock(trip.timing.capturedAtMs))}</text>
     <line x1="78" y1="144" x2="1122" y2="144" stroke="#faf3eb" stroke-opacity="0.14" stroke-width="2" />
 
-    <text x="78" y="179" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.4" fill="#cdbbad">SHARED TRIP</text>
+    <text x="78" y="179" font-family="Inter" font-size="14" font-weight="800" letter-spacing="1.4" fill="#cdbbad">${isLiveTracker ? 'FOLLOW THIS TRAIN LIVE' : 'SHARED TRIP'}</text>
     <text x="78" y="222" font-family="Inter" font-size="${titleSize}" font-weight="800" fill="#faf3eb">${escapeXml(title)}</text>
 
     <rect x="78" y="246" width="310" height="86" rx="18" fill="#2c231d" />
@@ -181,7 +206,7 @@ export function renderShareCardSvg(trip: SharedTripPayload): string {
     </g>
 
     <rect x="850" y="526" width="272" height="42" rx="21" fill="#faf3eb" />
-    <text x="872" y="553" font-family="Inter" font-size="15" font-weight="850" letter-spacing="0.5" fill="#372c24">OPEN TRIP DETAILS</text>
+    <text x="872" y="553" font-family="Inter" font-size="15" font-weight="850" letter-spacing="0.5" fill="#372c24">${isLiveTracker ? 'OPEN LIVE TRACKER' : 'OPEN TRIP DETAILS'}</text>
     <text x="1094" y="554" text-anchor="middle" font-family="Inter" font-size="22" font-weight="800" fill="#372c24">→</text>
   </svg>`
 }
