@@ -94,6 +94,9 @@ function liveMapTrain(
     to,
     routeStationCodes: status?.routeStationCodes ?? selected.stops.map(stop => stop.code),
     position: status?.position ?? null,
+    previousStop: status?.previousStop
+      ? { code: status.previousStop.code, name: status.previousStop.name }
+      : null,
     nextStop: status?.nextStop
       ? { code: status.nextStop.code, name: status.nextStop.name }
       : null,
@@ -463,7 +466,7 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
               mapData={mapData}
               train={selectedMapTrain}
               transferName={trip.transferName}
-              positionUnavailable={Boolean(!selectedStatus?.position || stale)}
+              positionUnavailable={Boolean(!selectedStatus?.position)}
             />
           ) : mapError ? (
             <div className="live-map-error">
