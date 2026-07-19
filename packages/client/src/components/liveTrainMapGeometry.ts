@@ -10,6 +10,7 @@ import {
 const VIEW_ASPECT = 820 / 570
 const MIN_VIEW_WIDTH = 520
 const MIN_VIEW_HEIGHT = 400
+const CORNER_RADIUS = 16
 const LONGITUDE_SCALE = Math.cos(38.9 * Math.PI / 180)
 const NETWORK_JUNCTION_CODES = new Set([
   'A01',
@@ -40,7 +41,7 @@ export interface LiveMapTrain {
   routeStationCodes: string[]
   position: (GeoPoint & { bearing?: number | null; source?: string }) | null
   previousStop: { code: string; name: string } | null
-  nextStop: { code: string; name: string } | null
+  nextStop: { code: string; name: string; expectedAtMs?: number | null } | null
   progress: number | null
   phase: string
   ended: boolean
@@ -65,6 +66,8 @@ export interface SchematicRouteStation extends SchematicPoint {
   name: string
   lines: Line[]
   isJunction: boolean
+  /** Distance along the route polyline from the origin to this station. */
+  distance: number
 }
 
 export interface LiveMapGeometry {
@@ -72,8 +75,12 @@ export interface LiveMapGeometry {
   networkStations: SchematicStationNode[]
   routeStations: SchematicRouteStation[]
   routePath: string
-  completedRoutePath: string
-  trainPoint: SchematicPoint | null
+  routePoints: SchematicPoint[]
+  routeLength: number
+  /** Distance the train has covered along the route polyline. */
+  progressDistance: number
+  /** Whether a real (or interpolated) position exists for the marker. */
+  hasPosition: boolean
   fromPoint: SchematicPoint
   toPoint: SchematicPoint
   viewBox: { x: number; y: number; width: number; height: number }
@@ -119,9 +126,31 @@ function expandedPoints(codes: readonly string[], line: Line): SchematicPoint[] 
   return result
 }
 
-function pathData(points: readonly SchematicPoint[]): string {
+/** Octilinear polyline rendered with soft arcs at every corner. */
+export function roundedPathData(points: readonly SchematicPoint[], radius = CORNER_RADIUS): string {
   if (points.length === 0) return ''
-  return `M ${points.map(point => `${point.x} ${point.y}`).join(' L ')}`
+  if (points.length < 3) return `M ${points.map(point => `${point.x} ${point.y}`).join(' L ')}`
+  const parts = [`M ${points[0].x} ${points[0].y}`]
+  for (let index = 1; index < points.length - 1; index += 1) {
+    const previous = points[index - 1]
+    const corner = points[index]
+    const next = points[index + 1]
+    const inLength = distance(previous, corner)
+    const outLength = distance(corner, next)
+    const r = Math.min(radius, inLength / 2, outLength / 2)
+    if (r < 0.5 || inLength === 0 || outLength === 0) {
+      parts.push(`L ${corner.x} ${corner.y}`)
+      continue
+    }
+    const inX = corner.x - (corner.x - previous.x) / inLength * r
+    const inY = corner.y - (corner.y - previous.y) / inLength * r
+    const outX = corner.x + (next.x - corner.x) / outLength * r
+    const outY = corner.y + (next.y - corner.y) / outLength * r
+    parts.push(`L ${inX} ${inY}`, `Q ${corner.x} ${corner.y} ${outX} ${outY}`)
+  }
+  const last = points.at(-1)!
+  parts.push(`L ${last.x} ${last.y}`)
+  return parts.join(' ')
 }
 
 function distance(a: SchematicPoint, b: SchematicPoint): number {
@@ -136,7 +165,7 @@ function polylineLength(points: readonly SchematicPoint[]): number {
   return total
 }
 
-function pointAtDistance(points: readonly SchematicPoint[], requested: number): SchematicPoint {
+export function pointAtDistance(points: readonly SchematicPoint[], requested: number): SchematicPoint {
   if (points.length === 0) return { x: 0, y: 0 }
   let remaining = Math.max(0, requested)
   for (let index = 1; index < points.length; index += 1) {
@@ -155,23 +184,20 @@ function pointAtDistance(points: readonly SchematicPoint[], requested: number): 
   return points.at(-1)!
 }
 
-function partialPoints(points: readonly SchematicPoint[], requested: number): SchematicPoint[] {
-  if (points.length === 0) return []
-  const result = [points[0]]
+/** Travel direction, in degrees, of the polyline at the given distance. */
+export function bearingAtDistance(points: readonly SchematicPoint[], requested: number): number {
+  if (points.length < 2) return 0
   let remaining = Math.max(0, requested)
   for (let index = 1; index < points.length; index += 1) {
     const start = points[index - 1]
     const end = points[index]
     const segmentLength = distance(start, end)
-    if (remaining >= segmentLength) {
-      result.push(end)
-      remaining -= segmentLength
-      continue
+    if ((remaining <= segmentLength && segmentLength > 0) || index === points.length - 1) {
+      return Math.atan2(end.y - start.y, end.x - start.x) * 180 / Math.PI
     }
-    result.push(pointAtDistance([start, end], remaining))
-    break
+    remaining -= segmentLength
   }
-  return result
+  return 0
 }
 
 function routeIndexForCode(routeCodes: readonly string[], code: string): number {
@@ -316,6 +342,7 @@ function routeStationNodes(mapData: MetroMapData, train: LiveMapTrain): Schemati
         ?? (code === train.from.code ? train.from.name : code === train.to.code ? train.to.name : code),
       lines,
       isJunction: isRouteJunction(mapData, train.routeStationCodes, index, train.line, lines),
+      distance: distanceBeforeRouteIndex(train.routeStationCodes, train.line, index),
       ...offsetPoint(point, train.line),
     }]
   })
@@ -346,18 +373,19 @@ export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain)
 
   const routeCodes = new Set(train.routeStationCodes)
   const progressDistance = trainDistance(mapData, train, routePoints)
-  const trainPoint = train.position ? pointAtDistance(routePoints, progressDistance) : null
 
   return {
     networkPaths: mapData.paths.flatMap(path => {
       const points = expandedPoints(path.stationCodes, path.line)
-      return points.length > 1 ? [{ id: path.id, line: path.line, d: pathData(points) }] : []
+      return points.length > 1 ? [{ id: path.id, line: path.line, d: roundedPathData(points) }] : []
     }),
     networkStations: stationNodes(mapData, routeCodes),
     routeStations: routeStationNodes(mapData, train),
-    routePath: pathData(routePoints),
-    completedRoutePath: pathData(partialPoints(routePoints, progressDistance)),
-    trainPoint,
+    routePath: roundedPathData(routePoints),
+    routePoints,
+    routeLength: polylineLength(routePoints),
+    progressDistance,
+    hasPosition: train.position != null,
     fromPoint: offsetPoint(fromBase, train.line),
     toPoint: offsetPoint(toBase, train.line),
     viewBox: fittedViewBox(routePoints),

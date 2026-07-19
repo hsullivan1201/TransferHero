@@ -98,7 +98,11 @@ function liveMapTrain(
       ? { code: status.previousStop.code, name: status.previousStop.name }
       : null,
     nextStop: status?.nextStop
-      ? { code: status.nextStop.code, name: status.nextStop.name }
+      ? {
+          code: status.nextStop.code,
+          name: status.nextStop.name,
+          expectedAtMs: status.nextStop.expectedAtMs,
+        }
       : null,
     progress: status?.progress ?? 0,
     phase: status?.phase ?? 'unknown',
