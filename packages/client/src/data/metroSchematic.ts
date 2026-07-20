@@ -54,7 +54,8 @@ export const SCHEMATIC_STATIONS: Readonly<Record<string, SchematicPoint>> = {
   A01: { x: 540, y: 500 },
   C01: { x: 540, y: 500 },
 
-  // Red — Gallery Place side to Glenmont.
+  // Red — Gallery Place side to Glenmont. The branch stays due north past
+  // Fort Totten, west of the Green/Yellow Greenbelt branch, as on the real map.
   B01: { x: 600, y: 440 },
   B02: { x: 620, y: 420 },
   B03: { x: 640, y: 400 },
@@ -62,11 +63,11 @@ export const SCHEMATIC_STATIONS: Readonly<Record<string, SchematicPoint>> = {
   B04: { x: 680, y: 360 },
   B05: { x: 680, y: 280 },
   B06: { x: 680, y: 200 },
-  B07: { x: 720, y: 200 },
-  B08: { x: 760, y: 160 },
-  B09: { x: 800, y: 120 },
-  B10: { x: 840, y: 80 },
-  B11: { x: 880, y: 40 },
+  B07: { x: 680, y: 150 },
+  B08: { x: 680, y: 100 },
+  B09: { x: 680, y: 50 },
+  B10: { x: 680, y: 0 },
+  B11: { x: 680, y: -50 },
 
   // Orange/Silver — Virginia shared trunk and Orange's Vienna branch.
   K08: { x: 90, y: 450 },
@@ -78,16 +79,17 @@ export const SCHEMATIC_STATIONS: Readonly<Record<string, SchematicPoint>> = {
   K02: { x: 330, y: 450 },
   K01: { x: 350, y: 470 },
 
-  // Silver — Ashburn branch through Tysons.
-  N12: { x: 370, y: 50 },
-  N11: { x: 330, y: 90 },
-  N10: { x: 290, y: 90 },
-  N09: { x: 250, y: 90 },
-  N08: { x: 210, y: 90 },
-  N07: { x: 170, y: 90 },
-  N06: { x: 130, y: 130 },
-  N04: { x: 90, y: 170 },
-  N03: { x: 90, y: 210 },
+  // Silver — Ashburn branch through Tysons. Runs west from East Falls Church,
+  // well north of Orange's Vienna branch and clear of the Red line.
+  N12: { x: -320, y: 250 },
+  N11: { x: -270, y: 250 },
+  N10: { x: -220, y: 250 },
+  N09: { x: -170, y: 250 },
+  N08: { x: -120, y: 250 },
+  N07: { x: -70, y: 250 },
+  N06: { x: -20, y: 250 },
+  N04: { x: 30, y: 250 },
+  N03: { x: 80, y: 250 },
   N02: { x: 130, y: 250 },
   N01: { x: 170, y: 290 },
 
@@ -133,11 +135,12 @@ export const SCHEMATIC_STATIONS: Readonly<Record<string, SchematicPoint>> = {
   C14: { x: 340, y: 860 },
   C15: { x: 300, y: 900 },
 
-  // Green/Yellow — Greenbelt through L'Enfant Plaza.
-  E10: { x: 520, y: 40 },
-  E09: { x: 560, y: 80 },
-  E08: { x: 600, y: 120 },
-  E07: { x: 640, y: 160 },
+  // Green/Yellow — Greenbelt through L'Enfant Plaza. The Greenbelt branch
+  // climbs northeast from Fort Totten, east of the Red line's Glenmont run.
+  E10: { x: 840, y: 40 },
+  E09: { x: 800, y: 80 },
+  E08: { x: 760, y: 120 },
+  E07: { x: 720, y: 160 },
   E06: { x: 680, y: 200 },
   E05: { x: 640, y: 240 },
   E04: { x: 600, y: 280 },

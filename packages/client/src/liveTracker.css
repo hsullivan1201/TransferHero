@@ -499,6 +499,34 @@
   font-weight: 900;
 }
 
+.live-map-ghost-train {
+  pointer-events: none;
+  transition: transform 700ms ease;
+}
+
+.live-map-ghost-casing {
+  fill: #17120f;
+  opacity: 0.85;
+}
+
+.live-map-ghost-disc {
+  stroke: rgba(255, 255, 255, 0.75);
+  stroke-width: 1.4;
+  opacity: 0.55;
+}
+
+.live-map-time-label {
+  fill: rgba(255, 255, 255, 0.56);
+  stroke: rgba(12, 9, 8, 0.85);
+  stroke-width: 2.5px;
+  stroke-linejoin: round;
+  paint-order: stroke;
+  font-size: 8.5px;
+  font-weight: 750;
+  letter-spacing: 0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
 .live-map-minor-label {
   fill: rgba(255, 255, 255, 0.62);
   stroke: rgba(12, 9, 8, 0.85);
@@ -1398,7 +1426,8 @@
     animation: none !important;
   }
 
-  .live-train-chip {
+  .live-train-chip,
+  .live-map-ghost-train {
     transition: none;
   }
 }

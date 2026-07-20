@@ -54,6 +54,10 @@ export interface LiveMapTrain {
   phase: string
   approach?: LiveMapApproach | null
   eta?: { arrivalAtMs: number; minutes: number } | null
+  /** Expected time at each stop, aligned with routeStationCodes. */
+  stopTimes?: (number | null)[] | null
+  /** Other live same-direction trains on the corridor. */
+  otherTrains?: Array<{ id: string; code: string; approaching: boolean }> | null
   ended: boolean
 }
 

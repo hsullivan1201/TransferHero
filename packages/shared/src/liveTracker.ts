@@ -130,6 +130,10 @@ export interface LiveTrackedTrainStatus {
   progress: number
   /** Present only while the train is still on its way to the boarding station. */
   approach?: LiveTrackerApproach | null
+  /** Expected time at each stop, aligned with routeStationCodes; null when unknown. */
+  stopExpectedAtMs?: (number | null)[]
+  /** Other live same-direction trains currently on this train's corridor. */
+  otherTrains?: Array<{ id: string; code: string; approaching: boolean }> | null
   ended: boolean
 }
 

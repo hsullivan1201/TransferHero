@@ -80,6 +80,8 @@ export function liveMapTrain(
     phase: status?.phase ?? 'unknown',
     approach: status?.approach ?? null,
     eta: status?.eta ?? null,
+    stopTimes: status?.stopExpectedAtMs ?? null,
+    otherTrains: status?.otherTrains ?? null,
     ended: status?.ended ?? false,
   }
 }

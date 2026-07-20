@@ -1,7 +1,6 @@
 import {
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -203,6 +202,14 @@ class LabelPlanner {
     return null
   }
 
+  /** Claim an arbitrary rect (e.g. a time chip) when the spot is free. */
+  tryClaim(rect: LabelRect): boolean {
+    if (!this.fitsFrame(rect)) return false
+    if (this.occupied.some(other => rectsIntersect(rect, other))) return false
+    this.occupied.push(rect)
+    return true
+  }
+
   private rectFor(placement: LabelPlacement, width: number): LabelRect {
     const left = placement.anchor === 'start'
       ? placement.x
@@ -229,8 +236,6 @@ export function LiveTrainMap({
   transferName,
   positionUnavailable = false,
 }: LiveTrainMapProps) {
-  const rawId = useId()
-  const id = rawId.replace(/:/gu, '')
   const reducedMotion = usePrefersReducedMotion()
   const geometry = useMemo(() => buildLiveMapGeometry(mapData, train), [mapData, train])
   const routeKey = `${train.id}:${(train.approach?.stationCodes ?? []).join(',')}|${train.routeStationCodes.join('>')}`
@@ -619,6 +624,17 @@ export function LiveTrainMap({
   const approachActive = Boolean(geometry?.approachPath) && !train.ended
   const approachNextCode = approachActive ? train.approach?.nextStop?.code ?? null : null
   const minorZoom = currentZoom >= MINOR_LABEL_ZOOM
+  const deepZoom = currentZoom >= 2.1
+  const boardsAtMs = train.phase === 'not_started' ? train.nextStop?.expectedAtMs ?? null : null
+  const boardsInMinutes = boardsAtMs != null
+    ? Math.max(0, Math.ceil((boardsAtMs - Date.now()) / 60_000))
+    : null
+  const timesKey = deepZoom && train.stopTimes
+    ? train.stopTimes.map(time => (time == null ? '' : Math.round(time / 60_000))).join(',')
+    : ''
+  const othersKey = train.otherTrains
+    ? train.otherTrains.map(other => `${other.id}:${other.code}${other.approaching ? '~' : ''}`).join('|')
+    : ''
   const planPoint = trainPoint
     ? {
         x: Math.round(trainPoint.x / PLAN_GRID) * PLAN_GRID,
@@ -712,7 +728,11 @@ export function LiveTrainMap({
       )
     }
     if (nextStation && nextStation.code !== destination?.code && !train.ended) {
-      planLabel(nextStation, nextStation.code === train.from.code ? 'STARTS HERE' : 'NEXT STOP', {
+      const isBoarding = nextStation.code === train.from.code
+      const boardingKicker = boardsInMinutes == null
+        ? 'STARTS HERE'
+        : boardsInMinutes <= 0 ? 'BOARDS NOW' : `BOARDS IN ${boardsInMinutes} MIN`
+      planLabel(nextStation, isBoarding ? boardingKicker : 'NEXT STOP', {
         emphasized: true,
         preferSide: planPoint && planPoint.x > nextStation.x ? 'end' : 'start',
       })
@@ -759,6 +779,49 @@ export function LiveTrainMap({
       ? approachNextStation ?? null
       : nextStation && !train.ended ? nextStation : null
 
+    // Deep zoom turns the diagram into a timetable strip: each upcoming stop
+    // shows its live-predicted arrival time when the spot below the dot is free.
+    const timeLabels: Array<{ code: string; x: number; y: number; text: string }> = []
+    if (deepZoom && train.stopTimes) {
+      const timeByCode = new Map<string, number>()
+      train.routeStationCodes.forEach((code, index) => {
+        const time = train.stopTimes?.[index]
+        if (time != null) timeByCode.set(code, time)
+      })
+      for (const station of geometry.routeStations) {
+        if (tripPassed(station)) continue
+        const time = timeByCode.get(station.code)
+        const text = clockTime(time)?.replace(/\s?(AM|PM)$/iu, '')
+        if (!text) continue
+        const rect = {
+          left: station.x - 17,
+          right: station.x + 17,
+          top: station.y + 10,
+          bottom: station.y + 24,
+        }
+        if (!planner.tryClaim(rect)) continue
+        timeLabels.push({ code: station.code, x: station.x, y: station.y + 21, text })
+      }
+    }
+
+    // Other live trains headed the same way ride the corridor as quiet ghosts.
+    const ghosts: Array<{ id: string; x: number; y: number }> = []
+    if (train.otherTrains && train.otherTrains.length > 0 && !train.ended) {
+      const distanceByCode = new Map<string, number>()
+      for (const station of geometry.approachStations) distanceByCode.set(station.code, station.distance)
+      for (const station of geometry.routeStations) {
+        distanceByCode.set(station.code, geometry.approachLength + station.distance)
+      }
+      for (const other of train.otherTrains) {
+        const base = distanceByCode.get(other.code)
+        if (base == null) continue
+        const distance = Math.max(0, base - ((other as { approaching: boolean }).approaching ? 26 : 0))
+        const point = pointAtDistance(geometry.combinedPoints, distance)
+        if (planPoint && Math.hypot(point.x - planPoint.x, point.y - planPoint.y) < 34) continue
+        ghosts.push({ id: other.id, x: point.x, y: point.y })
+      }
+    }
+
     const track = (
       <>
         {geometry.approachPath && (
@@ -796,6 +859,21 @@ export function LiveTrainMap({
 
     const overlay = (
       <>
+        {ghosts.length > 0 && (
+          <g className="live-map-ghosts" aria-hidden="true">
+            {ghosts.map(ghost => (
+              <g
+                key={ghost.id}
+                className="live-map-ghost-train"
+                style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
+              >
+                <circle className="live-map-ghost-casing" r="6.5" />
+                <circle className="live-map-ghost-disc" r="5" fill={lineColor} />
+              </g>
+            ))}
+          </g>
+        )}
+
         <g className="live-map-stations" aria-hidden="true">
           {ringStation && (
             <circle className="live-map-next-ring" cx={ringStation.x} cy={ringStation.y} r="12" />
@@ -818,6 +896,18 @@ export function LiveTrainMap({
               />
             )
           })}
+
+          {timeLabels.map(({ code, x, y, text }) => (
+            <text
+              key={`time-${code}`}
+              className="live-map-time-label"
+              x={x}
+              y={y}
+              textAnchor="middle"
+            >
+              {text}
+            </text>
+          ))}
 
           {secondaryLabels.map(({ key, name, placement }) => (
             <text
@@ -901,6 +991,10 @@ export function LiveTrainMap({
     approachActive,
     approachNextCode,
     minorZoom,
+    deepZoom,
+    boardsInMinutes,
+    timesKey,
+    othersKey,
     planPoint?.x,
     planPoint?.y,
     tripPassedCount,
@@ -1062,7 +1156,7 @@ export function LiveTrainMap({
         className={dragging ? 'live-map-svg is-dragging' : 'live-map-svg'}
         viewBox={`${view.x} ${view.y} ${view.w} ${view.h}`}
         role="img"
-        aria-labelledby={`${id}-title ${id}-description`}
+        aria-label={description}
         preserveAspectRatio="xMidYMid meet"
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -1073,9 +1167,6 @@ export function LiveTrainMap({
           if (anchor) applyZoomAt(currentZoom * 1.8, anchor)
         }}
       >
-        <title id={`${id}-title`}>{train.line} Line live train schematic</title>
-        <desc id={`${id}-description`}>{description}</desc>
-
         {networkLayer}
         {annotations?.track}
 

@@ -407,6 +407,40 @@ function resolveApproach(
   }
 }
 
+/**
+ * Other live trains headed the same way on the tracked corridor. Direction is
+ * anchored to the rider's matched vehicle, so this stays empty in
+ * schedule-only mode rather than guessing.
+ */
+function otherTrainsOnCorridor(
+  train: SharedTrackedTrain,
+  corridorCodes: string[],
+  positions: RailVehiclePosition[],
+  selectedVehicle: RailVehiclePosition | undefined,
+  nowMs: number
+): Array<{ id: string; code: string; approaching: boolean }> | null {
+  const direction = selectedVehicle?.directionId
+  if (direction == null) return null
+
+  const output: Array<{ id: string; code: string; approaching: boolean }> = []
+  for (const position of positions) {
+    if (position === selectedVehicle) continue
+    if (position.line !== train.line) continue
+    if (position.directionId !== direction) continue
+    if (!position.stopCode) continue
+    if (position.timestampMs != null && nowMs - position.timestampMs > 90_000) continue
+    const code = canonicalProgressStopCode(position.stopCode, corridorCodes)
+    if (!corridorCodes.includes(code)) continue
+    output.push({
+      id: position.entityId || position.vehicleId || `${train.line}-${output.length}`,
+      code,
+      approaching: position.currentStatus !== 'STOPPED_AT',
+    })
+    if (output.length >= 12) break
+  }
+  return output
+}
+
 function expiredStatus(train: SharedTrackedTrain, capturedAtMs: number, nowMs: number): LiveTrackedTrainStatus {
   return {
     id: train.id,
@@ -516,6 +550,19 @@ function statusForTrain(
     position,
     progress,
     approach: approachResolution?.approach ?? null,
+    stopExpectedAtMs: times.map(time => (Number.isFinite(time) ? Math.round(time) : null)),
+    otherTrains: otherTrainsOnCorridor(
+      train,
+      approachResolution
+        ? [
+            ...approachResolution.approach.stationCodes.slice(0, -1),
+            ...train.stops.map(stop => stop.code),
+          ]
+        : train.stops.map(stop => stop.code),
+      positions,
+      vehicle,
+      nowMs
+    ),
     ended,
   }
 }
