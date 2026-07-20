@@ -199,7 +199,9 @@ const scheduleResponse = await getLiveTrackerResponse(scheduleTrip, {
 })
 assert.ok(scheduleResponse)
 assert.equal(scheduleResponse.trains[0].position?.source, 'schedule')
-assert.equal(scheduleResponse.trains[0].freshness.isStale, true)
+// Schedule estimates are recomputed every poll: fresh, just not vehicle-live.
+assert.equal(scheduleResponse.trains[0].freshness.isStale, false)
+assert.equal(scheduleResponse.trains[0].freshness.updatedAtMs, now)
 assert.equal(scheduleResponse.trains[0].progress, 0.5)
 
 let upstreamCalls = 0
@@ -232,5 +234,108 @@ assert.deepEqual(
   { code: 'B01', name: 'Gallery Place', lines: ['RD', 'YL', 'GR'], lat: 38.898, lon: -77.021 }
 )
 assert.ok(metroMap.paths.some(path => path.line === 'RD' && path.stationCodes.includes('A01')))
+
+// --- Two-leg transfer: connection outlook + rider's own train never ghosts.
+const greenStops: Station[] = [
+  { code: 'F01', name: 'Gallery Place', lines: ['GR', 'YL'] },
+  { code: 'F02', name: 'Archives', lines: ['GR', 'YL'] },
+  { code: 'F03', name: 'L’Enfant Plaza', lines: ['GR', 'YL'] },
+]
+const transferMap: MetroMapData = {
+  generatedAtMs: now,
+  stations: [
+    ...map.stations,
+    { code: 'B01', name: 'Gallery Place', lines: ['RD'], lat: 38.898, lon: -77.021 },
+    ...greenStops.map((station, index) => ({
+      ...station,
+      lat: 38.898 - index * 0.005,
+      lon: -77.021 - index * 0.002,
+    })),
+    { code: 'F11', name: 'Branch Ave', lines: ['GR'], lat: 38.826, lon: -76.912 },
+  ],
+  paths: [],
+}
+const legOne: SharedTrackedTrain = {
+  ...trackedTrain,
+  id: 'leg-1',
+  to: { code: 'B01', name: 'Gallery Place', lines: ['RD'] },
+  stops: [...stops, { code: 'B01', name: 'Gallery Place', lines: ['RD'] }],
+  departureAtMs: now - 8 * 60_000,
+  arrivalAtMs: now + 2 * 60_000,
+}
+const legTwo: SharedTrackedTrain = {
+  id: 'leg-2',
+  leg: 2,
+  line: 'GR',
+  toward: 'Branch Ave',
+  tripId: 'trip-456',
+  from: greenStops[0],
+  to: greenStops[2],
+  stops: [...greenStops],
+  departureAtMs: now + 6 * 60_000,
+  arrivalAtMs: now + 12 * 60_000,
+}
+const riderTwinVehicle: RailVehiclePosition = {
+  ...freshVehicle,
+  entityId: 'vehicle-twin',
+  vehicleId: 'vehicle-twin',
+  tripId: 'trip-123',
+  stopCode: 'A02',
+}
+const strangerVehicle: RailVehiclePosition = {
+  ...freshVehicle,
+  entityId: 'vehicle-stranger',
+  vehicleId: 'vehicle-stranger',
+  tripId: 'trip-777',
+  stopCode: 'A02',
+}
+const transferResponse = await getLiveTrackerResponse({
+  ...trip,
+  destination: greenStops[2],
+  transferName: 'Gallery Place',
+  tracking: { trains: [legOne, legTwo], expiresAtMs: now + 60 * 60_000 },
+}, {
+  now: () => now,
+  apiKey: 'test-key',
+  fetchVehiclePositions: async () => [freshVehicle, riderTwinVehicle, strangerVehicle],
+  fetchTripUpdates: async () => [],
+  fetchStationPredictions: async stationCode => {
+    assert.equal(stationCode, 'F01')
+    return [
+      { Line: 'GR', DestinationName: 'Branch Ave', Min: 'BRD', Car: '8' },
+      // WMATA abbreviates prediction names; the filter must still match.
+      { Line: 'GR', DestinationName: 'Branch Av', DestinationCode: null, Min: '7', Car: '8' },
+      { Line: 'GR', DestinationName: 'Greenbelt', Min: '3', Car: '8' },
+      { Line: 'YL', DestinationName: 'Branch Ave', Min: '2', Car: '6' },
+    ]
+  },
+  getMapData: async () => transferMap,
+})
+assert.ok(transferResponse)
+assert.ok(transferResponse.connection, 'two-leg trips expose a connection outlook')
+assert.equal(transferResponse.connection?.atCode, 'F01')
+assert.equal(transferResponse.connection?.line, 'GR')
+assert.equal(transferResponse.connection?.toward, 'Branch Ave')
+assert.equal(
+  transferResponse.connection?.boardsAtMs,
+  transferResponse.trains[1].nextStop?.expectedAtMs
+)
+assert.deepEqual(
+  transferResponse.connection?.alternatives,
+  [
+    { minutes: 0, destinationName: 'Branch Ave' },
+    { minutes: 7, destinationName: 'Branch Av' },
+  ],
+  'alternatives keep only same-line, same-direction departures'
+)
+const legOneGhosts = transferResponse.trains[0].otherTrains ?? []
+assert.ok(
+  !legOneGhosts.some(ghost => ghost.id === 'vehicle-twin'),
+  'the tracked trip id never rides the map as a ghost'
+)
+assert.ok(
+  legOneGhosts.some(ghost => ghost.id === 'vehicle-stranger'),
+  'unrelated same-line trains still ghost'
+)
 
 console.log('live tracker tests passed')

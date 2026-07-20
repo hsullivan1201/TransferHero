@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   AlertCircle,
+  ArrowRightLeft,
   CheckCircle2,
   Clock3,
   MapPin,
@@ -20,10 +21,11 @@ import {
 } from '../api/liveTracker'
 import { useTheme } from '../hooks/useTheme'
 import { LINE_COLORS } from '../utils/lineColors'
-import { LiveTrainMap } from './LiveTrainMap'
+import { LiveTrainMap, type LiveMapInset } from './LiveTrainMap'
 import {
   arrivalHeadline,
   clockTime,
+  connectionOutlook,
   freshnessLabel,
   LINE_NAMES,
   liveMapTrain,
@@ -200,6 +202,17 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
     return liveMapTrain(selectedConfig, selectedStatus, mapData)
   }, [mapData, selectedConfig, selectedStatus])
 
+  // On a two-leg trip the other tracked train rides along on the map: its leg
+  // stays lit in its line color with its own live position and line traffic.
+  const companionConfig = tracking && tracking.trains.length > 1 && selectedConfig
+    ? tracking.trains.find(train => train.id !== selectedConfig.id) ?? null
+    : null
+  const companionStatus = snapshot?.trains.find(train => train.id === companionConfig?.id) ?? null
+  const companionMapTrain = useMemo(() => {
+    if (!companionConfig || !mapData) return null
+    return liveMapTrain(companionConfig, companionStatus, mapData)
+  }, [companionConfig, companionStatus, mapData])
+
   const retryLive = useCallback(() => {
     setInitialLiveLoading(true)
     setLiveError(null)
@@ -261,25 +274,85 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
     ?? trip.timing.arrivalAtMs
   const arrivalTime = clockTime(arrivalAtMs)
   const nextExpectedTime = clockTime(selectedStatus?.nextStop?.expectedAtMs)
+  // Staleness means the data itself is old (a stale vehicle fix, or polling
+  // that stopped answering). A healthy schedule estimate is not stale.
   const stale = Boolean(
     liveError
     || selectedStatus?.freshness.isStale
-    || (selectedStatus && now - selectedStatus.freshness.updatedAtMs > 45_000)
+    || (snapshot && now - snapshot.updatedAtMs > 45_000)
   )
   const estimatedPosition = selectedStatus?.position?.source != null
     && selectedStatus.position.source !== 'vehicle'
   const destinationName = trip.destPlaceContext?.place.name ?? trip.destination.name
   const trackedEndpointName = finalTrackedConfig?.to.name ?? trip.destination.name
+
+  // Before boarding, the headline mirrors the map's countdown instead of
+  // claiming the rider is already moving.
+  const firstConfig = tracking.trains.find(train => train.leg === 1) ?? tracking.trains[0]
+  const firstStatus = snapshot?.trains.find(train => train.id === firstConfig?.id) ?? null
+  const preBoarding = !terminal && firstStatus?.phase === 'not_started'
+  const boardsAtMs = preBoarding ? firstStatus?.nextStop?.expectedAtMs ?? null : null
+  const boardsInMinutes = boardsAtMs != null
+    ? Math.max(0, Math.ceil((boardsAtMs - now) / 60_000))
+    : null
   const introHeadline = arrived
     ? `Made it to ${destinationName}`
     : reachedFinalMetroStation
       ? `Train arrived at ${trip.destination.name}`
       : partialTrackingEnded
         ? `Train arrived at ${trackedEndpointName}`
-        : `On the way to ${destinationName}`
+        : preBoarding && firstConfig
+          ? boardsInMinutes == null
+            ? `Boards soon at ${firstConfig.from.name}`
+            : boardsInMinutes <= 0
+              ? `Boarding now at ${firstConfig.from.name}`
+              : `Boards in ${boardsInMinutes} min at ${firstConfig.from.name}`
+          : `On the way to ${destinationName}`
   const arrivalLabel = trackedThroughDestination
     ? trip.destPlaceContext ? 'METRO ARRIVAL' : 'FINAL ARRIVAL'
     : 'TRACKED TRAIN ARRIVAL'
+
+  const transferWalkMinutes = trip.legs.find(leg => leg.kind === 'transfer')?.minutes ?? null
+  const outlook = terminal ? null : connectionOutlook(snapshot?.connection, transferWalkMinutes, now)
+
+  // Approaching a decision point, the map grows a small wayfinding inset:
+  // what to do at the transfer, or which exit serves the destination.
+  const approachingEndpoint = Boolean(
+    selectedStatus
+    && !selectedStatus.ended
+    && selectedStatus.phase !== 'not_started'
+    && selectedStatus.nextStop?.code === selectedStatus.to.code
+  )
+  let inset: LiveMapInset | null = null
+  if (approachingEndpoint && selectedStatus) {
+    if (selectedStatus.leg === 1 && trip.transferName && tracking.trains.length > 1) {
+      const second = tracking.trains.find(train => train.leg === 2)
+      if (second) {
+        const boardsClock = clockTime(snapshot?.connection?.boardsAtMs)
+        inset = {
+          kicker: 'ARRIVING · CHANGE TRAINS',
+          title: selectedStatus.to.name,
+          rows: [
+            `${LINE_NAMES[second.line]} toward ${second.toward}${boardsClock ? ` · boards ${boardsClock}` : ''}`,
+            ...(trip.transferWalkSummary ? [trip.transferWalkSummary] : []),
+          ],
+          line: second.line,
+        }
+      }
+    } else if (selectedStatus.to.code === trip.destination.code) {
+      inset = {
+        kicker: 'ARRIVING · YOUR STOP',
+        title: selectedStatus.to.name,
+        rows: trip.destPlaceContext
+          ? [
+              `Exit: ${trip.destPlaceContext.exit.name}`,
+              `${trip.destPlaceContext.walkTimeMinutes} min walk to ${trip.destPlaceContext.place.name}`,
+            ]
+          : [],
+        line: null,
+      }
+    }
+  }
 
   return (
     <main className={arrived ? 'live-tracker-page is-arrived' : 'live-tracker-page'}>
@@ -342,8 +415,10 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
             ) : expired || trackingEnded ? (
               <span className="live-map-state is-offline">TRACKING ENDED</span>
             ) : (
-              <span className={stale ? 'live-map-state is-stale' : 'live-map-state'}>
-                <i aria-hidden="true" /> {stale ? 'UPDATING' : 'LIVE'}
+              <span className={stale
+                ? 'live-map-state is-stale'
+                : estimatedPosition ? 'live-map-state is-estimated' : 'live-map-state'}>
+                <i aria-hidden="true" /> {stale ? 'UPDATING' : estimatedPosition ? 'ESTIMATED' : 'LIVE'}
               </span>
             )}
           </div>
@@ -352,6 +427,8 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
             <LiveTrainMap
               mapData={mapData}
               train={selectedMapTrain}
+              companion={companionMapTrain}
+              inset={inset}
               transferName={trip.transferName}
               positionUnavailable={Boolean(!selectedStatus?.position)}
             />
@@ -401,6 +478,14 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
                 <p>{nextExpectedTime ? `Expected ${nextExpectedTime}` : phaseLabel(selectedStatus)}</p>
               )}
             </div>
+            {outlook && (
+              <div className={`live-connection-strip is-${outlook.state}`}>
+                <span>
+                  <ArrowRightLeft aria-hidden="true" /> {outlook.headline}
+                </span>
+                {outlook.detail && <span>{outlook.detail}</span>}
+              </div>
+            )}
             <div className={stale ? 'live-status-strip is-stale' : 'live-status-strip'}>
               <span><TrainFront aria-hidden="true" /> {phaseLabel(selectedStatus)}</span>
               <span>

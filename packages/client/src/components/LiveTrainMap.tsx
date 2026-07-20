@@ -16,6 +16,7 @@ import {
   bearingAtDistance,
   buildLiveMapGeometry,
   pointAtDistance,
+  unionFittedViewBox,
   type LiveMapGeometry,
   type LiveMapTrain,
   type SchematicApproachStation,
@@ -25,9 +26,20 @@ import {
 
 export type { LiveMapStation, LiveMapTrain } from './liveTrainMapGeometry'
 
+/** Wayfinding card shown over the map while the train nears a key station. */
+export interface LiveMapInset {
+  kicker: string
+  title: string
+  rows: string[]
+  line?: Line | null
+}
+
 interface LiveTrainMapProps {
   mapData: MetroMapData
   train: LiveMapTrain
+  /** The trip's other tracked train; its leg stays lit and live on the map. */
+  companion?: LiveMapTrain | null
+  inset?: LiveMapInset | null
   transferName?: string | null
   positionUnavailable?: boolean
 }
@@ -43,6 +55,8 @@ type MapFocus =
   | { kind: 'station'; code: string }
   | { kind: 'train' }
   | { kind: 'ghost'; id: string }
+  | { kind: 'companion' }
+  | { kind: 'cghost'; id: string }
 
 const MAX_ZOOM = 4
 const MINOR_LABEL_ZOOM = 1.55
@@ -50,6 +64,11 @@ const LABEL_MARGIN = 14
 const PASSED_SLACK = 8
 /** Labels re-plan only when the train moves a full cell, so they stay put. */
 const PLAN_GRID = 22
+/** The camera view quantizes to this grid before label planning re-runs. */
+const PLAN_VIEW_GRID = 44
+/** Real mouse motion this recent makes a hover-enter trustworthy; anything
+ * older means the map moved under a resting cursor and must not steal focus. */
+const HOVER_INTENT_MS = 300
 
 const IS_APPLE = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/u.test(navigator.platform)
 
@@ -59,6 +78,26 @@ function lineLetter(line: Line): string {
 
 function markerInk(line: Line): string {
   return line === 'OR' || line === 'SV' || line === 'YL' ? '#211a16' : '#ffffff'
+}
+
+/** Shared ghost-train body: tiny train glyph plus a flat direction arrow. */
+function GhostTrainShape({ color, bearing }: { color: string; bearing: number | null }) {
+  return (
+    <>
+      {bearing != null && (
+        <g transform={`rotate(${bearing})`}>
+          <path className="live-map-ghost-arrow" d="M 7 -3.6 L 12.4 0 L 7 3.6 Z" />
+        </g>
+      )}
+      <circle className="live-map-ghost-casing" r="6.5" />
+      <circle className="live-map-ghost-disc" r="5" fill={color} />
+      <g className="live-map-ghost-glyph" transform="scale(0.3)">
+        <rect x="-10" y="-11" width="20" height="21" rx="6" />
+        <rect x="-6.5" y="-7" width="5" height="5" rx="1.2" fill={color} />
+        <rect x="1.5" y="-7" width="5" height="5" rx="1.2" fill={color} />
+      </g>
+    </>
+  )
 }
 
 function sortedNetworkPaths(paths: readonly SchematicNetworkPath[]): SchematicNetworkPath[] {
@@ -73,6 +112,23 @@ function estimateLabelWidth(name: string, emphasized: boolean): number {
 
 function easeInOutCubic(t: number): number {
   return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2
+}
+
+/**
+ * The label planning frame: what the camera actually shows, clipped to the
+ * fitted diagram. Falls back to the whole fit when the overlap degenerates.
+ */
+function intersectFrames(
+  fit: LiveMapGeometry['viewBox'],
+  view: LiveMapGeometry['viewBox'] | null
+): LiveMapGeometry['viewBox'] {
+  if (!view) return fit
+  const x = Math.max(fit.x, view.x)
+  const y = Math.max(fit.y, view.y)
+  const right = Math.min(fit.x + fit.width, view.x + view.width)
+  const bottom = Math.min(fit.y + fit.height, view.y + view.height)
+  if (right - x < 160 || bottom - y < 120) return fit
+  return { x, y, width: right - x, height: bottom - y }
 }
 
 function viewsClose(a: MapView, b: MapView): boolean {
@@ -149,8 +205,13 @@ class LabelPlanner {
   place(
     station: SchematicPoint,
     name: string,
-    options: { emphasized?: boolean; preferSide?: 'start' | 'end'; distance?: number } = {}
-  ): LabelPlacement {
+    options: {
+      emphasized?: boolean
+      preferSide?: 'start' | 'end'
+      distance?: number
+      force?: boolean
+    } = {}
+  ): LabelPlacement | null {
     const emphasized = options.emphasized ?? false
     const gap = options.distance ?? 18
     const width = estimateLabelWidth(name, emphasized)
@@ -182,9 +243,21 @@ class LabelPlanner {
     const chosen = candidates.find(candidate => {
       const rect = this.rectFor(candidate, width)
       return this.fitsFrame(rect) && this.occupied.every(other => !rectsIntersect(rect, other))
-    }) ?? candidates[0]
-    this.occupied.push(this.rectFor(chosen, width))
-    return chosen
+    })
+    // No clear spot: piling onto an occupied fallback renders as overlapping
+    // garbage, so only the trip's must-show labels take that deal.
+    if (!chosen && !options.force) return null
+    const placement = chosen ?? candidates[0]
+    this.occupied.push(this.rectFor(placement, width))
+    return placement
+  }
+
+  /** Whether the station itself is visible inside the planning frame. */
+  contains(station: SchematicPoint, slack = 6): boolean {
+    return station.x >= this.fit.x - slack
+      && station.x <= this.fit.x + this.fit.width + slack
+      && station.y >= this.fit.y - slack
+      && station.y <= this.fit.y + this.fit.height + slack
   }
 
   /** Single-line label for quieter stations; hidden when no clear spot exists. */
@@ -236,17 +309,30 @@ class LabelPlanner {
 export function LiveTrainMap({
   mapData,
   train,
+  companion = null,
+  inset = null,
   transferName,
   positionUnavailable = false,
 }: LiveTrainMapProps) {
   const reducedMotion = usePrefersReducedMotion()
   const geometry = useMemo(() => buildLiveMapGeometry(mapData, train), [mapData, train])
+  const companionGeometry = useMemo(
+    () => (companion ? buildLiveMapGeometry(mapData, companion) : null),
+    [companion, mapData]
+  )
+  // With a companion leg the resting camera frames the whole journey.
+  const mapFit = useMemo(() => {
+    if (!geometry) return null
+    return companionGeometry
+      ? unionFittedViewBox(geometry.viewBox, companionGeometry.viewBox)
+      : geometry.viewBox
+  }, [companionGeometry, geometry])
   const routeKey = `${train.id}:${(train.approach?.stationCodes ?? []).join(',')}|${train.routeStationCodes.join('>')}`
 
   const stageRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
-  const fitRef = useRef(geometry?.viewBox ?? null)
-  fitRef.current = geometry?.viewBox ?? null
+  const fitRef = useRef(mapFit)
+  fitRef.current = mapFit
 
   // --- Train progress animation: glide along the polyline between updates.
   const targetDistance = geometry?.progressDistance ?? 0
@@ -320,6 +406,20 @@ export function LiveTrainMap({
 
   useEffect(() => () => window.clearTimeout(wheelHintTimer.current), [])
 
+  // On touch screens the zoom pill fades once the rider stops interacting, so
+  // it stops covering map content; any new touch wakes it back up.
+  const [controlsIdle, setControlsIdle] = useState(false)
+  const controlsIdleTimer = useRef<number | undefined>(undefined)
+  const wakeControls = useCallback(() => {
+    setControlsIdle(false)
+    window.clearTimeout(controlsIdleTimer.current)
+    controlsIdleTimer.current = window.setTimeout(() => setControlsIdle(true), 4000)
+  }, [])
+  useEffect(() => {
+    wakeControls()
+    return () => window.clearTimeout(controlsIdleTimer.current)
+  }, [wakeControls])
+
   const clampCenter = useCallback((center: SchematicPoint, atZoom: number): SchematicPoint => {
     const fit = fitRef.current
     if (!fit) return center
@@ -335,7 +435,7 @@ export function LiveTrainMap({
   }, [])
 
   const targetView = useMemo<MapView | null>(() => {
-    const fit = geometry?.viewBox
+    const fit = mapFit
     if (!fit) return null
     const w = fit.width / zoom
     const h = fit.height / zoom
@@ -344,7 +444,7 @@ export function LiveTrainMap({
     else if (zoom > 1.001 && trainPoint) center = clampCenter(trainPoint, zoom)
     else center = { x: fit.x + fit.width / 2, y: fit.y + fit.height / 2 }
     return { x: center.x - w / 2, y: center.y - h / 2, w, h }
-  }, [clampCenter, geometry?.viewBox, manualCenter, trainPoint, zoom])
+  }, [clampCenter, mapFit, manualCenter, trainPoint, zoom])
 
   const [renderView, setRenderView] = useState<MapView | null>(targetView)
   const renderViewRef = useRef(renderView)
@@ -398,12 +498,13 @@ export function LiveTrainMap({
   }, [reducedMotion, targetView?.x, targetView?.y, targetView?.w, targetView?.h])
 
   const view = renderView ?? targetView
-  const currentZoom = geometry && view ? geometry.viewBox.width / view.w : 1
+  const currentZoom = mapFit && view ? mapFit.width / view.w : 1
 
   // --- Gestures: drag to pan, pinch to zoom, ⌘/Ctrl-wheel zoom, double-tap.
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const movedRef = useRef(0)
   const suppressClickRef = useRef(false)
+  const lastMouseMoveAtRef = useRef(0)
   const [dragging, setDragging] = useState(false)
 
   const stageMetrics = useCallback(() => {
@@ -469,15 +570,17 @@ export function LiveTrainMap({
   const handlePointerDown = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
+    wakeControls()
     if (pointersRef.current.size === 1) movedRef.current = 0
     if (pointersRef.current.size === 2) {
       for (const pointerId of pointersRef.current.keys()) capturePointer(pointerId)
     }
     draggingRef.current = true
     setDragging(true)
-  }, [capturePointer])
+  }, [capturePointer, wakeControls])
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
+    if (event.pointerType === 'mouse') lastMouseMoveAtRef.current = performance.now()
     const entry = pointersRef.current.get(event.pointerId)
     if (!entry) return
     const previous = { x: entry.x, y: entry.y }
@@ -580,6 +683,7 @@ export function LiveTrainMap({
     const currentView = renderViewRef.current
     const zoomNow = fit && currentView ? fit.width / currentView.w : 1
     focusFromTapRef.current = true
+    lastMouseMoveAtRef.current = 0
     if (zoomNow < 2.2) {
       setZoom(2.4)
       setManualCenter(null)
@@ -597,6 +701,7 @@ export function LiveTrainMap({
   const toggleFocus = useCallback((next: MapFocus) => {
     if (suppressClickRef.current) return
     focusFromTapRef.current = true
+    lastMouseMoveAtRef.current = 0
     setFocus(current => (
       current && JSON.stringify(current) === JSON.stringify(next) ? null : next
     ))
@@ -604,6 +709,10 @@ export function LiveTrainMap({
 
   const hoverFocus = useCallback((next: MapFocus | null, pointerType: string) => {
     if (pointerType !== 'mouse') return
+    // A hover-enter without recent real mouse motion means the camera moved a
+    // hit target under a resting cursor (tap-to-zoom recentering does exactly
+    // this); acting on it would replace a tap-opened card with the wrong one.
+    if (performance.now() - lastMouseMoveAtRef.current > HOVER_INTENT_MS) return
     focusFromTapRef.current = false
     setFocus(current => {
       if (next) return next
@@ -641,6 +750,16 @@ export function LiveTrainMap({
         y: Math.round(trainPoint.y / PLAN_GRID) * PLAN_GRID,
       }
     : null
+  // The camera view, quantized so label planning re-runs in steps while the
+  // camera pans or follows the glide, never per animation frame.
+  const planView = view
+    ? {
+        x: Math.round(view.x / PLAN_VIEW_GRID) * PLAN_VIEW_GRID,
+        y: Math.round(view.y / PLAN_VIEW_GRID) * PLAN_VIEW_GRID,
+        width: Math.round(view.w / PLAN_VIEW_GRID) * PLAN_VIEW_GRID,
+        height: Math.round(view.h / PLAN_VIEW_GRID) * PLAN_VIEW_GRID,
+      }
+    : null
   const tripPassedCount = geometry
     ? geometry.routeStations.reduce(
         (count, station) => count + (tripDrawDistance > station.distance + PASSED_SLACK ? 1 : 0),
@@ -655,8 +774,10 @@ export function LiveTrainMap({
     : 0
 
   const annotations = useMemo(() => {
-    if (!geometry) return null
-    const fit = geometry.viewBox
+    if (!geometry || !mapFit) return null
+    // Labels plan inside what the rider can actually see, so a zoomed-in
+    // camera never leaves its NEXT STOP copy half off-screen.
+    const fit = intersectFrames(mapFit, planView)
     const centerX = fit.x + fit.width / 2
     const lineColor = LINE_COLORS[train.line].bg
     const destination = geometry.routeStations.find(station => station.code === train.to.code)
@@ -693,6 +814,14 @@ export function LiveTrainMap({
         bottom: destination.y + 18,
       })
     }
+    if (companion && companionGeometry && companion.leg === 2) {
+      obstacles.push({
+        left: companionGeometry.toPoint.x - 18,
+        right: companionGeometry.toPoint.x + 18,
+        top: companionGeometry.toPoint.y - 18,
+        bottom: companionGeometry.toPoint.y + 18,
+      })
+    }
 
     const planner = new LabelPlanner(fit, centerX, obstacles)
     const plannedLabels: Array<{
@@ -702,13 +831,24 @@ export function LiveTrainMap({
       name: string
       kicker: string
       emphasized: boolean
+      kickerColor?: string
       placement: LabelPlacement
     }> = []
     const planLabel = (
       station: SchematicPoint & { code: string; name: string },
       kicker: string,
-      options: { emphasized?: boolean; preferSide?: 'start' | 'end'; distance?: number } = {}
+      options: {
+        emphasized?: boolean
+        preferSide?: 'start' | 'end'
+        distance?: number
+        kickerColor?: string
+        force?: boolean
+      } = {}
     ) => {
+      // Labels only exist for stations the camera can actually show.
+      if (!planner.contains(station)) return
+      const placement = planner.place(station, station.name, options)
+      if (!placement) return
       plannedLabels.push({
         key: station.code,
         x: station.x,
@@ -716,15 +856,31 @@ export function LiveTrainMap({
         name: station.name,
         kicker,
         emphasized: options.emphasized ?? false,
-        placement: planner.place(station, station.name, options),
+        kickerColor: options.kickerColor,
+        placement,
       })
     }
 
+    // With a companion leg on the map, the trip's true destination is the
+    // companion's endpoint; it outranks every other label.
+    if (companion && companionGeometry && companion.leg === 2
+      && companion.to.code !== train.to.code) {
+      planLabel(
+        { ...companionGeometry.toPoint, code: companion.to.code, name: companion.to.name },
+        companion.ended ? 'ARRIVED' : 'DESTINATION',
+        {
+          emphasized: true,
+          distance: 24,
+          force: true,
+          kickerColor: `color-mix(in srgb, ${LINE_COLORS[companion.line].bg} 78%, #fff)`,
+        }
+      )
+    }
     if (destination) {
       planLabel(
         destination,
         train.ended ? 'ARRIVED' : transferName && train.leg === 1 ? 'CHANGE HERE' : 'DESTINATION',
-        { emphasized: true, distance: 24 }
+        { emphasized: true, distance: 24, force: true }
       )
     }
     if (nextStation && nextStation.code !== destination?.code && !train.ended) {
@@ -749,6 +905,16 @@ export function LiveTrainMap({
     }
     if (origin && !nearTrain(origin, 46) && origin.code !== nextStation?.code) {
       planLabel(origin, 'START', { preferSide: 'end', distance: 20 })
+    }
+    // While riding the connecting leg, the finished first leg keeps the
+    // journey's origin on the map as a quiet START.
+    if (companion && companionGeometry && companion.leg === 1
+      && companion.from.code !== train.from.code) {
+      planLabel(
+        { ...companionGeometry.fromPoint, code: companion.from.code, name: companion.from.name },
+        'START',
+        { distance: 20 }
+      )
     }
 
     const labeledCodes = new Set(plannedLabels.map(item => item.key))
@@ -788,20 +954,41 @@ export function LiveTrainMap({
         const time = train.stopTimes?.[index]
         if (time != null) timeByCode.set(code, time)
       })
-      for (const station of geometry.routeStations) {
-        if (tripPassed(station)) continue
+      geometry.routeStations.forEach((station, index) => {
+        if (tripPassed(station)) return
         const time = timeByCode.get(station.code)
         const text = clockTime(time)?.replace(/\s?(AM|PM)$/iu, '')
-        if (!text) continue
-        const rect = {
-          left: station.x - 17,
-          right: station.x + 17,
-          top: station.y + 10,
-          bottom: station.y + 24,
+        if (!text) return
+        // Time chips sit beside the track, offset perpendicular to the local
+        // route direction and on the outside of corners, so they never land
+        // on the line work itself.
+        const previous = geometry.routeStations[index - 1] ?? station
+        const next = geometry.routeStations[index + 1] ?? station
+        const dirX = next.x - previous.x
+        const dirY = next.y - previous.y
+        const dirLength = Math.hypot(dirX, dirY)
+        let perpX = 0
+        let perpY = 1
+        if (dirLength > 1) {
+          perpX = -dirY / dirLength
+          perpY = dirX / dirLength
+          const insideX = (previous.x + next.x) / 2 - station.x
+          const insideY = (previous.y + next.y) / 2 - station.y
+          const cornered = Math.hypot(insideX, insideY) > 1
+          if (cornered ? perpX * insideX + perpY * insideY > 0 : perpY < 0) {
+            perpX = -perpX
+            perpY = -perpY
+          }
         }
-        if (!planner.tryClaim(rect)) continue
-        timeLabels.push({ code: station.code, x: station.x, y: station.y + 21, text })
-      }
+        for (const gap of [19, -19]) {
+          const chipX = station.x + perpX * gap
+          const chipY = station.y + perpY * gap
+          const rect = { left: chipX - 17, right: chipX + 17, top: chipY - 8, bottom: chipY + 8 }
+          if (!planner.tryClaim(rect)) continue
+          timeLabels.push({ code: station.code, x: chipX, y: chipY + 3.5, text })
+          break
+        }
+      })
     }
 
     const track = (
@@ -888,7 +1075,7 @@ export function LiveTrainMap({
             </text>
           ))}
 
-          {plannedLabels.map(({ key, kicker, name, emphasized, placement }) => (
+          {plannedLabels.map(({ key, kicker, name, emphasized, kickerColor, placement }) => (
             <g
               key={`label-${key}`}
               className={emphasized ? 'live-map-node-copy is-emphasized' : 'live-map-node-copy'}
@@ -898,6 +1085,7 @@ export function LiveTrainMap({
                 y={placement.kickerY}
                 textAnchor={placement.anchor}
                 className="live-map-node-kicker"
+                style={kickerColor ? { fill: kickerColor } : undefined}
               >
                 {kicker}
               </text>
@@ -913,7 +1101,11 @@ export function LiveTrainMap({
           ))}
 
           {destination && (
-            <>
+            <g
+              className={nearTrain(destination, 46) && !train.ended
+                ? 'live-map-destination is-under-train'
+                : 'live-map-destination'}
+            >
               <circle
                 className={train.ended
                   ? 'live-map-destination-ring is-arrived'
@@ -931,7 +1123,7 @@ export function LiveTrainMap({
               >
                 {lineLetter(train.line)}
               </text>
-            </>
+            </g>
           )}
         </g>
 
@@ -955,6 +1147,13 @@ export function LiveTrainMap({
     return { track, overlay }
   }, [
     geometry,
+    companion,
+    companionGeometry,
+    mapFit,
+    planView?.x,
+    planView?.y,
+    planView?.width,
+    planView?.height,
     approachActive,
     approachNextCode,
     minorZoom,
@@ -982,8 +1181,10 @@ export function LiveTrainMap({
   // still hoverable and tappable for a quick "what's that train" card.
   const ghostLayer = useMemo(() => {
     if (!geometry || train.ended || geometry.ghostTrains.length === 0) return null
+    // The suppression radius covers the plan-grid quantization error, so a
+    // ghost can never peek out as a crescent behind the rider's own marker.
     const visible = geometry.ghostTrains.filter(ghost => (
-      !planPoint || Math.hypot(ghost.x - planPoint.x, ghost.y - planPoint.y) >= 32
+      !planPoint || Math.hypot(ghost.x - planPoint.x, ghost.y - planPoint.y) >= 40
     ))
     if (visible.length === 0) return null
     const lineColor = LINE_COLORS[train.line].bg
@@ -998,8 +1199,7 @@ export function LiveTrainMap({
                 : 'live-map-ghost-train'}
               style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
             >
-              <circle className="live-map-ghost-casing" r="6.5" />
-              <circle className="live-map-ghost-disc" r="5" fill={lineColor} />
+              <GhostTrainShape color={lineColor} bearing={ghost.bearing} />
             </g>
           ))}
         </g>
@@ -1022,6 +1222,84 @@ export function LiveTrainMap({
       ),
     }
   }, [geometry, hoverFocus, hoverLeave, planPoint?.x, planPoint?.y, toggleFocus, train.ended, train.line])
+
+  // The trip's other tracked leg stays on the map: its route lit in its line
+  // color, that line's other live trains as ghosts, and the rider's actual
+  // connecting train as a distinct secondary marker. One glance answers
+  // "where is my connecting train?".
+  const companionLayer = useMemo(() => {
+    if (!companion || !companionGeometry) return null
+    const color = LINE_COLORS[companion.line].bg
+    const point = companionGeometry.hasPosition && !companion.ended
+      ? pointAtDistance(companionGeometry.combinedPoints, companionGeometry.progressDistance)
+      : null
+    const ghosts = companion.ended
+      ? []
+      : companionGeometry.ghostTrains.filter(ghost => (
+          !point || Math.hypot(ghost.x - point.x, ghost.y - point.y) >= 30
+        ))
+    const showBadge = companion.leg === 2 && companion.to.code !== train.to.code
+    return {
+      color,
+      point,
+      ghosts,
+      track: (
+        <g
+          className={companion.ended ? 'live-map-companion is-ended' : 'live-map-companion'}
+          aria-hidden="true"
+        >
+          {companionGeometry.approachPath && !companion.ended && (
+            <>
+              <path
+                d={companionGeometry.approachPath}
+                className="live-map-companion-approach-casing"
+              />
+              <path
+                d={companionGeometry.approachPath}
+                className="live-map-companion-approach"
+                stroke={color}
+              />
+            </>
+          )}
+          <path d={companionGeometry.routePath} className="live-map-companion-casing" />
+          <path d={companionGeometry.routePath} className="live-map-companion-line" stroke={color} />
+          {companionGeometry.routeStations.map(station => (
+            <circle
+              key={`companion-${station.code}`}
+              className="live-map-companion-station"
+              cx={station.x}
+              cy={station.y}
+              r="3.4"
+            />
+          ))}
+          {showBadge && (
+            <g>
+              <circle
+                className="live-map-destination-ring"
+                cx={companionGeometry.toPoint.x}
+                cy={companionGeometry.toPoint.y}
+                r="16"
+              />
+              <circle
+                cx={companionGeometry.toPoint.x}
+                cy={companionGeometry.toPoint.y}
+                r="10"
+                fill={color}
+              />
+              <text
+                x={companionGeometry.toPoint.x}
+                y={companionGeometry.toPoint.y + 4}
+                textAnchor="middle"
+                className="live-map-line-letter"
+              >
+                {lineLetter(companion.line)}
+              </text>
+            </g>
+          )}
+        </g>
+      ),
+    }
+  }, [companion, companionGeometry, train.to.code])
 
   const paths = useMemo(
     () => (geometry ? sortedNetworkPaths(geometry.networkPaths) : []),
@@ -1061,7 +1339,7 @@ export function LiveTrainMap({
     </g>
   ), [geometry, paths])
 
-  if (!geometry || !view) {
+  if (!geometry || !mapFit || !view) {
     return (
       <div className="live-map-unavailable is-inline" role="status">
         <span aria-hidden="true" /> The schematic is updating…
@@ -1107,6 +1385,57 @@ export function LiveTrainMap({
         title: `${LINE_NAMES[train.line]} Line · toward ${train.toward}`,
         status,
         detail,
+        lines: null as Line[] | null,
+      }
+    }
+    if (focus.kind === 'companion') {
+      if (!companion || !companionLayer?.point) return null
+      const boards = companion.phase === 'not_started'
+        ? clockTime(companion.nextStop?.expectedAtMs)
+        : null
+      const arrives = companion.eta ? clockTime(companion.eta.arrivalAtMs) : null
+      const status = companion.phase === 'not_started'
+        ? companion.approach?.nextStop
+          ? `Inbound · next stop ${companion.approach.nextStop.name}`
+          : `Departs ${companion.from.name} soon`
+        : companion.phase === 'at_station'
+          ? `At ${companion.previousStop?.name ?? companion.from.name}`
+          : companion.previousStop && companion.nextStop
+            ? `Between ${companion.previousStop.name} and ${companion.nextStop.name}`
+            : `Heading toward ${companion.toward}`
+      const detail = [
+        companion.leg === 2
+          ? companion.projected ? 'Projected connection' : 'Your connecting train'
+          : 'Your first train',
+        boards
+          ? `boards ${companion.from.name} ${boards}`
+          : arrives ? `arrives ${companion.to.name} ${arrives}` : null,
+      ].filter(Boolean).join(' · ')
+      return {
+        point: companionLayer.point,
+        title: `${LINE_NAMES[companion.line]} Line · toward ${companion.toward}`,
+        status,
+        detail,
+        lines: null as Line[] | null,
+      }
+    }
+    if (focus.kind === 'cghost') {
+      const ghost = companionLayer?.ghosts.find(item => item.id === focus.id)
+      if (!ghost || !companion) return null
+      const stationName = companionGeometry?.routeStations.find(item => item.code === ghost.code)?.name
+        ?? companionGeometry?.approachStations.find(item => item.code === ghost.code)?.name
+        ?? mapData.stations.find(item => item.code === ghost.code)?.name
+        ?? ghost.code
+      const direction = ghost.sameDirection === true
+        ? `Same direction${ghost.toward ? ` · toward ${ghost.toward}` : ''}`
+        : ghost.sameDirection === false
+          ? `Opposite direction${ghost.toward ? ` · toward ${ghost.toward}` : ''}`
+          : null
+      return {
+        point: { x: ghost.x, y: ghost.y },
+        title: `${LINE_NAMES[companion.line]} Line train`,
+        status: ghost.approaching ? `Approaching ${stationName}` : `At ${stationName}`,
+        detail: direction,
         lines: null as Line[] | null,
       }
     }
@@ -1200,6 +1529,7 @@ export function LiveTrainMap({
         }}
       >
         {networkLayer}
+        {companionLayer?.track}
         {annotations?.track}
 
         {tripDrawDistance > 1 && (
@@ -1213,8 +1543,70 @@ export function LiveTrainMap({
         )}
 
         {ghostLayer?.visuals}
+        {companionLayer && companionLayer.ghosts.length > 0 && (
+          <g className="live-map-ghosts" aria-hidden="true">
+            {companionLayer.ghosts.map(ghost => (
+              <g
+                key={`cghost-${ghost.id}`}
+                className={ghost.sameDirection === false
+                  ? 'live-map-ghost-train is-opposite'
+                  : 'live-map-ghost-train'}
+                style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
+              >
+                <GhostTrainShape color={companionLayer.color} bearing={ghost.bearing} />
+              </g>
+            ))}
+          </g>
+        )}
         {annotations?.overlay}
         {ghostLayer?.hits}
+        {companionLayer && companionLayer.ghosts.length > 0 && (
+          <g className="live-map-hits">
+            {companionLayer.ghosts.map(ghost => (
+              <circle
+                key={`cghost-hit-${ghost.id}`}
+                className="live-map-hit"
+                cx={ghost.x}
+                cy={ghost.y}
+                r="12"
+                onPointerEnter={event => hoverFocus({ kind: 'cghost', id: ghost.id }, event.pointerType)}
+                onPointerLeave={event => hoverLeave({ kind: 'cghost', id: ghost.id }, event.pointerType)}
+                onClick={() => toggleFocus({ kind: 'cghost', id: ghost.id })}
+              />
+            ))}
+          </g>
+        )}
+
+        {companion && companionLayer?.point && (
+          <>
+            <g
+              className="live-map-companion-train"
+              style={{
+                transform: `translate(${companionLayer.point.x}px, ${companionLayer.point.y}px)`,
+              }}
+              aria-hidden="true"
+            >
+              <circle className="live-map-companion-train-casing" r="10.5" />
+              <circle className="live-map-companion-train-disc" r="8" fill={companionLayer.color} />
+              <g fill={markerInk(companion.line)} transform="scale(0.38)">
+                <rect x="-10" y="-12" width="20" height="21" rx="6" />
+                <rect x="-6.5" y="-8" width="5" height="5" rx="1" fill={companionLayer.color} />
+                <rect x="1.5" y="-8" width="5" height="5" rx="1" fill={companionLayer.color} />
+                <circle cx="-6" cy="5" r="1.7" fill={companionLayer.color} />
+                <circle cx="6" cy="5" r="1.7" fill={companionLayer.color} />
+              </g>
+            </g>
+            <circle
+              className="live-map-hit"
+              cx={companionLayer.point.x}
+              cy={companionLayer.point.y}
+              r="16"
+              onPointerEnter={event => hoverFocus({ kind: 'companion' }, event.pointerType)}
+              onPointerLeave={event => hoverLeave({ kind: 'companion' }, event.pointerType)}
+              onClick={() => toggleFocus({ kind: 'companion' })}
+            />
+          </>
+        )}
 
         {trainPoint && (
           <g
@@ -1252,7 +1644,12 @@ export function LiveTrainMap({
         )}
       </svg>
 
-      <div className="live-map-controls" role="group" aria-label="Map controls">
+      <div
+        className={controlsIdle ? 'live-map-controls is-idle' : 'live-map-controls'}
+        role="group"
+        aria-label="Map controls"
+        onPointerDown={wakeControls}
+      >
         <button
           type="button"
           onClick={() => zoomBy(1.5)}
@@ -1282,7 +1679,9 @@ export function LiveTrainMap({
 
       {focusTarget && focusScreen && (
         <div
-          className={focus?.kind === 'train' ? 'live-map-tooltip is-train' : 'live-map-tooltip'}
+          className={focus?.kind === 'train' || focus?.kind === 'companion'
+            ? 'live-map-tooltip is-train'
+            : 'live-map-tooltip'}
           style={{ left: focusScreen.left, top: focusScreen.top }}
           role="status"
         >
@@ -1310,6 +1709,22 @@ export function LiveTrainMap({
       {(positionUnavailable || (!trainPoint && !train.ended)) && (
         <div className="live-map-unavailable" role="status">
           <span aria-hidden="true" /> Reconnecting to the train…
+        </div>
+      )}
+
+      {inset && (
+        <div
+          className="live-map-inset"
+          role="status"
+          style={inset.line
+            ? { '--inset-color': LINE_COLORS[inset.line].bg } as CSSProperties
+            : undefined}
+        >
+          <small>{inset.kicker}</small>
+          <strong>{inset.title}</strong>
+          {inset.rows.map(row => (
+            <span key={row}>{row}</span>
+          ))}
         </div>
       )}
       <div className="live-map-scale-note" aria-hidden="true">METRO SCHEMATIC · NOT TO SCALE</div>

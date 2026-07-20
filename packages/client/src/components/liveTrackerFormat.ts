@@ -1,6 +1,7 @@
 import type {
   Line,
   LiveTrackedTrainStatus,
+  LiveTrackerConnection,
   MetroMapData,
   MetroMapStation,
   SharedTrackedTrain,
@@ -51,7 +52,8 @@ function mapStation(
 export function liveMapTrain(
   selected: SharedTrackedTrain,
   status: LiveTrackedTrainStatus | null,
-  mapData: MetroMapData
+  mapData: MetroMapData,
+  options: { projected?: boolean } = {}
 ): LiveMapTrain | null {
   const from = mapStation(status?.from ?? selected.from, mapData)
   const to = mapStation(status?.to ?? selected.to, mapData)
@@ -83,6 +85,7 @@ export function liveMapTrain(
     stopTimes: status?.stopExpectedAtMs ?? null,
     otherTrains: status?.otherTrains ?? null,
     ended: status?.ended ?? false,
+    ...(options.projected ? { projected: true } : {}),
   }
 }
 
@@ -125,6 +128,70 @@ export function phaseLabel(train: LiveTrackedTrainStatus | null): string {
       return `Arrived at ${train.to.name}`
     default:
       return 'Updating location'
+  }
+}
+
+export interface ConnectionOutlook {
+  state: 'ok' | 'tight' | 'risk'
+  headline: string
+  detail: string | null
+}
+
+/**
+ * Turns the server's transfer outlook into rider-facing copy: comfortable,
+ * tight, or at risk, including the transfer walk in the margin. Returns null
+ * once there is no upcoming connection to worry about.
+ */
+export function connectionOutlook(
+  connection: LiveTrackerConnection | null | undefined,
+  walkMinutes: number | null,
+  now: number
+): ConnectionOutlook | null {
+  if (!connection || connection.boardsAtMs == null) return null
+  const boardsClock = clockTime(connection.boardsAtMs) ?? 'soon'
+  const lineName = LINE_NAMES[connection.line]
+  const walk = walkMinutes != null && walkMinutes > 0 ? Math.round(walkMinutes) : 0
+
+  // Leg 1 already ended: the rider is at (or walking through) the transfer,
+  // so the outlook is simply the boarding countdown.
+  if (connection.arrivalAtMs == null) {
+    const boardsInMinutes = Math.max(0, Math.ceil((connection.boardsAtMs - now) / 60_000))
+    return {
+      state: 'ok',
+      headline: `${lineName} toward ${connection.toward} boards ${boardsClock}`,
+      detail: boardsInMinutes <= 0
+        ? `Boarding now at ${connection.atName}`
+        : `In ${boardsInMinutes} min at ${connection.atName}`,
+    }
+  }
+
+  const readyAtMs = connection.arrivalAtMs + walk * 60_000
+  const marginMinutes = Math.floor((connection.boardsAtMs - readyAtMs) / 60_000)
+  if (marginMinutes >= 3) {
+    return {
+      state: 'ok',
+      headline: `You’ll make the ${boardsClock} ${lineName}`,
+      detail: `${marginMinutes} min to spare at ${connection.atName}`,
+    }
+  }
+  if (marginMinutes >= 1) {
+    return {
+      state: 'tight',
+      headline: `Tight connection at ${connection.atName}`,
+      detail: walk > 0
+        ? `${marginMinutes} min to board after the ${walk} min walk`
+        : `${marginMinutes} min to board the ${boardsClock} ${lineName}`,
+    }
+  }
+  const nextAfter = connection.alternatives.find(alternative => (
+    now + alternative.minutes * 60_000 > (connection.boardsAtMs ?? 0) + 90_000
+  ))
+  return {
+    state: 'risk',
+    headline: `You may miss the ${boardsClock} ${lineName}`,
+    detail: nextAfter
+      ? `Next ${lineName} toward ${nextAfter.destinationName} in ${nextAfter.minutes} min`
+      : null,
   }
 }
 

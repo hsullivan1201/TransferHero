@@ -349,6 +349,18 @@
   animation: none;
 }
 
+/* Schedule-estimated positions are healthy data, just not vehicle GPS:
+   a calm neutral pip instead of the amber "something is wrong" one. */
+.live-map-state.is-estimated {
+  color: #e8e2d8;
+}
+
+.live-map-state.is-estimated i {
+  background: #b9b0a3;
+  box-shadow: 0 0 0 5px rgba(185, 176, 163, 0.14);
+  animation: none;
+}
+
 .live-map-state.is-arrived {
   gap: 5px;
   color: #c9ffe2;
@@ -482,6 +494,16 @@
   animation: liveTrackerBreathe 2.6s ease-in-out infinite;
 }
 
+.live-map-destination {
+  transition: opacity 450ms ease;
+}
+
+/* The arriving train marker parks on top of the destination badge; the badge
+   yields instead of fighting it for the same pixels. */
+.live-map-destination.is-under-train {
+  opacity: 0.22;
+}
+
 .live-map-destination-ring {
   fill: #17120f;
   stroke: rgba(255, 255, 255, 0.96);
@@ -515,6 +537,18 @@
   opacity: 0.55;
 }
 
+.live-map-ghost-arrow {
+  fill: rgba(255, 255, 255, 0.6);
+  stroke: #17120f;
+  stroke-width: 1;
+  stroke-linejoin: round;
+}
+
+.live-map-ghost-glyph {
+  fill: rgba(255, 255, 255, 0.78);
+  opacity: 0.75;
+}
+
 .live-map-ghost-train.is-opposite .live-map-ghost-casing {
   opacity: 0.6;
 }
@@ -522,6 +556,71 @@
 .live-map-ghost-train.is-opposite .live-map-ghost-disc {
   stroke: rgba(255, 255, 255, 0.45);
   opacity: 0.3;
+}
+
+.live-map-ghost-train.is-opposite .live-map-ghost-arrow {
+  fill: rgba(255, 255, 255, 0.3);
+}
+
+.live-map-ghost-train.is-opposite .live-map-ghost-glyph {
+  opacity: 0.35;
+}
+
+/* The trip's other tracked leg: lit in its line color, quieter than the
+   active route, louder than the background network. */
+.live-map-companion-casing,
+.live-map-companion-line,
+.live-map-companion-approach-casing,
+.live-map-companion-approach {
+  fill: none;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.live-map-companion-casing {
+  stroke: #0c0908;
+  stroke-width: 12;
+  opacity: 0.92;
+}
+
+.live-map-companion-line {
+  stroke-width: 7;
+  opacity: 0.66;
+}
+
+.live-map-companion-approach-casing {
+  stroke: #0c0908;
+  stroke-width: 9;
+  opacity: 0.7;
+}
+
+.live-map-companion-approach {
+  stroke-width: 5;
+  opacity: 0.32;
+}
+
+.live-map-companion-station {
+  fill: #d9cfc4;
+  stroke: #17120f;
+  stroke-width: 2;
+  opacity: 0.9;
+}
+
+.live-map-companion.is-ended {
+  opacity: 0.5;
+}
+
+/* The rider's own connecting train: a white-cased secondary marker, smaller
+   than the active train, bigger and brighter than any ghost. */
+.live-map-companion-train {
+  pointer-events: none;
+  transition: transform 700ms ease;
+}
+
+.live-map-companion-train-casing {
+  fill: #fff;
+  stroke: #17120f;
+  stroke-width: 1.5;
 }
 
 .live-map-time-label {
@@ -626,6 +725,15 @@
   border-radius: 11px;
   background: rgba(22, 17, 14, 0.86);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
+  transition: opacity 450ms ease;
+}
+
+/* On touch screens the pill fades once the rider stops interacting, so it
+   stops covering map content; any touch wakes it. */
+@media (pointer: coarse) {
+  .live-map-controls.is-idle {
+    opacity: 0.42;
+  }
 }
 
 .live-map-controls button {
@@ -786,13 +894,112 @@
 
 .live-map-scale-note {
   position: absolute;
-  right: 17px;
+  left: 16px;
   bottom: 50px;
   z-index: 2;
   color: rgba(255, 255, 255, 0.42);
   font-size: 8px;
   font-weight: 800;
   letter-spacing: 0.12em;
+}
+
+/* Wayfinding inset: what to do at the station the train is pulling into. */
+.live-map-inset {
+  position: absolute;
+  left: 14px;
+  bottom: 70px;
+  z-index: 4;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  max-width: 252px;
+  padding: 10px 13px 11px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  background: rgba(16, 12, 10, 0.92);
+  color: #fff;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.4);
+  backdrop-filter: blur(10px);
+  animation: liveTrackerTooltipIn 220ms ease;
+}
+
+.live-map-inset small {
+  color: color-mix(in srgb, var(--inset-color, var(--route-color, #f7941e)) 78%, #fff);
+  font-size: 8.5px;
+  font-weight: 850;
+  letter-spacing: 0.13em;
+}
+
+.live-map-inset strong {
+  font-size: 14px;
+  font-weight: 780;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+.live-map-inset > span {
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 10.5px;
+  font-weight: 660;
+  line-height: 1.35;
+}
+
+/* Live transfer outlook: comfortable, tight, or at risk. */
+.live-connection-strip {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  min-height: 36px;
+  padding: 9px 17px;
+  border-top: 1px solid var(--tracker-border);
+  background: color-mix(in srgb, var(--tracker-green) 9%, transparent);
+  color: var(--tracker-ink);
+  font-size: 11px;
+  font-weight: 720;
+}
+
+.live-connection-strip > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.live-connection-strip svg {
+  width: 13px;
+  height: 13px;
+  color: var(--tracker-green);
+}
+
+.live-connection-strip > span:last-child:not(:first-child) {
+  color: var(--tracker-soft);
+  font-size: 10px;
+  font-weight: 660;
+}
+
+.live-connection-strip.is-tight {
+  background: color-mix(in srgb, #f5a34c 12%, transparent);
+}
+
+.live-connection-strip.is-tight svg {
+  color: #c97f2e;
+}
+
+.live-connection-strip.is-risk {
+  background: color-mix(in srgb, #d9534f 12%, transparent);
+}
+
+.live-connection-strip.is-risk svg {
+  color: #c74b47;
+}
+
+/* In the modal the strip stands alone under the map card. */
+.live-map-modal .live-connection-strip {
+  margin-top: 10px;
+  border: 1px solid var(--tracker-border);
+  border-radius: 12px;
 }
 
 .live-map-loading,
@@ -1174,8 +1381,25 @@
   .live-map-node-copy.is-emphasized .live-map-node-label { font-size: 16px; }
 
   .live-map-scale-note {
-    right: 12px;
+    left: 12px;
     bottom: 45px;
+  }
+
+  /* Two train chips stack on narrow screens; a 90%-hidden second chip read
+     as a rendering glitch. */
+  .live-train-tabs {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .live-train-chip {
+    min-height: 54px;
+  }
+
+  .live-map-inset {
+    left: 10px;
+    bottom: 58px;
+    max-width: min(252px, calc(100% - 84px));
   }
 
   .live-map-controls {

@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
-import { CheckCircle2, MapPin, TrainFront, X } from 'lucide-react'
+import { ArrowRightLeft, CheckCircle2, MapPin, TrainFront, X } from 'lucide-react'
 import type { LiveTrackerResponse, MetroMapData, SharedTrackedTrain } from '@transferhero/shared'
 import { getLiveTrains, getMetroMap } from '../api/liveTracker'
 import { LINE_COLORS } from '../utils/lineColors'
-import { LiveTrainMap } from './LiveTrainMap'
+import { LiveTrainMap, type LiveMapInset } from './LiveTrainMap'
 import {
   clockTime,
+  connectionOutlook,
   freshnessLabel,
   LINE_NAMES,
   liveMapTrain,
@@ -18,7 +19,14 @@ const POLL_INTERVAL_MS = 12_000
 
 export interface LiveTripMapModalProps {
   trains: SharedTrackedTrain[]
+  /**
+   * The connection the app currently projects for leg 2, used when the rider
+   * has not picked a connecting train yet: its line still lights up live.
+   */
+  projectedConnection?: SharedTrackedTrain | null
   transferName: string | null
+  transferWalkMinutes?: number | null
+  transferLevelInstruction?: string | null
   initialTrainId?: string
   onClose: () => void
 }
@@ -26,10 +34,21 @@ export interface LiveTripMapModalProps {
 /** In-app live map for the rider's own selected trains — no share required. */
 export function LiveTripMapModal({
   trains,
+  projectedConnection = null,
   transferName,
+  transferWalkMinutes = null,
+  transferLevelInstruction = null,
   initialTrainId,
   onClose,
 }: LiveTripMapModalProps) {
+  // The projection is pinned when the modal opens; live updates keep flowing
+  // through polling, and reopening picks up a newer candidate.
+  const [pinnedProjected] = useState(projectedConnection)
+  const allTrains = useMemo(() => (
+    pinnedProjected && !trains.some(train => train.leg === 2)
+      ? [...trains, pinnedProjected]
+      : trains
+  ), [pinnedProjected, trains])
   const [mapData, setMapData] = useState<MetroMapData | null>(null)
   const [mapError, setMapError] = useState(false)
   const [mapRetry, setMapRetry] = useState(0)
@@ -53,7 +72,7 @@ export function LiveTripMapModal({
   }, [mapRetry])
 
   useEffect(() => {
-    if (trains.length === 0) return
+    if (allTrains.length === 0) return
     let active = true
     let timer: number | undefined
     let request: AbortController | null = null
@@ -61,7 +80,7 @@ export function LiveTripMapModal({
     const poll = async () => {
       request = new AbortController()
       try {
-        const response = await getLiveTrains(trains, request.signal)
+        const response = await getLiveTrains(allTrains, request.signal)
         if (!active) return
         setSnapshot(response)
         setLiveError(false)
@@ -82,7 +101,7 @@ export function LiveTripMapModal({
       if (timer != null) window.clearTimeout(timer)
       request?.abort()
     }
-  }, [trains])
+  }, [allTrains])
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -97,12 +116,24 @@ export function LiveTripMapModal({
     }
   }, [onClose])
 
-  const selectedConfig = trains.find(train => train.id === selectedId) ?? trains[0] ?? null
+  const selectedConfig = allTrains.find(train => train.id === selectedId) ?? allTrains[0] ?? null
   const selectedStatus = snapshot?.trains.find(train => train.id === selectedConfig?.id) ?? null
   const selectedMapTrain = useMemo(() => {
     if (!selectedConfig || !mapData) return null
     return liveMapTrain(selectedConfig, selectedStatus, mapData)
   }, [mapData, selectedConfig, selectedStatus])
+
+  // The trip's other leg stays on the map as a lit companion, whether the
+  // rider picked that train or the app projected it.
+  const companionConfig = allTrains.length > 1 && selectedConfig
+    ? allTrains.find(train => train.id !== selectedConfig.id) ?? null
+    : null
+  const companionStatus = snapshot?.trains.find(train => train.id === companionConfig?.id) ?? null
+  const companionIsProjected = companionConfig != null && companionConfig.id === pinnedProjected?.id
+  const companionMapTrain = useMemo(() => {
+    if (!companionConfig || !mapData) return null
+    return liveMapTrain(companionConfig, companionStatus, mapData, { projected: companionIsProjected })
+  }, [companionConfig, companionIsProjected, companionStatus, mapData])
 
   if (trains.length === 0) return null
 
@@ -110,14 +141,46 @@ export function LiveTripMapModal({
   const stale = Boolean(
     liveError
     || selectedStatus?.freshness.isStale
-    || (selectedStatus && now - selectedStatus.freshness.updatedAtMs > 45_000)
+    || (snapshot && now - snapshot.updatedAtMs > 45_000)
   )
+  const estimatedPosition = selectedStatus?.position?.source != null
+    && selectedStatus.position.source !== 'vehicle'
   const etaClock = clockTime(selectedStatus?.eta?.arrivalAtMs)
   const boardClock = selectedStatus?.phase === 'not_started'
     ? clockTime(selectedStatus.nextStop?.expectedAtMs)
     : null
-  const routeFrom = trains[0]?.from.name
-  const routeTo = trains.at(-1)?.to.name
+  const routeFrom = allTrains[0]?.from.name
+  const routeTo = allTrains.at(-1)?.to.name
+
+  const outlook = connectionOutlook(snapshot?.connection, transferWalkMinutes, now)
+
+  // Arriving at the transfer, the map grows a small change-trains inset.
+  let inset: LiveMapInset | null = null
+  const approachingEndpoint = Boolean(
+    selectedStatus
+    && !selectedStatus.ended
+    && selectedStatus.phase !== 'not_started'
+    && selectedStatus.nextStop?.code === selectedStatus.to.code
+  )
+  if (approachingEndpoint && selectedStatus && selectedStatus.leg === 1 && transferName) {
+    const second = allTrains.find(train => train.leg === 2)
+    if (second) {
+      const boardsClock = clockTime(snapshot?.connection?.boardsAtMs)
+      inset = {
+        kicker: 'ARRIVING · CHANGE TRAINS',
+        title: selectedStatus.to.name,
+        rows: [
+          `${LINE_NAMES[second.line]} toward ${second.toward}${boardsClock ? ` · boards ${boardsClock}` : ''}`,
+          ...(transferLevelInstruction
+            ? [`Platform is ${transferLevelInstruction}${transferWalkMinutes ? ` · about ${transferWalkMinutes} min` : ''}`]
+            : transferWalkMinutes
+              ? [`About ${transferWalkMinutes} min transfer walk`]
+              : []),
+        ],
+        line: second.line,
+      }
+    }
+  }
 
   return createPortal(
     <div
@@ -138,9 +201,9 @@ export function LiveTripMapModal({
           </button>
         </header>
 
-        {trains.length > 1 ? (
+        {allTrains.length > 1 ? (
           <div className="live-train-tabs" role="group" aria-label="Choose a train to follow on the map">
-            {trains.map(train => {
+            {allTrains.map(train => {
               const status = snapshot?.trains.find(item => item.id === train.id)
               const isActive = train.id === selectedConfig?.id
               return (
@@ -158,7 +221,9 @@ export function LiveTripMapModal({
                     {train.line}
                   </span>
                   <span>
-                    <small>{train.leg === 1 ? 'First train' : 'Connecting train'}</small>
+                    <small>{train.leg === 1
+                      ? 'First train'
+                      : train.id === pinnedProjected?.id ? 'Projected connection' : 'Connecting train'}</small>
                     <strong>{LINE_NAMES[train.line]} toward {train.toward}</strong>
                   </span>
                   {status?.ended && <CheckCircle2 className="live-train-chip-check" aria-label="Completed" />}
@@ -181,8 +246,10 @@ export function LiveTripMapModal({
             {arrived ? (
               <span className="live-map-state is-arrived"><CheckCircle2 aria-hidden="true" /> TRAIN ARRIVED</span>
             ) : (
-              <span className={stale ? 'live-map-state is-stale' : 'live-map-state'}>
-                <i aria-hidden="true" /> {stale ? 'UPDATING' : 'LIVE'}
+              <span className={stale
+                ? 'live-map-state is-stale'
+                : estimatedPosition ? 'live-map-state is-estimated' : 'live-map-state'}>
+                <i aria-hidden="true" /> {stale ? 'UPDATING' : estimatedPosition ? 'ESTIMATED' : 'LIVE'}
               </span>
             )}
           </div>
@@ -191,6 +258,8 @@ export function LiveTripMapModal({
             <LiveTrainMap
               mapData={mapData}
               train={selectedMapTrain}
+              companion={companionMapTrain}
+              inset={inset}
               transferName={transferName}
               positionUnavailable={Boolean(snapshot && !selectedStatus?.position && !arrived)}
             />
@@ -209,6 +278,15 @@ export function LiveTripMapModal({
             </div>
           )}
         </section>
+
+        {outlook && (
+          <div className={`live-connection-strip is-${outlook.state}`}>
+            <span>
+              <ArrowRightLeft aria-hidden="true" /> {outlook.headline}
+            </span>
+            {outlook.detail && <span>{outlook.detail}</span>}
+          </div>
+        )}
 
         <footer className="live-map-modal-status" aria-live="polite">
           <span><TrainFront aria-hidden="true" /> {phaseLabel(selectedStatus)}</span>

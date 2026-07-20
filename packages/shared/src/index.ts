@@ -39,6 +39,12 @@ export interface Train {
   DestinationName: string
   Min: string | number
   Car: string
+  /** Short destination label from WMATA predictions (e.g. "Brnch Av"). */
+  Destination?: string
+  /** Destination station code from WMATA predictions; often null upstream. */
+  DestinationCode?: string | null
+  /** WMATA platform/track group ("1" or "2") from station predictions. */
+  Group?: string
   TrainNumber?: string | number
   TrainId?: string | number
   _gtfs?: boolean

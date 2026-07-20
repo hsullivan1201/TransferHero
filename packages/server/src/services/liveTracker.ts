@@ -1,6 +1,8 @@
 import type {
   LiveTrackedTrainStatus,
   LiveTrackerApproach,
+  LiveTrackerConnection,
+  LiveTrackerConnectionAlternative,
   LiveTrackerOtherTrain,
   LiveTrackerPhase,
   LiveTrackerPosition,
@@ -10,6 +12,7 @@ import type {
   SharedTrackedTrain,
   SharedTripPayload,
   SharedTripTracking,
+  Train,
 } from '@transferhero/shared'
 import type { Station } from '@transferhero/shared'
 import { LINE_PATHS } from '../data/lineConfig.js'
@@ -19,6 +22,7 @@ import { getMetroMapData } from './metroMap.js'
 import {
   fetchGTFSTripUpdates,
   fetchGTFSVehiclePositions,
+  fetchStationPredictions,
   getGTFSTripProgress,
   type GtfsTripProgress,
   type RailVehiclePosition,
@@ -32,6 +36,7 @@ export interface LiveTrackerDependencies {
   apiKey?: string
   fetchVehiclePositions?: (apiKey: string) => Promise<RailVehiclePosition[]>
   fetchTripUpdates?: (apiKey: string) => Promise<any[]>
+  fetchStationPredictions?: (stationCode: string, apiKey: string) => Promise<Train[]>
   getMapData?: () => Promise<MetroMapData>
 }
 
@@ -248,13 +253,14 @@ function trackerVehicleId(
 }
 
 function trackerFreshnessAt(
-  capturedAtMs: number,
   nowMs: number,
-  vehicle: RailVehiclePosition | undefined,
-  tripProgress: GtfsTripProgress | undefined
+  vehicle: RailVehiclePosition | undefined
 ): number {
   if (vehicle?.timestampMs != null) return vehicle.timestampMs
-  return tripProgress ? nowMs : capturedAtMs
+  // Estimated positions are recomputed from the schedule (or trip updates) on
+  // every poll, so their freshness is the poll itself. Pinning freshness to the
+  // share's capture time made healthy schedule estimates read as ever-staler.
+  return nowMs
 }
 
 function vehicleHasPassedDestination(
@@ -435,9 +441,26 @@ function otherTrainsOnLine(
   }
   const riderDirectionId = selectedVehicle?.directionId ?? null
 
+  // The rider's own train must never ride the map twice. Identity matching
+  // covers the case where the tracked ids are known but no vehicle was
+  // selected (for example while the position is still schedule-estimated).
+  const trackedIds = new Set([
+    train.tripId,
+    train.vehicleId,
+    train.trainId,
+    train.trainNumber,
+    selectedVehicle?.tripId,
+    selectedVehicle?.vehicleId,
+    selectedVehicle?.vehicleLabel,
+    selectedVehicle?.entityId,
+  ].map(normalizeId).filter((id): id is string => id != null))
+
   const output: LiveTrackerOtherTrain[] = []
   for (const position of positions) {
     if (position === selectedVehicle) continue
+    if ([position.tripId, position.vehicleId, position.vehicleLabel, position.entityId]
+      .map(normalizeId)
+      .some(id => id != null && trackedIds.has(id))) continue
     if (position.line !== train.line) continue
     if (!position.stopCode) continue
     if (position.timestampMs != null && nowMs - position.timestampMs > 90_000) continue
@@ -474,6 +497,123 @@ function otherTrainsOnLine(
   return output
 }
 
+function stationNameTokens(name: string): string[] {
+  return name.toLowerCase().replace(/[^a-z0-9\s-]/gu, '').split(/[\s-]+/u).filter(Boolean)
+}
+
+interface DownstreamTargets {
+  codes: Set<string>
+  nameTokens: string[][]
+}
+
+/**
+ * Every station downstream of the connecting train's boarding platform in its
+ * travel direction. WMATA predictions point at destinations (terminals and
+ * short-turns), all of which lie downstream, so this is the direction filter
+ * for "next trains the rider could actually take".
+ */
+function downstreamTargets(train: SharedTrackedTrain, map: MetroMapData): DownstreamTargets | null {
+  const secondCode = train.stops[1]?.code
+  if (!secondCode) return null
+  for (const path of LINE_PATHS[train.line]) {
+    const fromIndex = path.indexOf(normalizePlatformCode(train.from.code, path))
+    const nextIndex = path.indexOf(normalizePlatformCode(secondCode, path))
+    if (fromIndex < 0 || nextIndex < 0 || fromIndex === nextIndex) continue
+    const downstream = nextIndex > fromIndex
+      ? path.slice(fromIndex + 1)
+      : path.slice(0, fromIndex)
+    const codes = new Set<string>()
+    const nameTokens: string[][] = []
+    for (const code of downstream) {
+      for (const alias of getAllPlatformCodes(code)) codes.add(alias.toUpperCase())
+      const info = mapStationInfo(map, code)
+      if (info) nameTokens.push(stationNameTokens(info.name))
+    }
+    return codes.size > 0 ? { codes, nameTokens } : null
+  }
+  return null
+}
+
+/**
+ * WMATA prediction destinations are exact codes when present, but the names
+ * are often abbreviated ("Branch Av", "Mt Vern Sq"), so name matching accepts
+ * every prediction token as a prefix of some token of a downstream station.
+ */
+function predictionIsDownstream(prediction: Train, targets: DownstreamTargets): boolean {
+  const code = typeof prediction.DestinationCode === 'string'
+    ? prediction.DestinationCode.trim().toUpperCase()
+    : ''
+  if (code) return targets.codes.has(code)
+  const predictionTokens = stationNameTokens(prediction.DestinationName ?? '')
+  if (predictionTokens.length === 0) return false
+  return targets.nameTokens.some(stationTokens =>
+    predictionTokens.every(token => stationTokens.some(stationToken => stationToken.startsWith(token)))
+  )
+}
+
+function predictionMinutes(min: Train['Min']): number | null {
+  if (typeof min === 'number') return Number.isFinite(min) ? min : null
+  const normalized = min.trim().toUpperCase()
+  if (normalized === 'BRD' || normalized === 'ARR') return 0
+  const parsed = Number.parseInt(normalized, 10)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+/**
+ * The live transfer outlook for a two-leg trip: when leg 1 reaches the
+ * transfer versus when the tracked connecting train boards, plus the next
+ * same-direction departures in case the rider misses it. Gone once the rider
+ * is on the connecting train.
+ */
+async function resolveConnection(
+  configs: SharedTrackedTrain[],
+  statuses: LiveTrackedTrainStatus[],
+  map: MetroMapData,
+  apiKey: string | undefined,
+  fetchPredictions: (stationCode: string, apiKey: string) => Promise<Train[]>
+): Promise<LiveTrackerConnection | null> {
+  const firstConfig = configs.find(train => train.leg === 1)
+  const secondConfig = configs.find(train => train.leg === 2)
+  if (!firstConfig || !secondConfig) return null
+  const firstStatus = statuses.find(status => status.id === firstConfig.id)
+  const secondStatus = statuses.find(status => status.id === secondConfig.id)
+  if (!secondStatus || secondStatus.ended || secondStatus.phase !== 'not_started') return null
+
+  let alternatives: LiveTrackerConnectionAlternative[] = []
+  if (apiKey) {
+    try {
+      const targets = downstreamTargets(secondConfig, map)
+      const predictions = await fetchPredictions(secondConfig.from.code, apiKey)
+      alternatives = predictions
+        .filter(prediction => prediction.Line === secondConfig.line)
+        .filter(prediction => !targets || predictionIsDownstream(prediction, targets))
+        .flatMap(prediction => {
+          const minutes = predictionMinutes(prediction.Min)
+          return minutes == null ? [] : [{
+            minutes,
+            destinationName: prediction.DestinationName ?? secondConfig.toward,
+          }]
+        })
+        .sort((a, b) => a.minutes - b.minutes)
+        .slice(0, 3)
+    } catch {
+      alternatives = []
+    }
+  }
+
+  return {
+    atCode: secondConfig.from.code,
+    atName: secondConfig.from.name,
+    line: secondConfig.line,
+    toward: secondConfig.toward,
+    arrivalAtMs: firstStatus && !firstStatus.ended
+      ? firstStatus.eta?.arrivalAtMs ?? null
+      : null,
+    boardsAtMs: secondStatus.nextStop?.expectedAtMs ?? null,
+    alternatives,
+  }
+}
+
 function expiredStatus(train: SharedTrackedTrain, capturedAtMs: number, nowMs: number): LiveTrackedTrainStatus {
   return {
     id: train.id,
@@ -502,7 +642,6 @@ function expiredStatus(train: SharedTrackedTrain, capturedAtMs: number, nowMs: n
 
 function statusForTrain(
   train: SharedTrackedTrain,
-  capturedAtMs: number,
   nowMs: number,
   positions: RailVehiclePosition[],
   tripUpdates: any[],
@@ -550,7 +689,7 @@ function statusForTrain(
     ? 0
     : clamp(previousFraction + (nextFraction - previousFraction) * segment.ratio)
 
-  const freshnessAtMs = trackerFreshnessAt(capturedAtMs, nowMs, vehicle, tripProgress)
+  const freshnessAtMs = trackerFreshnessAt(nowMs, vehicle)
   const ageMs = Math.max(0, nowMs - freshnessAtMs)
   const approachResolution = notStarted
     ? resolveApproach(train, Math.round(times[0] ?? train.departureAtMs), nowMs, vehicle, tripProgress, map)
@@ -578,7 +717,7 @@ function statusForTrain(
     freshness: {
       updatedAtMs: freshnessAtMs,
       ageMs,
-      isStale: !vehicle && !tripProgress ? true : ageMs > LIVE_STALE_AFTER_MS,
+      isStale: ageMs > LIVE_STALE_AFTER_MS,
     },
     position,
     progress,
@@ -622,7 +761,14 @@ export async function resolveTrackingStatus(
     getMapData(),
   ])
   const trains = tracking.trains.map(train =>
-    statusForTrain(train, capturedAtMs, nowMs, positions, tripUpdates, map)
+    statusForTrain(train, nowMs, positions, tripUpdates, map)
+  )
+  const connection = await resolveConnection(
+    tracking.trains,
+    trains,
+    map,
+    apiKey,
+    dependencies.fetchStationPredictions ?? fetchStationPredictions
   )
 
   return {
@@ -631,6 +777,7 @@ export async function resolveTrackingStatus(
     expired: false,
     ended: trains.every(train => train.ended),
     trains,
+    connection,
   }
 }
 

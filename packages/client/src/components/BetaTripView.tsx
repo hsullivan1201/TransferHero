@@ -1267,6 +1267,46 @@ export function BetaTripView({
     secondDirectionLabel,
     plannedForMs,
   ])
+  // With no connecting train picked yet, the live map still lights the second
+  // leg using the connection the app currently projects for the rider.
+  const projectedLeg2 = useMemo<SharedTrackedTrain | null>(() => {
+    if (isDirect || plannedForMs || liveSelectedLeg2Train || !finalLine) return null
+    const candidate = bestConnection?.train ?? null
+    if (!candidate) return null
+    if (!candidate._tripId && candidate.TrainId == null && candidate.TrainNumber == null) return null
+    const secondStops = finalLegStops.length >= 2
+      ? finalLegStops
+      : [finalLegOrigin, destination]
+    const departureAtMs = nowMinute + getTrainMinutes(candidate.Min) * 60_000
+    const arrivalAtMs = candidate._destArrivalTimestamp
+      ?? departureAtMs + leg2Time * 60_000
+    return {
+      id: 'leg-2-projected',
+      leg: 2,
+      line: finalLine,
+      toward: secondDirectionLabel,
+      ...(candidate._tripId ? { tripId: candidate._tripId } : {}),
+      ...(candidate.TrainId != null ? { trainId: String(candidate.TrainId) } : {}),
+      ...(candidate.TrainNumber != null ? { trainNumber: String(candidate.TrainNumber) } : {}),
+      from: finalLegOrigin,
+      to: destination,
+      stops: secondStops,
+      departureAtMs,
+      arrivalAtMs,
+    }
+  }, [
+    bestConnection,
+    destination,
+    finalLegOrigin,
+    finalLegStops,
+    finalLine,
+    isDirect,
+    leg2Time,
+    liveSelectedLeg2Train,
+    nowMinute,
+    plannedForMs,
+    secondDirectionLabel,
+  ])
   let step = 1 + stepOffset
   const originWalkStep = originPlaceContext ? step++ : null
   const originStationStep = step++
@@ -1591,7 +1631,10 @@ export function BetaTripView({
       {liveMapOpen && shareTrackedTrains.length > 0 && (
         <LiveTripMapModal
           trains={shareTrackedTrains}
+          projectedConnection={projectedLeg2}
           transferName={isDirect ? null : transferName}
+          transferWalkMinutes={isDirect ? null : walkTime}
+          transferLevelInstruction={isDirect ? null : levelInstruction}
           onClose={() => setLiveMapOpen(false)}
         />
       )}

@@ -150,12 +150,37 @@ export interface LiveTrackerOtherTrain {
   toward?: string | null
 }
 
+export interface LiveTrackerConnectionAlternative {
+  /** Minutes until this train leaves the transfer platform. */
+  minutes: number
+  destinationName: string
+}
+
+/**
+ * Live outlook for a two-leg trip's transfer: when leg 1 reaches the transfer
+ * station versus when the tracked connecting train boards, plus the next
+ * departures on the connecting line in the rider's direction.
+ */
+export interface LiveTrackerConnection {
+  atCode: string
+  atName: string
+  line: Line
+  toward: string
+  /** Leg-1 expected arrival at the transfer station; null once leg 1 ended. */
+  arrivalAtMs: number | null
+  /** Tracked connecting train's expected boarding time. */
+  boardsAtMs: number | null
+  alternatives: LiveTrackerConnectionAlternative[]
+}
+
 export interface LiveTrackerResponse {
   updatedAtMs: number
   expiresAtMs: number
   expired: boolean
   ended: boolean
   trains: LiveTrackedTrainStatus[]
+  /** Present while a two-leg trip still has its transfer ahead. */
+  connection?: LiveTrackerConnection | null
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -66,6 +66,8 @@ export interface LiveMapTrain {
     toward?: string | null
   }> | null
   ended: boolean
+  /** A connection the app projects for the rider, not one they selected. */
+  projected?: boolean
 }
 
 export interface SchematicGhostTrain extends SchematicPoint {
@@ -74,6 +76,8 @@ export interface SchematicGhostTrain extends SchematicPoint {
   approaching: boolean
   sameDirection: boolean | null
   toward: string | null
+  /** Travel direction on the schematic, in degrees; null when unknown. */
+  bearing: number | null
 }
 
 export interface SchematicNetworkPath {
@@ -398,6 +402,27 @@ function routeStationNodes(mapData: MetroMapData, train: LiveMapTrain): Schemati
   })
 }
 
+/** Smallest aspect-correct frame covering both legs of a two-train journey. */
+export function unionFittedViewBox(
+  a: LiveMapGeometry['viewBox'],
+  b: LiveMapGeometry['viewBox']
+): LiveMapGeometry['viewBox'] {
+  const minX = Math.min(a.x, b.x)
+  const minY = Math.min(a.y, b.y)
+  const maxX = Math.max(a.x + a.width, b.x + b.width)
+  const maxY = Math.max(a.y + a.height, b.y + b.height)
+  let width = maxX - minX
+  let height = maxY - minY
+  if (width / height < VIEW_ASPECT) width = height * VIEW_ASPECT
+  else height = width / VIEW_ASPECT
+  return {
+    x: (minX + maxX - width) / 2,
+    y: (minY + maxY - height) / 2,
+    width,
+    height,
+  }
+}
+
 function fittedViewBox(points: readonly SchematicPoint[]): LiveMapGeometry['viewBox'] {
   const minX = Math.min(...points.map(point => point.x))
   const maxX = Math.max(...points.map(point => point.x))
@@ -488,10 +513,13 @@ export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain)
     const base = SCHEMATIC_STATIONS[other.code]
     if (!base) return []
     let point = offsetPoint(base, train.line)
-    if (other.approaching && other.prevCode) {
+    let bearing: number | null = null
+    if (other.prevCode) {
       const segment = expandedPoints([other.prevCode, other.code], train.line)
       if (segment.length >= 2) {
-        point = pointAtDistance(segment, polylineLength(segment) * 0.6)
+        const along = polylineLength(segment) * 0.6
+        if (other.approaching) point = pointAtDistance(segment, along)
+        bearing = bearingAtDistance(segment, along)
       }
     }
     return [{
@@ -500,6 +528,7 @@ export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain)
       approaching: other.approaching,
       sameDirection: other.sameDirection ?? null,
       toward: other.toward ?? null,
+      bearing,
       x: point.x,
       y: point.y,
     }]
