@@ -228,6 +228,9 @@ function trackerPosition(
     lon: vehicle.longitude,
     bearing: vehicle.bearing ?? null,
     source: 'vehicle',
+    speedMph: vehicle.speedMetersPerSecond != null
+      ? Math.round(vehicle.speedMetersPerSecond * 2.23694)
+      : null,
   }
 }
 

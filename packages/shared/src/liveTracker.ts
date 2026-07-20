@@ -93,6 +93,8 @@ export interface LiveTrackerPosition {
   bearing: number | null
   /** `vehicle` is measured; the other sources are clearly marked interpolation. */
   source: LiveTrackerPositionSource
+  /** Approximate, derived from consecutive GPS fixes; null when unknown. */
+  speedMph?: number | null
 }
 
 /**

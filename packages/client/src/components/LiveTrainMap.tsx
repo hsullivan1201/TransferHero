@@ -445,14 +445,29 @@ export function LiveTrainMap({
     }
   }, [clampCenter])
 
+  // The pointer is captured only once a real drag starts: capturing on
+  // pointerdown would retarget the tap's click event to the svg root and
+  // silently swallow station and train taps.
+  const capturePointer = useCallback((pointerId: number) => {
+    const svg = svgRef.current
+    if (!svg || svg.hasPointerCapture(pointerId)) return
+    try {
+      svg.setPointerCapture(pointerId)
+    } catch {
+      // The pointer may already be gone; dragging just ends at the edge.
+    }
+  }, [])
+
   const handlePointerDown = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
     if (event.pointerType === 'mouse' && event.button !== 0) return
-    svgRef.current?.setPointerCapture(event.pointerId)
     pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY })
     if (pointersRef.current.size === 1) movedRef.current = 0
+    if (pointersRef.current.size === 2) {
+      for (const pointerId of pointersRef.current.keys()) capturePointer(pointerId)
+    }
     draggingRef.current = true
     setDragging(true)
-  }, [])
+  }, [capturePointer])
 
   const handlePointerMove = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
     const entry = pointersRef.current.get(event.pointerId)
@@ -469,7 +484,10 @@ export function LiveTrainMap({
       const dy = (event.clientY - previous.y) / metrics.scale
       if (dx === 0 && dy === 0) return
       movedRef.current += Math.abs(event.clientX - previous.x) + Math.abs(event.clientY - previous.y)
-      if (movedRef.current > 6) setFocus(null)
+      if (movedRef.current > 6) {
+        capturePointer(event.pointerId)
+        setFocus(null)
+      }
       const zoomNow = fitRef.current ? fitRef.current.width / metrics.view.w : 1
       setManualCenter(clampCenter({
         x: metrics.view.x + metrics.view.w / 2 - dx,
@@ -491,7 +509,7 @@ export function LiveTrainMap({
       const zoomNow = fitRef.current ? fitRef.current.width / metrics.view.w : 1
       if (anchor) applyZoomAt(zoomNow * (span / previousSpan), anchor)
     }
-  }, [applyZoomAt, clampCenter, stageMetrics, toUserPoint])
+  }, [applyZoomAt, capturePointer, clampCenter, stageMetrics, toUserPoint])
 
   const releasePointer = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
     pointersRef.current.delete(event.pointerId)
@@ -546,8 +564,31 @@ export function LiveTrainMap({
     else setManualCenter(null)
   }, [])
 
+  // Tapping the train zooms in on it and follows it; once close, taps just
+  // toggle the info card.
+  const focusTrain = useCallback(() => {
+    if (suppressClickRef.current) return
+    const fit = fitRef.current
+    const currentView = renderViewRef.current
+    const zoomNow = fit && currentView ? fit.width / currentView.w : 1
+    focusFromTapRef.current = true
+    if (zoomNow < 2.2) {
+      setZoom(2.4)
+      setManualCenter(null)
+      setFocus({ kind: 'train' })
+      return
+    }
+    setFocus(current => (current?.kind === 'train' ? null : { kind: 'train' }))
+  }, [])
+
+  // A card opened by tap stays open until the next tap or drag; hover-opened
+  // cards follow the cursor. Without this, tapping the train would zoom, the
+  // marker would recenter out from under the cursor, and the card would close.
+  const focusFromTapRef = useRef(false)
+
   const toggleFocus = useCallback((next: MapFocus) => {
     if (suppressClickRef.current) return
+    focusFromTapRef.current = true
     setFocus(current => (
       current && JSON.stringify(current) === JSON.stringify(next) ? null : next
     ))
@@ -555,6 +596,7 @@ export function LiveTrainMap({
 
   const hoverFocus = useCallback((next: MapFocus | null, pointerType: string) => {
     if (pointerType !== 'mouse') return
+    focusFromTapRef.current = false
     setFocus(current => {
       if (next) return next
       return current
@@ -563,6 +605,7 @@ export function LiveTrainMap({
 
   const hoverLeave = useCallback((leaving: MapFocus, pointerType: string) => {
     if (pointerType !== 'mouse') return
+    if (focusFromTapRef.current) return
     setFocus(current => (
       current && JSON.stringify(current) === JSON.stringify(leaving) ? null : current
     ))
@@ -946,11 +989,18 @@ export function LiveTrainMap({
             ? `Between ${train.previousStop.name} and ${train.nextStop.name}`
             : `Heading toward ${train.toward}`
       const arrives = train.eta ? clockTime(train.eta.arrivalAtMs) : null
+      const moving = train.phase === 'in_transit' || train.phase === 'arriving' || train.phase === 'not_started'
+      const speedMph = moving ? train.position?.speedMph ?? null : null
+      const detail = [
+        isLivePosition ? 'Live position' : 'Estimated position',
+        speedMph != null && speedMph >= 3 ? `~${speedMph} mph` : null,
+        arrives ? `arrives ${train.to.name} ${arrives}` : null,
+      ].filter(Boolean).join(' · ')
       return {
         point: trainPoint,
         title: `${LINE_NAMES[train.line]} Line · toward ${train.toward}`,
         status,
-        detail: `${isLivePosition ? 'Live position' : 'Estimated position'}${arrives ? ` · arrives ${train.to.name} ${arrives}` : ''}`,
+        detail,
         lines: null as Line[] | null,
       }
     }
@@ -1072,7 +1122,7 @@ export function LiveTrainMap({
             r="22"
             onPointerEnter={event => hoverFocus({ kind: 'train' }, event.pointerType)}
             onPointerLeave={event => hoverLeave({ kind: 'train' }, event.pointerType)}
-            onClick={() => toggleFocus({ kind: 'train' })}
+            onClick={focusTrain}
           />
         )}
       </svg>

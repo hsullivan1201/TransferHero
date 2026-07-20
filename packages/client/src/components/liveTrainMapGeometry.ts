@@ -47,7 +47,7 @@ export interface LiveMapTrain {
   from: LiveMapStation
   to: LiveMapStation
   routeStationCodes: string[]
-  position: (GeoPoint & { bearing?: number | null; source?: string }) | null
+  position: (GeoPoint & { bearing?: number | null; source?: string; speedMph?: number | null }) | null
   previousStop: { code: string; name: string } | null
   nextStop: { code: string; name: string; expectedAtMs?: number | null } | null
   progress: number | null

@@ -93,6 +93,7 @@ assert.deepEqual(vehicleResponse.trains[0].position, {
   lon: freshVehicle.longitude,
   bearing: 145,
   source: 'vehicle',
+  speedMph: null,
 })
 
 const passedDestinationTrain: SharedTrackedTrain = {

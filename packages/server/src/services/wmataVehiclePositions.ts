@@ -275,6 +275,67 @@ function normalizeEnum<T extends string>(
   return numericValue === undefined ? undefined : byNumber[numericValue]
 }
 
+const MAX_PLAUSIBLE_RAIL_SPEED_MPS = 36 // ≈ 80 mph
+const MIN_SPEED_SAMPLE_GAP_MS = 4_000
+const MAX_SPEED_SAMPLE_GAP_MS = 120_000
+
+interface SpeedSample {
+  latitude: number
+  longitude: number
+  timestampMs: number
+  speedMetersPerSecond?: number
+}
+
+const speedHistory = new Map<string, SpeedSample>()
+
+function haversineMeters(a: SpeedSample, b: RailVehiclePosition): number {
+  const toRadians = (value: number) => value * Math.PI / 180
+  const dLat = toRadians(b.latitude - a.latitude)
+  const dLon = toRadians(b.longitude - a.longitude)
+  const sinLat = Math.sin(dLat / 2)
+  const sinLon = Math.sin(dLon / 2)
+  const h = sinLat * sinLat
+    + Math.cos(toRadians(a.latitude)) * Math.cos(toRadians(b.latitude)) * sinLon * sinLon
+  return 2 * 6371000 * Math.asin(Math.min(1, Math.sqrt(h)))
+}
+
+/**
+ * WMATA leaves GTFS-RT `position.speed` empty, so estimate it from the
+ * distance between each vehicle's consecutive GPS fixes. Estimates outside
+ * plausible rail speeds (bad fixes, teleports) are dropped rather than shown.
+ */
+export function deriveVehicleSpeeds(positions: RailVehiclePosition[], nowMs: number): void {
+  for (const position of positions) {
+    const key = position.vehicleId ?? position.vehicleLabel ?? position.entityId
+    if (!key || position.timestampMs == null) continue
+    const previous = speedHistory.get(key)
+
+    if (position.speedMetersPerSecond == null && previous) {
+      const gapMs = position.timestampMs - previous.timestampMs
+      if (gapMs === 0) {
+        // Same fix as last time; carry the previous estimate forward.
+        position.speedMetersPerSecond = previous.speedMetersPerSecond
+      } else if (gapMs >= MIN_SPEED_SAMPLE_GAP_MS && gapMs <= MAX_SPEED_SAMPLE_GAP_MS) {
+        const speed = haversineMeters(previous, position) / (gapMs / 1000)
+        if (speed <= MAX_PLAUSIBLE_RAIL_SPEED_MPS) position.speedMetersPerSecond = speed
+      }
+    }
+
+    if (!previous || position.timestampMs > previous.timestampMs) {
+      speedHistory.set(key, {
+        latitude: position.latitude,
+        longitude: position.longitude,
+        timestampMs: position.timestampMs,
+        speedMetersPerSecond: position.speedMetersPerSecond,
+      })
+    }
+  }
+
+  for (const [key, sample] of speedHistory) {
+    if (nowMs - sample.timestampMs > FIVE_MINUTES_MS) speedHistory.delete(key)
+  }
+}
+
 /** Normalize decoded entities, excluding entries without usable WGS-84 coordinates. */
 export function parseGTFSVehiclePositions(entities: any[]): RailVehiclePosition[] {
   const positions: RailVehiclePosition[] = []
@@ -443,6 +504,7 @@ export async function fetchGTFSVehiclePositions(
       const object = FeedMessage.toObject(message, { longs: String, enums: String })
       const entities = Array.isArray(object.entity) ? object.entity : []
       const positions = parseGTFSVehiclePositions(entities)
+      deriveVehicleSpeeds(positions, now())
       vehiclePositionCache = { data: positions, ts: now() }
       return positions
     } catch (error) {
