@@ -359,19 +359,7 @@
   width: 100%;
   height: clamp(405px, 59vw, 585px);
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 38%, color-mix(in srgb, var(--route-color, #f7941e) 7%, transparent), transparent 62%),
-    radial-gradient(circle at 52% 43%, rgba(255, 255, 255, 0.04), transparent 50%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.012), rgba(0, 0, 0, 0.16));
-}
-
-.live-map-stage::after {
-  position: absolute;
-  inset: 0;
-  z-index: 1;
-  background: radial-gradient(ellipse at 50% 46%, transparent 58%, rgba(0, 0, 0, 0.22));
-  pointer-events: none;
-  content: "";
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.015), rgba(0, 0, 0, 0.1));
 }
 
 .live-map-svg {
@@ -398,7 +386,6 @@
 .live-map-network-line,
 .live-map-route-casing,
 .live-map-route-line,
-.live-map-route-flow,
 .live-map-route-complete {
   fill: none;
   stroke-linecap: round;
@@ -435,13 +422,6 @@
   stroke-width: 11;
 }
 
-.live-map-route-flow {
-  stroke: rgba(255, 255, 255, 0.55);
-  stroke-width: 3.2;
-  stroke-dasharray: 1 24;
-  animation: liveTrackerFlow 1.5s linear infinite;
-}
-
 .live-map-route-complete {
   stroke: color-mix(in srgb, var(--route-color, #f7941e) 24%, #29211b);
   stroke-width: 11.5;
@@ -464,18 +444,17 @@
 }
 
 .live-map-station.is-passed {
-  fill: color-mix(in srgb, var(--route-color, #f7941e) 34%, #574a40);
+  fill: var(--route-color, #f7941e);
 }
 
 .live-map-next-ring {
   fill: none;
   stroke: #fff;
-  stroke-width: 2.5;
-  stroke-dasharray: 3 5;
-  opacity: 0.96;
+  stroke-width: 2;
+  opacity: 0.85;
   transform-box: fill-box;
   transform-origin: center;
-  animation: liveTrackerOrbit 8s linear infinite;
+  animation: liveTrackerBreathe 2.6s ease-in-out infinite;
 }
 
 .live-map-destination-ring {
@@ -534,7 +513,7 @@
 }
 
 .live-map-node-copy.is-emphasized .live-map-node-kicker {
-  fill: rgba(255, 255, 255, 0.78);
+  fill: color-mix(in srgb, var(--route-color, #f7941e) 78%, #fff);
 }
 
 .live-map-hit {
@@ -546,54 +525,27 @@
   pointer-events: none;
 }
 
-.live-map-train-pulse {
+.live-map-train-ring {
   fill: none;
-  stroke-width: 2.5;
-  opacity: 0;
+  stroke-width: 2;
   transform-box: fill-box;
   transform-origin: center;
-  animation: liveTrackerPulse 2.6s cubic-bezier(0.2, 0.55, 0.35, 1) infinite;
+  animation: liveTrackerBreathe 2.6s ease-in-out infinite;
 }
 
-.live-map-train-pulse.is-late {
-  animation-delay: 1.3s;
-}
-
-.live-map-train-halo {
-  opacity: 0.2;
-}
-
-.live-map-train-wedge {
-  stroke: #fff;
-  stroke-width: 2;
+.live-map-train-tail {
+  fill: #fff;
+  stroke: #17120f;
+  stroke-width: 1.5;
   stroke-linejoin: round;
 }
 
-.live-map-train-disc {
-  stroke: #fff;
-  stroke-width: 3.5;
+.live-map-train-casing {
+  fill: #17120f;
 }
 
-.live-map-train-pill rect {
-  fill: rgba(14, 11, 9, 0.92);
-  stroke: rgba(255, 255, 255, 0.24);
-  stroke-width: 1;
-}
-
-.live-map-train-pill text {
+.live-map-train-band {
   fill: #fff;
-  font-size: 9px;
-  font-weight: 900;
-  letter-spacing: 0.13em;
-}
-
-.live-map-pill-dot {
-  fill: #b5a698;
-}
-
-.live-map-pill-dot.is-live {
-  fill: #2dbd78;
-  animation: liveTrackerPip 1.8s ease-in-out infinite;
 }
 
 .live-map-controls {
@@ -603,42 +555,46 @@
   z-index: 4;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 11px;
+  background: rgba(22, 17, 14, 0.86);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.28);
 }
 
 .live-map-controls button {
   display: grid;
   place-items: center;
-  width: 36px;
+  width: 38px;
   height: 36px;
   padding: 0;
-  border: 1px solid rgba(255, 255, 255, 0.16);
-  border-radius: 50%;
-  background: rgba(20, 16, 13, 0.78);
-  color: rgba(255, 255, 255, 0.88);
+  border: 0;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.85);
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease, border-color 150ms ease, opacity 150ms ease;
-  backdrop-filter: blur(8px);
+  transition: background 150ms ease, color 150ms ease, opacity 150ms ease;
+}
+
+.live-map-controls button + button {
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .live-map-controls button:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.34);
-  background: rgba(38, 31, 26, 0.88);
+  background: rgba(255, 255, 255, 0.07);
 }
 
 .live-map-controls button:disabled {
-  opacity: 0.35;
+  opacity: 0.32;
   cursor: default;
 }
 
 .live-map-controls button.is-active {
-  border-color: rgba(45, 189, 120, 0.55);
   color: #7fe3af;
 }
 
 .live-map-controls svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 
 .live-map-tooltip {
@@ -1048,13 +1004,9 @@
   50% { opacity: 0.64; transform: scale(0.82); }
 }
 
-@keyframes liveTrackerPulse {
-  0% { opacity: 0.55; transform: scale(0.7); }
-  70%, 100% { opacity: 0; transform: scale(2.5); }
-}
-
-@keyframes liveTrackerFlow {
-  to { stroke-dashoffset: -25; }
+@keyframes liveTrackerBreathe {
+  0%, 100% { opacity: 0.85; transform: scale(1); }
+  50% { opacity: 0.3; transform: scale(1.28); }
 }
 
 @keyframes liveTrackerArrivedRing {
@@ -1065,10 +1017,6 @@
 @keyframes liveTrackerTooltipIn {
   from { opacity: 0; transform: translate(-50%, calc(-100% - 10px)); }
   to { opacity: 1; transform: translate(-50%, calc(-100% - 16px)); }
-}
-
-@keyframes liveTrackerOrbit {
-  to { transform: rotate(360deg); }
 }
 
 @keyframes liveTrackerDraw {
@@ -1146,7 +1094,7 @@
   }
 
   .live-map-controls button {
-    width: 40px;
+    width: 42px;
     height: 40px;
   }
 
@@ -1199,17 +1147,11 @@
 
   .live-map-state i,
   .live-map-next-ring,
-  .live-map-train-pulse,
-  .live-map-route-flow,
-  .live-map-pill-dot,
+  .live-map-train-ring,
   .live-map-destination-ring,
   .live-map-tooltip,
   .live-map-loading-lines i {
     animation: none !important;
-  }
-
-  .live-map-route-flow {
-    display: none;
   }
 
   .live-train-chip {

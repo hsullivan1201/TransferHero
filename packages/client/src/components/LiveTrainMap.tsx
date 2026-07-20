@@ -592,39 +592,14 @@ export function LiveTrainMap({
     drawDistance > station.distance + PASSED_SLACK
   )
 
-  // Keep the status pill trailing the train so it never covers what's ahead.
-  const pillLabel = isLivePosition ? 'LIVE' : 'EST'
-  const pillWidth = pillLabel === 'LIVE' ? 58 : 52
-  const bearingRadians = trainBearing * Math.PI / 180
-  const pillOffset = trainPoint ? (() => {
-    const raw = { x: -Math.cos(bearingRadians) * 46, y: -Math.sin(bearingRadians) * 46 - 8 }
-    const x = Math.min(
-      fit.x + fit.width - pillWidth / 2 - 8 - trainPoint.x,
-      Math.max(fit.x + pillWidth / 2 + 8 - trainPoint.x, raw.x)
-    )
-    const y = Math.min(
-      fit.y + fit.height - 20 - trainPoint.y,
-      Math.max(fit.y + 20 - trainPoint.y, raw.y)
-    )
-    return { x, y }
-  })() : null
-
   const obstacles: LabelRect[] = []
   if (trainPoint) {
     obstacles.push({
-      left: trainPoint.x - 34,
-      right: trainPoint.x + 34,
-      top: trainPoint.y - 30,
-      bottom: trainPoint.y + 30,
+      left: trainPoint.x - 28,
+      right: trainPoint.x + 28,
+      top: trainPoint.y - 24,
+      bottom: trainPoint.y + 24,
     })
-    if (pillOffset) {
-      obstacles.push({
-        left: trainPoint.x + pillOffset.x - pillWidth / 2 - 4,
-        right: trainPoint.x + pillOffset.x + pillWidth / 2 + 4,
-        top: trainPoint.y + pillOffset.y - 14,
-        bottom: trainPoint.y + pillOffset.y + 14,
-      })
-    }
   }
   if (destination) {
     obstacles.push({
@@ -746,35 +721,6 @@ export function LiveTrainMap({
       >
         <title id={`${id}-title`}>{train.line} Line live train schematic</title>
         <desc id={`${id}-description`}>{description}</desc>
-        <defs>
-          <pattern id={`${id}-dots`} width="36" height="36" patternUnits="userSpaceOnUse">
-            <circle cx="2" cy="2" r="1.2" fill="rgba(255, 255, 255, 0.055)" />
-          </pattern>
-          <filter id={`${id}-route-glow`} x="-25%" y="-25%" width="150%" height="150%">
-            <feGaussianBlur stdDeviation="4" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-          <filter id={`${id}-train-glow`} x="-120%" y="-120%" width="340%" height="340%">
-            <feGaussianBlur stdDeviation="8" result="blur" />
-            <feMerge>
-              <feMergeNode in="blur" />
-              <feMergeNode in="SourceGraphic" />
-            </feMerge>
-          </filter>
-        </defs>
-
-        <rect
-          className="live-map-dotgrid"
-          x={fit.x - fit.width}
-          y={fit.y - fit.height}
-          width={fit.width * 3}
-          height={fit.height * 3}
-          fill={`url(#${id}-dots)`}
-          aria-hidden="true"
-        />
 
         {networkLayer}
 
@@ -784,9 +730,7 @@ export function LiveTrainMap({
             d={geometry.routePath}
             className="live-map-route-line"
             stroke={lineColor}
-            filter={`url(#${id}-route-glow)`}
           />
-          {!train.ended && <path d={geometry.routePath} className="live-map-route-flow" />}
           {drawDistance > 1 && (
             <path
               d={geometry.routePath}
@@ -804,7 +748,7 @@ export function LiveTrainMap({
             const isInterchange = station.isJunction
             return (
               <g key={station.code}>
-                {isNext && <circle className="live-map-next-ring" cx={station.x} cy={station.y} r="15" />}
+                {isNext && <circle className="live-map-next-ring" cx={station.x} cy={station.y} r="12" />}
                 <circle
                   className={[
                     'live-map-station',
@@ -903,49 +847,25 @@ export function LiveTrainMap({
           </g>
         </g>
 
-        {trainPoint && pillOffset && (
+        {trainPoint && (
           <g
             className="live-map-train"
             transform={`translate(${trainPoint.x} ${trainPoint.y})`}
             aria-hidden="true"
           >
-            <g className="live-map-train-pulses" stroke={lineColor}>
-              <circle className="live-map-train-pulse" r="15" />
-              <circle className="live-map-train-pulse is-late" r="15" />
-            </g>
-            <circle
-              className="live-map-train-halo"
-              r="24"
-              fill={lineColor}
-              filter={`url(#${id}-train-glow)`}
-            />
+            <circle className="live-map-train-ring" r="16" stroke={lineColor} />
             <g transform={`rotate(${trainBearing})`}>
-              <path className="live-map-train-wedge" d="M 12 -7.5 L 23.5 0 L 12 7.5 Z" fill={lineColor} />
+              <path className="live-map-train-tail" d="M 10 -6.5 L 21.5 0 L 10 6.5 Z" />
             </g>
-            <circle className="live-map-train-disc" r="13" fill={lineColor} />
-            <g fill={markerInk(train.line)} transform="scale(0.6)">
+            <circle className="live-map-train-casing" r="15" />
+            <circle className="live-map-train-band" r="13.5" />
+            <circle className="live-map-train-disc" r="10.5" fill={lineColor} />
+            <g fill={markerInk(train.line)} transform="scale(0.5)">
               <rect x="-10" y="-12" width="20" height="21" rx="6" />
               <rect x="-6.5" y="-8" width="5" height="5" rx="1" fill={lineColor} />
               <rect x="1.5" y="-8" width="5" height="5" rx="1" fill={lineColor} />
               <circle cx="-6" cy="5" r="1.7" fill={lineColor} />
               <circle cx="6" cy="5" r="1.7" fill={lineColor} />
-              <path
-                d="M -7 12 L -3 8 M 7 12 L 3 8"
-                fill="none"
-                stroke={markerInk(train.line)}
-                strokeWidth="2.5"
-                strokeLinecap="round"
-              />
-            </g>
-            <g className="live-map-train-pill" transform={`translate(${pillOffset.x} ${pillOffset.y})`}>
-              <rect x={-pillWidth / 2} y="-10" width={pillWidth} height="20" rx="10" />
-              <circle
-                className={isLivePosition ? 'live-map-pill-dot is-live' : 'live-map-pill-dot'}
-                cx={-pillWidth / 2 + 11}
-                cy="0"
-                r="3"
-              />
-              <text x="5" y="3.5" textAnchor="middle">{pillLabel}</text>
             </g>
           </g>
         )}
