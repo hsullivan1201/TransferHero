@@ -12,12 +12,14 @@ import { LocateFixed, Minus, Plus } from 'lucide-react'
 import type { Line, MetroMapData } from '@transferhero/shared'
 import { LINE_DRAW_ORDER, type SchematicPoint } from '../data/metroSchematic'
 import { LINE_COLORS } from '../utils/lineColors'
+import { LINE_NAMES } from './liveTrackerFormat'
 import {
   bearingAtDistance,
   buildLiveMapGeometry,
   pointAtDistance,
   type LiveMapGeometry,
   type LiveMapTrain,
+  type SchematicApproachStation,
   type SchematicNetworkPath,
   type SchematicRouteStation,
 } from './liveTrainMapGeometry'
@@ -38,10 +40,16 @@ interface MapView {
   h: number
 }
 
+type MapFocus = { kind: 'station'; code: string } | { kind: 'train' }
+
 const MAX_ZOOM = 4
 const MINOR_LABEL_ZOOM = 1.55
 const LABEL_MARGIN = 14
 const PASSED_SLACK = 8
+/** Labels re-plan only when the train moves a full cell, so they stay put. */
+const PLAN_GRID = 22
+
+const IS_APPLE = typeof navigator !== 'undefined' && /Mac|iPhone|iPad/u.test(navigator.platform)
 
 function lineLetter(line: Line): string {
   return line.slice(0, 1)
@@ -58,7 +66,7 @@ function sortedNetworkPaths(paths: readonly SchematicNetworkPath[]): SchematicNe
 }
 
 function estimateLabelWidth(name: string, emphasized: boolean): number {
-  return Math.max(52, name.length * (emphasized ? 9 : 7.8))
+  return Math.max(56, name.length * (emphasized ? 9 : 7.8) + 8)
 }
 
 function easeInOutCubic(t: number): number {
@@ -137,12 +145,13 @@ class LabelPlanner {
   }
 
   place(
-    station: SchematicRouteStation,
+    station: SchematicPoint,
+    name: string,
     options: { emphasized?: boolean; preferSide?: 'start' | 'end'; distance?: number } = {}
   ): LabelPlacement {
     const emphasized = options.emphasized ?? false
     const gap = options.distance ?? 18
-    const width = estimateLabelWidth(station.name, emphasized)
+    const width = estimateLabelWidth(name, emphasized)
     const defaultSide: 'start' | 'end' = options.preferSide
       ?? (station.x > this.centerX ? 'end' : 'start')
     const otherSide: 'start' | 'end' = defaultSide === 'start' ? 'end' : 'start'
@@ -177,8 +186,8 @@ class LabelPlanner {
   }
 
   /** Single-line label for quieter stations; hidden when no clear spot exists. */
-  tryPlaceMinor(station: SchematicRouteStation): LabelPlacement | null {
-    const width = Math.max(40, station.name.length * 6.4)
+  tryPlaceMinor(station: SchematicPoint, name: string): LabelPlacement | null {
+    const width = Math.max(40, name.length * 6.4)
     const sides: Array<'start' | 'end'> = station.x > this.centerX
       ? ['end', 'start']
       : ['start', 'end']
@@ -291,13 +300,17 @@ export function LiveTrainMap({
   const manualCenterRef = useRef(manualCenter)
   manualCenterRef.current = manualCenter
   const following = manualCenter === null
-  const [focusCode, setFocusCode] = useState<string | null>(null)
+  const [focus, setFocus] = useState<MapFocus | null>(null)
+  const [wheelHint, setWheelHint] = useState(false)
+  const wheelHintTimer = useRef<number | undefined>(undefined)
 
   useEffect(() => {
     setZoom(1)
     setManualCenter(null)
-    setFocusCode(null)
+    setFocus(null)
   }, [routeKey])
+
+  useEffect(() => () => window.clearTimeout(wheelHintTimer.current), [])
 
   const clampCenter = useCallback((center: SchematicPoint, atZoom: number): SchematicPoint => {
     const fit = fitRef.current
@@ -379,7 +392,7 @@ export function LiveTrainMap({
   const view = renderView ?? targetView
   const currentZoom = geometry && view ? geometry.viewBox.width / view.w : 1
 
-  // --- Gestures: drag to pan, pinch and wheel to zoom, double-tap to zoom in.
+  // --- Gestures: drag to pan, pinch to zoom, ⌘/Ctrl-wheel zoom, double-tap.
   const pointersRef = useRef(new Map<number, { x: number; y: number }>())
   const movedRef = useRef(0)
   const suppressClickRef = useRef(false)
@@ -456,7 +469,7 @@ export function LiveTrainMap({
       const dy = (event.clientY - previous.y) / metrics.scale
       if (dx === 0 && dy === 0) return
       movedRef.current += Math.abs(event.clientX - previous.x) + Math.abs(event.clientY - previous.y)
-      if (movedRef.current > 6) setFocusCode(null)
+      if (movedRef.current > 6) setFocus(null)
       const zoomNow = fitRef.current ? fitRef.current.width / metrics.view.w : 1
       setManualCenter(clampCenter({
         x: metrics.view.x + metrics.view.w / 2 - dx,
@@ -467,7 +480,7 @@ export function LiveTrainMap({
 
     if (pointers.length === 2) {
       movedRef.current = 100
-      setFocusCode(null)
+      setFocus(null)
       const [a, b] = pointers
       const previousA = a === entry ? previous : a
       const previousB = b === entry ? previous : b
@@ -489,16 +502,24 @@ export function LiveTrainMap({
     }
   }, [])
 
+  // ⌘/Ctrl-wheel (and trackpad pinch) zooms; a bare wheel keeps scrolling the
+  // page and briefly shows a hint instead of hijacking the gesture.
   useEffect(() => {
     const svg = svgRef.current
     if (!svg) return
     const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) {
+        setWheelHint(true)
+        window.clearTimeout(wheelHintTimer.current)
+        wheelHintTimer.current = window.setTimeout(() => setWheelHint(false), 1500)
+        return
+      }
       event.preventDefault()
       const fit = fitRef.current
       const currentView = renderViewRef.current
       if (!fit || !currentView) return
       const delta = event.deltaMode === 1 ? event.deltaY * 20 : event.deltaY
-      const factor = Math.exp(-delta * (event.ctrlKey ? 0.008 : 0.0019))
+      const factor = Math.exp(-delta * 0.008)
       const anchor = toUserPoint(event.clientX, event.clientY)
       applyZoomAt((fit.width / currentView.w) * factor, anchor)
     }
@@ -525,7 +546,333 @@ export function LiveTrainMap({
     else setManualCenter(null)
   }, [])
 
-  // --- Render ------------------------------------------------------------
+  const toggleFocus = useCallback((next: MapFocus) => {
+    if (suppressClickRef.current) return
+    setFocus(current => (
+      current && JSON.stringify(current) === JSON.stringify(next) ? null : next
+    ))
+  }, [])
+
+  const hoverFocus = useCallback((next: MapFocus | null, pointerType: string) => {
+    if (pointerType !== 'mouse') return
+    setFocus(current => {
+      if (next) return next
+      return current
+    })
+  }, [])
+
+  const hoverLeave = useCallback((leaving: MapFocus, pointerType: string) => {
+    if (pointerType !== 'mouse') return
+    setFocus(current => (
+      current && JSON.stringify(current) === JSON.stringify(leaving) ? null : current
+    ))
+  }, [])
+
+  // --- Annotations: stations, rings, labels, hit targets ------------------
+  // Re-planned only on discrete changes (a station flips to passed, the train
+  // crosses a planning cell, zoom crosses the minor-label threshold), never
+  // per animation frame — labels stay put while the train glides.
+
+  const approachActive = Boolean(geometry?.approachPath) && !train.ended
+  const approachNextCode = approachActive ? train.approach?.nextStop?.code ?? null : null
+  const minorZoom = currentZoom >= MINOR_LABEL_ZOOM
+  const planPoint = trainPoint
+    ? {
+        x: Math.round(trainPoint.x / PLAN_GRID) * PLAN_GRID,
+        y: Math.round(trainPoint.y / PLAN_GRID) * PLAN_GRID,
+      }
+    : null
+  const tripPassedCount = geometry
+    ? geometry.routeStations.reduce(
+        (count, station) => count + (tripDrawDistance > station.distance + PASSED_SLACK ? 1 : 0),
+        0
+      )
+    : 0
+  const approachPassedCount = geometry && approachActive
+    ? geometry.approachStations.reduce(
+        (count, station) => count + (drawDistance > station.distance + PASSED_SLACK ? 1 : 0),
+        0
+      )
+    : 0
+
+  const annotations = useMemo(() => {
+    if (!geometry) return null
+    const fit = geometry.viewBox
+    const centerX = fit.x + fit.width / 2
+    const lineColor = LINE_COLORS[train.line].bg
+    const destination = geometry.routeStations.find(station => station.code === train.to.code)
+    const origin = geometry.routeStations.find(station => station.code === train.from.code)
+    const nextStation = geometry.routeStations.find(station => station.code === train.nextStop?.code)
+    const approachNextStation = approachNextCode
+      ? geometry.approachStations.find(station => station.code === approachNextCode)
+        ?? (approachNextCode === train.from.code ? origin : undefined)
+      : undefined
+    const tripPassed = (station: SchematicRouteStation) => (
+      tripDrawDistance > station.distance + PASSED_SLACK
+    )
+    const approachPassed = (station: SchematicApproachStation) => (
+      drawDistance > station.distance + PASSED_SLACK
+    )
+    const nearTrain = (station: SchematicPoint | undefined, radius: number) => Boolean(
+      planPoint && station && Math.hypot(planPoint.x - station.x, planPoint.y - station.y) < radius
+    )
+
+    const obstacles: LabelRect[] = []
+    if (planPoint) {
+      obstacles.push({
+        left: planPoint.x - 30,
+        right: planPoint.x + 30,
+        top: planPoint.y - 26,
+        bottom: planPoint.y + 26,
+      })
+    }
+    if (destination) {
+      obstacles.push({
+        left: destination.x - 18,
+        right: destination.x + 18,
+        top: destination.y - 18,
+        bottom: destination.y + 18,
+      })
+    }
+
+    const planner = new LabelPlanner(fit, centerX, obstacles)
+    const plannedLabels: Array<{
+      key: string
+      x: number
+      y: number
+      name: string
+      kicker: string
+      emphasized: boolean
+      placement: LabelPlacement
+    }> = []
+    const planLabel = (
+      station: SchematicPoint & { code: string; name: string },
+      kicker: string,
+      options: { emphasized?: boolean; preferSide?: 'start' | 'end'; distance?: number } = {}
+    ) => {
+      plannedLabels.push({
+        key: station.code,
+        x: station.x,
+        y: station.y,
+        name: station.name,
+        kicker,
+        emphasized: options.emphasized ?? false,
+        placement: planner.place(station, station.name, options),
+      })
+    }
+
+    if (destination) {
+      planLabel(
+        destination,
+        train.ended ? 'ARRIVED' : transferName && train.leg === 1 ? 'CHANGE HERE' : 'DESTINATION',
+        { emphasized: true, distance: 24 }
+      )
+    }
+    if (nextStation && nextStation.code !== destination?.code && !train.ended) {
+      planLabel(nextStation, nextStation.code === train.from.code ? 'STARTS HERE' : 'NEXT STOP', {
+        emphasized: true,
+        preferSide: planPoint && planPoint.x > nextStation.x ? 'end' : 'start',
+      })
+    }
+    if (
+      approachNextStation
+      && approachNextStation.code !== train.from.code
+      && approachNextStation.code !== nextStation?.code
+    ) {
+      planLabel(approachNextStation, 'NEXT STOP', {
+        emphasized: true,
+        preferSide: planPoint && planPoint.x > approachNextStation.x ? 'end' : 'start',
+      })
+    }
+    if (origin && !nearTrain(origin, 46) && origin.code !== nextStation?.code) {
+      planLabel(origin, 'START', { preferSide: 'end', distance: 20 })
+    }
+
+    const labeledCodes = new Set(plannedLabels.map(item => item.key))
+    const secondaryLabels: Array<{
+      key: string
+      name: string
+      placement: LabelPlacement
+    }> = []
+    const planSecondary = (station: SchematicPoint & { code: string; name: string }) => {
+      if (labeledCodes.has(station.code) || nearTrain(station, 34)) return
+      const placement = planner.tryPlaceMinor(station, station.name)
+      if (placement) {
+        labeledCodes.add(station.code)
+        secondaryLabels.push({ key: station.code, name: station.name, placement })
+      }
+    }
+    // Junctions read as quiet name labels at every zoom; everything else joins
+    // once the rider zooms in.
+    for (const station of geometry.routeStations) {
+      if (station.isJunction) planSecondary(station)
+    }
+    if (minorZoom) {
+      for (const station of geometry.routeStations) planSecondary(station)
+      for (const station of geometry.approachStations) planSecondary(station)
+    }
+
+    const ringStation = approachActive
+      ? approachNextStation ?? null
+      : nextStation && !train.ended ? nextStation : null
+
+    const track = (
+      <>
+        {geometry.approachPath && (
+          <g className="live-map-approach" aria-hidden="true">
+            <path d={geometry.approachPath} className="live-map-approach-casing" />
+            <path
+              d={geometry.approachPath}
+              className="live-map-approach-line"
+              stroke={lineColor}
+            />
+            {geometry.approachStations.map(station => (
+              <circle
+                key={`approach-${station.code}`}
+                className={approachPassed(station)
+                  ? 'live-map-approach-station is-passed'
+                  : 'live-map-approach-station'}
+                cx={station.x}
+                cy={station.y}
+                r="3.2"
+              />
+            ))}
+          </g>
+        )}
+
+        <g className="live-map-route" aria-hidden="true">
+          <path d={geometry.routePath} className="live-map-route-casing" />
+          <path
+            d={geometry.routePath}
+            className="live-map-route-line"
+            stroke={lineColor}
+          />
+        </g>
+      </>
+    )
+
+    const overlay = (
+      <>
+        <g className="live-map-stations" aria-hidden="true">
+          {ringStation && (
+            <circle className="live-map-next-ring" cx={ringStation.x} cy={ringStation.y} r="12" />
+          )}
+          {geometry.routeStations.map(station => {
+            const isEndpoint = station.code === train.from.code || station.code === train.to.code
+            const isInterchange = station.isJunction
+            return (
+              <circle
+                key={station.code}
+                className={[
+                  'live-map-station',
+                  isEndpoint ? 'is-endpoint' : '',
+                  isInterchange ? 'is-interchange' : '',
+                  tripPassed(station) && station.code !== train.to.code ? 'is-passed' : '',
+                ].filter(Boolean).join(' ')}
+                cx={station.x}
+                cy={station.y}
+                r={isEndpoint ? 7 : isInterchange ? 6 : 4}
+              />
+            )
+          })}
+
+          {secondaryLabels.map(({ key, name, placement }) => (
+            <text
+              key={`minor-${key}`}
+              className="live-map-minor-label"
+              x={placement.x}
+              y={placement.labelY}
+              textAnchor={placement.anchor}
+            >
+              {name}
+            </text>
+          ))}
+
+          {plannedLabels.map(({ key, kicker, name, emphasized, placement }) => (
+            <g
+              key={`label-${key}`}
+              className={emphasized ? 'live-map-node-copy is-emphasized' : 'live-map-node-copy'}
+            >
+              <text
+                x={placement.x}
+                y={placement.kickerY}
+                textAnchor={placement.anchor}
+                className="live-map-node-kicker"
+              >
+                {kicker}
+              </text>
+              <text
+                x={placement.x}
+                y={placement.labelY}
+                textAnchor={placement.anchor}
+                className="live-map-node-label"
+              >
+                {name}
+              </text>
+            </g>
+          ))}
+
+          {destination && (
+            <>
+              <circle
+                className={train.ended
+                  ? 'live-map-destination-ring is-arrived'
+                  : 'live-map-destination-ring'}
+                cx={destination.x}
+                cy={destination.y}
+                r="16"
+              />
+              <circle cx={destination.x} cy={destination.y} r="10" fill={lineColor} />
+              <text
+                x={destination.x}
+                y={destination.y + 4}
+                textAnchor="middle"
+                className="live-map-line-letter"
+              >
+                {lineLetter(train.line)}
+              </text>
+            </>
+          )}
+        </g>
+
+        <g className="live-map-hits">
+          {[...geometry.routeStations, ...geometry.approachStations].map(station => (
+            <circle
+              key={`hit-${station.code}`}
+              className="live-map-hit"
+              cx={station.x}
+              cy={station.y}
+              r="15"
+              onPointerEnter={event => hoverFocus({ kind: 'station', code: station.code }, event.pointerType)}
+              onPointerLeave={event => hoverLeave({ kind: 'station', code: station.code }, event.pointerType)}
+              onClick={() => toggleFocus({ kind: 'station', code: station.code })}
+            />
+          ))}
+        </g>
+      </>
+    )
+
+    return { track, overlay }
+  }, [
+    geometry,
+    approachActive,
+    approachNextCode,
+    minorZoom,
+    planPoint?.x,
+    planPoint?.y,
+    tripPassedCount,
+    approachPassedCount,
+    hoverFocus,
+    hoverLeave,
+    toggleFocus,
+    train.ended,
+    train.leg,
+    train.line,
+    train.from.code,
+    train.to.code,
+    train.nextStop?.code,
+    transferName,
+  ])
 
   const paths = useMemo(
     () => (geometry ? sortedNetworkPaths(geometry.networkPaths) : []),
@@ -573,17 +920,7 @@ export function LiveTrainMap({
     )
   }
 
-  const fit = geometry.viewBox
-  const centerX = fit.x + fit.width / 2
   const lineColor = LINE_COLORS[train.line].bg
-  const destination = geometry.routeStations.find(station => station.code === train.to.code)
-  const origin = geometry.routeStations.find(station => station.code === train.from.code)
-  const nextStation = geometry.routeStations.find(station => station.code === train.nextStop?.code)
-  const stationIsNearTrain = (station: SchematicRouteStation | undefined, radius: number) => Boolean(
-    trainPoint
-    && station
-    && Math.hypot(trainPoint.x - station.x, trainPoint.y - station.y) < radius
-  )
   const isLivePosition = train.position?.source === 'vehicle'
   const positionKind = isLivePosition ? 'live train' : 'estimated train position'
   const description = train.position && train.previousStop && train.nextStop
@@ -592,112 +929,75 @@ export function LiveTrainMap({
       ? `The ${positionKind} is on the ${train.line} Line, heading toward ${train.toward}.`
       : `Live position is temporarily unavailable for the train heading toward ${train.toward}.`
 
-  const stationPassed = (station: SchematicRouteStation) => (
-    tripDrawDistance > station.distance + PASSED_SLACK
-  )
+  // --- Tooltip -----------------------------------------------------------
 
-  const obstacles: LabelRect[] = []
-  if (trainPoint) {
-    obstacles.push({
-      left: trainPoint.x - 28,
-      right: trainPoint.x + 28,
-      top: trainPoint.y - 24,
-      bottom: trainPoint.y + 24,
-    })
-  }
-  if (destination) {
-    obstacles.push({
-      left: destination.x - 18,
-      right: destination.x + 18,
-      top: destination.y - 18,
-      bottom: destination.y + 18,
-    })
-  }
+  const focusTarget = (() => {
+    if (!focus) return null
+    if (focus.kind === 'train') {
+      if (!trainPoint) return null
+      const inboundNext = train.approach?.nextStop
+      const status = train.phase === 'not_started'
+        ? inboundNext
+          ? `Inbound · next stop ${inboundNext.name}`
+          : `Departs ${train.from.name} soon`
+        : train.phase === 'at_station'
+          ? `At ${train.previousStop?.name ?? train.from.name}`
+          : train.previousStop && train.nextStop
+            ? `Between ${train.previousStop.name} and ${train.nextStop.name}`
+            : `Heading toward ${train.toward}`
+      const arrives = train.eta ? clockTime(train.eta.arrivalAtMs) : null
+      return {
+        point: trainPoint,
+        title: `${LINE_NAMES[train.line]} Line · toward ${train.toward}`,
+        status,
+        detail: `${isLivePosition ? 'Live position' : 'Estimated position'}${arrives ? ` · arrives ${train.to.name} ${arrives}` : ''}`,
+        lines: null as Line[] | null,
+      }
+    }
+    const station = geometry.routeStations.find(item => item.code === focus.code)
+      ?? geometry.approachStations.find(item => item.code === focus.code)
+      ?? null
+    if (!station) return null
+    const isApproachStation = !geometry.routeStations.some(item => item.code === focus.code)
+    const status = isApproachStation
+      ? focus.code === approachNextCode
+        ? `Next stop · expected ${clockTime(train.approach?.nextStop?.expectedAtMs) ?? 'soon'}`
+        : drawDistance > (station as SchematicApproachStation).distance + PASSED_SLACK
+          ? 'Passed'
+          : 'On the way in'
+      : focus.code === train.to.code
+        ? transferName && train.leg === 1 ? 'Transfer here' : 'Final destination'
+        : focus.code === train.nextStop?.code && !approachActive
+          ? clockTime(train.nextStop?.expectedAtMs)
+            ? `Next stop · expected ${clockTime(train.nextStop?.expectedAtMs)}`
+            : 'Next stop'
+          : focus.code === train.from.code
+            ? approachActive ? `Boards here${clockTime(train.nextStop?.expectedAtMs) ? ` · ${clockTime(train.nextStop?.expectedAtMs)}` : ''}` : 'Trip start'
+            : tripDrawDistance > (station as SchematicRouteStation).distance + PASSED_SLACK
+              ? 'Passed'
+              : 'Coming up'
+    return {
+      point: { x: station.x, y: station.y },
+      title: station.name,
+      status,
+      detail: null as string | null,
+      lines: station.lines,
+    }
+  })()
 
-  const planner = new LabelPlanner(fit, centerX, obstacles)
-  const plannedLabels: Array<{
-    station: SchematicRouteStation
-    kicker: string
-    emphasized: boolean
-    placement: LabelPlacement
-  }> = []
-  const planLabel = (
-    station: SchematicRouteStation,
-    kicker: string,
-    options: { emphasized?: boolean; preferSide?: 'start' | 'end'; distance?: number } = {}
-  ) => {
-    plannedLabels.push({
-      station,
-      kicker,
-      emphasized: options.emphasized ?? false,
-      placement: planner.place(station, options),
-    })
-  }
-
-  if (destination) {
-    planLabel(
-      destination,
-      train.ended ? 'ARRIVED' : transferName && train.leg === 1 ? 'CHANGE HERE' : 'DESTINATION',
-      { emphasized: true, distance: 24 }
-    )
-  }
-  if (nextStation && nextStation.code !== destination?.code && !train.ended) {
-    planLabel(nextStation, nextStation.code === train.from.code ? 'STARTS HERE' : 'NEXT STOP', {
-      emphasized: true,
-      preferSide: trainPoint && trainPoint.x > nextStation.x ? 'end' : 'start',
-    })
-  }
-  const trainNearOrigin = stationIsNearTrain(origin, 46)
-  if (origin && !trainNearOrigin && origin.code !== nextStation?.code) {
-    planLabel(origin, 'START', { preferSide: 'end', distance: 20 })
-  }
-  for (const station of geometry.routeStations) {
-    if (!station.isJunction) continue
-    if (station.code === origin?.code || station.code === destination?.code) continue
-    if (station.code === nextStation?.code) continue
-    if (stationIsNearTrain(station, 52)) continue
-    planLabel(station, 'TRANSFER')
-  }
-
-  const majorLabelCodes = new Set(plannedLabels.map(item => item.station.code))
-  if (origin) majorLabelCodes.add(origin.code)
-  if (destination) majorLabelCodes.add(destination.code)
-
-  const minorLabels = currentZoom >= MINOR_LABEL_ZOOM
-    ? geometry.routeStations
-        .filter(station => !majorLabelCodes.has(station.code))
-        .flatMap(station => {
-          const placement = planner.tryPlaceMinor(station)
-          return placement ? [{ station, placement }] : []
-        })
-    : []
-
-  const focusStation = focusCode
-    ? geometry.routeStations.find(station => station.code === focusCode) ?? null
-    : null
-  const focusStatus = focusStation
-    ? focusStation.code === train.to.code
-      ? transferName && train.leg === 1 ? 'Transfer here' : 'Final destination'
-      : focusStation.code === train.nextStop?.code
-        ? clockTime(train.nextStop?.expectedAtMs)
-          ? `Next stop · expected ${clockTime(train.nextStop?.expectedAtMs)}`
-          : 'Next stop'
-        : focusStation.code === train.from.code && !stationPassed(focusStation)
-          ? 'Trip start'
-          : stationPassed(focusStation) ? 'Passed' : 'Coming up'
-    : null
   const focusScreen = (() => {
-    if (!focusStation) return null
+    if (!focusTarget) return null
     const metrics = stageMetrics()
     if (!metrics) return null
-    const inView = focusStation.x >= metrics.view.x
-      && focusStation.x <= metrics.view.x + metrics.view.w
-      && focusStation.y >= metrics.view.y
-      && focusStation.y <= metrics.view.y + metrics.view.h
+    const { point } = focusTarget
+    const inView = point.x >= metrics.view.x
+      && point.x <= metrics.view.x + metrics.view.w
+      && point.y >= metrics.view.y
+      && point.y <= metrics.view.y + metrics.view.h
     if (!inView) return null
     return {
-      left: metrics.offsetX + (focusStation.x - metrics.view.x) * metrics.scale,
-      top: metrics.offsetY + (focusStation.y - metrics.view.y) * metrics.scale,
+      left: metrics.offsetX + (point.x - metrics.view.x) * metrics.scale,
+      top: metrics.offsetY + (point.y - metrics.view.y) * metrics.scale,
     }
   })()
 
@@ -727,140 +1027,19 @@ export function LiveTrainMap({
         <desc id={`${id}-description`}>{description}</desc>
 
         {networkLayer}
+        {annotations?.track}
 
-        {geometry.approachPath && (
-          <g className="live-map-approach" aria-hidden="true">
-            <path d={geometry.approachPath} className="live-map-approach-casing" />
-            <path
-              d={geometry.approachPath}
-              className="live-map-approach-line"
-              stroke={lineColor}
-            />
-          </g>
-        )}
-
-        <g className="live-map-route" aria-hidden="true">
-          <path d={geometry.routePath} className="live-map-route-casing" />
+        {tripDrawDistance > 1 && (
           <path
             d={geometry.routePath}
-            className="live-map-route-line"
-            stroke={lineColor}
+            className="live-map-route-complete"
+            pathLength={geometry.routeLength}
+            strokeDasharray={`${tripDrawDistance} ${geometry.routeLength}`}
+            aria-hidden="true"
           />
-          {tripDrawDistance > 1 && (
-            <path
-              d={geometry.routePath}
-              className="live-map-route-complete"
-              pathLength={geometry.routeLength}
-              strokeDasharray={`${tripDrawDistance} ${geometry.routeLength}`}
-            />
-          )}
-        </g>
+        )}
 
-        <g className="live-map-stations" aria-hidden="true">
-          {geometry.routeStations.map(station => {
-            const isNext = station.code === train.nextStop?.code && !train.ended
-            const isEndpoint = station.code === train.from.code || station.code === train.to.code
-            const isInterchange = station.isJunction
-            return (
-              <g key={station.code}>
-                {isNext && <circle className="live-map-next-ring" cx={station.x} cy={station.y} r="12" />}
-                <circle
-                  className={[
-                    'live-map-station',
-                    isEndpoint ? 'is-endpoint' : '',
-                    isInterchange ? 'is-interchange' : '',
-                    stationPassed(station) && station.code !== train.to.code ? 'is-passed' : '',
-                  ].filter(Boolean).join(' ')}
-                  cx={station.x}
-                  cy={station.y}
-                  r={isEndpoint ? 7 : isInterchange ? 6 : 4}
-                />
-              </g>
-            )
-          })}
-
-          {minorLabels.map(({ station, placement }) => (
-            <text
-              key={`minor-${station.code}`}
-              className="live-map-minor-label"
-              x={placement.x}
-              y={placement.labelY}
-              textAnchor={placement.anchor}
-            >
-              {station.name}
-            </text>
-          ))}
-
-          {plannedLabels.map(({ station, kicker, emphasized, placement }) => (
-            <g
-              key={`label-${station.code}`}
-              className={emphasized ? 'live-map-node-copy is-emphasized' : 'live-map-node-copy'}
-            >
-              <text
-                x={placement.x}
-                y={placement.kickerY}
-                textAnchor={placement.anchor}
-                className="live-map-node-kicker"
-              >
-                {kicker}
-              </text>
-              <text
-                x={placement.x}
-                y={placement.labelY}
-                textAnchor={placement.anchor}
-                className="live-map-node-label"
-              >
-                {station.name}
-              </text>
-            </g>
-          ))}
-
-          {destination && (
-            <>
-              <circle
-                className={train.ended
-                  ? 'live-map-destination-ring is-arrived'
-                  : 'live-map-destination-ring'}
-                cx={destination.x}
-                cy={destination.y}
-                r="16"
-              />
-              <circle cx={destination.x} cy={destination.y} r="10" fill={lineColor} />
-              <text
-                x={destination.x}
-                y={destination.y + 4}
-                textAnchor="middle"
-                className="live-map-line-letter"
-              >
-                {lineLetter(train.line)}
-              </text>
-            </>
-          )}
-
-          <g className="live-map-hits">
-            {geometry.routeStations.map(station => (
-              <circle
-                key={`hit-${station.code}`}
-                className="live-map-hit"
-                cx={station.x}
-                cy={station.y}
-                r="15"
-                onPointerEnter={event => {
-                  if (event.pointerType === 'mouse') setFocusCode(station.code)
-                }}
-                onPointerLeave={event => {
-                  if (event.pointerType === 'mouse') {
-                    setFocusCode(code => (code === station.code ? null : code))
-                  }
-                }}
-                onClick={() => {
-                  if (suppressClickRef.current) return
-                  setFocusCode(code => (code === station.code ? null : station.code))
-                }}
-              />
-            ))}
-          </g>
-        </g>
+        {annotations?.overlay}
 
         {trainPoint && (
           <g
@@ -883,6 +1062,18 @@ export function LiveTrainMap({
               <circle cx="6" cy="5" r="1.7" fill={lineColor} />
             </g>
           </g>
+        )}
+
+        {trainPoint && (
+          <circle
+            className="live-map-hit is-train"
+            cx={trainPoint.x}
+            cy={trainPoint.y}
+            r="22"
+            onPointerEnter={event => hoverFocus({ kind: 'train' }, event.pointerType)}
+            onPointerLeave={event => hoverLeave({ kind: 'train' }, event.pointerType)}
+            onClick={() => toggleFocus({ kind: 'train' })}
+          />
         )}
       </svg>
 
@@ -914,23 +1105,30 @@ export function LiveTrainMap({
         </button>
       </div>
 
-      {focusStation && focusScreen && (
+      {focusTarget && focusScreen && (
         <div
-          className="live-map-tooltip"
+          className={focus?.kind === 'train' ? 'live-map-tooltip is-train' : 'live-map-tooltip'}
           style={{ left: focusScreen.left, top: focusScreen.top }}
           role="status"
         >
-          <strong>{focusStation.name}</strong>
-          {focusStatus && <span>{focusStatus}</span>}
-          {focusStation.lines.length > 0 && (
+          <strong>{focusTarget.title}</strong>
+          {focusTarget.status && <span>{focusTarget.status}</span>}
+          {focusTarget.detail && <span>{focusTarget.detail}</span>}
+          {focusTarget.lines && focusTarget.lines.length > 0 && (
             <span className="live-map-tooltip-lines" aria-hidden="true">
-              {focusStation.lines.map(line => (
+              {focusTarget.lines.map(line => (
                 <i key={line} style={{ backgroundColor: LINE_COLORS[line].bg, color: LINE_COLORS[line].text }}>
                   {lineLetter(line)}
                 </i>
               ))}
             </span>
           )}
+        </div>
+      )}
+
+      {wheelHint && (
+        <div className="live-map-wheel-hint" role="status">
+          Hold {IS_APPLE ? '⌘' : 'Ctrl'} and scroll to zoom
         </div>
       )}
 

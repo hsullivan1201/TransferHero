@@ -405,6 +405,18 @@
   opacity: 0.52;
 }
 
+.live-map-approach-station {
+  fill: #d9cfc4;
+  stroke: #17120f;
+  stroke-width: 2;
+  opacity: 0.88;
+  transition: fill 500ms ease;
+}
+
+.live-map-approach-station.is-passed {
+  fill: var(--route-color, #f7941e);
+}
+
 .live-map-network-casing {
   stroke: #0c0908;
   stroke-width: 9;
@@ -532,6 +544,10 @@
 .live-map-hit {
   fill: transparent;
   cursor: pointer;
+}
+
+.live-map-tooltip.is-train {
+  max-width: 260px;
 }
 
 .live-map-train {
@@ -671,6 +687,30 @@
   font-size: 9px;
   font-style: normal;
   font-weight: 900;
+}
+
+.live-map-wheel-hint {
+  position: absolute;
+  top: 12px;
+  left: 50%;
+  z-index: 5;
+  padding: 8px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  background: rgba(16, 12, 10, 0.9);
+  color: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.25);
+  font-size: 11px;
+  font-weight: 700;
+  transform: translateX(-50%);
+  white-space: nowrap;
+  pointer-events: none;
+  animation: liveTrackerTooltipFade 160ms ease;
+}
+
+@keyframes liveTrackerTooltipFade {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 .live-map-unavailable {

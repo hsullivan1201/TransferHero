@@ -79,6 +79,7 @@ export function liveMapTrain(
     progress: status?.progress ?? 0,
     phase: status?.phase ?? 'unknown',
     approach: status?.approach ?? null,
+    eta: status?.eta ?? null,
     ended: status?.ended ?? false,
   }
 }
