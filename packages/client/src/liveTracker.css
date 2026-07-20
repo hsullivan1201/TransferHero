@@ -515,6 +515,15 @@
   opacity: 0.55;
 }
 
+.live-map-ghost-train.is-opposite .live-map-ghost-casing {
+  opacity: 0.6;
+}
+
+.live-map-ghost-train.is-opposite .live-map-ghost-disc {
+  stroke: rgba(255, 255, 255, 0.45);
+  opacity: 0.3;
+}
+
 .live-map-time-label {
   fill: rgba(255, 255, 255, 0.56);
   stroke: rgba(12, 9, 8, 0.85);

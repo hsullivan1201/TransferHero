@@ -1,6 +1,7 @@
 import type {
   LiveTrackedTrainStatus,
   LiveTrackerApproach,
+  LiveTrackerOtherTrain,
   LiveTrackerPhase,
   LiveTrackerPosition,
   LiveTrackerResponse,
@@ -408,35 +409,67 @@ function resolveApproach(
 }
 
 /**
- * Other live trains headed the same way on the tracked corridor. Direction is
- * anchored to the rider's matched vehicle, so this stays empty in
- * schedule-only mode rather than guessing.
+ * Every other live train on the tracked line, both directions. Placement is
+ * topological (the station each train is at or approaching plus the stop just
+ * behind it), and direction is expressed relative to the rider's train via
+ * their matched vehicle's GTFS direction id.
  */
-function otherTrainsOnCorridor(
+function otherTrainsOnLine(
   train: SharedTrackedTrain,
-  corridorCodes: string[],
   positions: RailVehiclePosition[],
   selectedVehicle: RailVehiclePosition | undefined,
+  map: MetroMapData,
   nowMs: number
-): Array<{ id: string; code: string; approaching: boolean }> | null {
-  const direction = selectedVehicle?.directionId
-  if (direction == null) return null
+): LiveTrackerOtherTrain[] {
+  const linePaths = LINE_PATHS[train.line]
+  const secondCode = train.stops[1]?.code
+  let riderOrientation: 1 | -1 | null = null
+  if (secondCode) {
+    for (const path of linePaths) {
+      const fromIndex = path.indexOf(normalizePlatformCode(train.from.code, path))
+      const nextIndex = path.indexOf(normalizePlatformCode(secondCode, path))
+      if (fromIndex < 0 || nextIndex < 0 || fromIndex === nextIndex) continue
+      riderOrientation = nextIndex > fromIndex ? 1 : -1
+      break
+    }
+  }
+  const riderDirectionId = selectedVehicle?.directionId ?? null
 
-  const output: Array<{ id: string; code: string; approaching: boolean }> = []
+  const output: LiveTrackerOtherTrain[] = []
   for (const position of positions) {
     if (position === selectedVehicle) continue
     if (position.line !== train.line) continue
-    if (position.directionId !== direction) continue
     if (!position.stopCode) continue
     if (position.timestampMs != null && nowMs - position.timestampMs > 90_000) continue
-    const code = canonicalProgressStopCode(position.stopCode, corridorCodes)
-    if (!corridorCodes.includes(code)) continue
-    output.push({
-      id: position.entityId || position.vehicleId || `${train.line}-${output.length}`,
-      code,
-      approaching: position.currentStatus !== 'STOPPED_AT',
-    })
-    if (output.length >= 12) break
+
+    for (const path of linePaths) {
+      const code = canonicalProgressStopCode(position.stopCode, path)
+      const index = path.indexOf(code)
+      if (index < 0) continue
+
+      const sameDirection = riderDirectionId != null && position.directionId != null
+        ? position.directionId === riderDirectionId
+        : null
+      let prevCode: string | null = null
+      let toward: string | null = null
+      if (sameDirection != null && riderOrientation != null) {
+        const orientation = sameDirection ? riderOrientation : -riderOrientation as 1 | -1
+        prevCode = path[index - orientation] ?? null
+        const terminalCode = orientation === 1 ? path[path.length - 1] : path[0]
+        toward = mapStationInfo(map, terminalCode)?.name ?? null
+      }
+
+      output.push({
+        id: position.entityId || position.vehicleId || `${train.line}-${output.length}`,
+        code,
+        approaching: position.currentStatus !== 'STOPPED_AT',
+        prevCode,
+        sameDirection,
+        toward,
+      })
+      break
+    }
+    if (output.length >= 40) break
   }
   return output
 }
@@ -551,18 +584,7 @@ function statusForTrain(
     progress,
     approach: approachResolution?.approach ?? null,
     stopExpectedAtMs: times.map(time => (Number.isFinite(time) ? Math.round(time) : null)),
-    otherTrains: otherTrainsOnCorridor(
-      train,
-      approachResolution
-        ? [
-            ...approachResolution.approach.stationCodes.slice(0, -1),
-            ...train.stops.map(stop => stop.code),
-          ]
-        : train.stops.map(stop => stop.code),
-      positions,
-      vehicle,
-      nowMs
-    ),
+    otherTrains: otherTrainsOnLine(train, positions, vehicle, map, nowMs),
     ended,
   }
 }

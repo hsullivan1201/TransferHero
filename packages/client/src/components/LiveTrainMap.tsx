@@ -39,7 +39,10 @@ interface MapView {
   h: number
 }
 
-type MapFocus = { kind: 'station'; code: string } | { kind: 'train' }
+type MapFocus =
+  | { kind: 'station'; code: string }
+  | { kind: 'train' }
+  | { kind: 'ghost'; id: string }
 
 const MAX_ZOOM = 4
 const MINOR_LABEL_ZOOM = 1.55
@@ -632,9 +635,6 @@ export function LiveTrainMap({
   const timesKey = deepZoom && train.stopTimes
     ? train.stopTimes.map(time => (time == null ? '' : Math.round(time / 60_000))).join(',')
     : ''
-  const othersKey = train.otherTrains
-    ? train.otherTrains.map(other => `${other.id}:${other.code}${other.approaching ? '~' : ''}`).join('|')
-    : ''
   const planPoint = trainPoint
     ? {
         x: Math.round(trainPoint.x / PLAN_GRID) * PLAN_GRID,
@@ -804,24 +804,6 @@ export function LiveTrainMap({
       }
     }
 
-    // Other live trains headed the same way ride the corridor as quiet ghosts.
-    const ghosts: Array<{ id: string; x: number; y: number }> = []
-    if (train.otherTrains && train.otherTrains.length > 0 && !train.ended) {
-      const distanceByCode = new Map<string, number>()
-      for (const station of geometry.approachStations) distanceByCode.set(station.code, station.distance)
-      for (const station of geometry.routeStations) {
-        distanceByCode.set(station.code, geometry.approachLength + station.distance)
-      }
-      for (const other of train.otherTrains) {
-        const base = distanceByCode.get(other.code)
-        if (base == null) continue
-        const distance = Math.max(0, base - ((other as { approaching: boolean }).approaching ? 26 : 0))
-        const point = pointAtDistance(geometry.combinedPoints, distance)
-        if (planPoint && Math.hypot(point.x - planPoint.x, point.y - planPoint.y) < 34) continue
-        ghosts.push({ id: other.id, x: point.x, y: point.y })
-      }
-    }
-
     const track = (
       <>
         {geometry.approachPath && (
@@ -859,21 +841,6 @@ export function LiveTrainMap({
 
     const overlay = (
       <>
-        {ghosts.length > 0 && (
-          <g className="live-map-ghosts" aria-hidden="true">
-            {ghosts.map(ghost => (
-              <g
-                key={ghost.id}
-                className="live-map-ghost-train"
-                style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
-              >
-                <circle className="live-map-ghost-casing" r="6.5" />
-                <circle className="live-map-ghost-disc" r="5" fill={lineColor} />
-              </g>
-            ))}
-          </g>
-        )}
-
         <g className="live-map-stations" aria-hidden="true">
           {ringStation && (
             <circle className="live-map-next-ring" cx={ringStation.x} cy={ringStation.y} r="12" />
@@ -994,7 +961,6 @@ export function LiveTrainMap({
     deepZoom,
     boardsInMinutes,
     timesKey,
-    othersKey,
     planPoint?.x,
     planPoint?.y,
     tripPassedCount,
@@ -1010,6 +976,52 @@ export function LiveTrainMap({
     train.nextStop?.code,
     transferName,
   ])
+
+  // Every other live train on the line rides the schematic as a quiet ghost:
+  // dimmer than the rider's train, extra-dim when headed the other way, but
+  // still hoverable and tappable for a quick "what's that train" card.
+  const ghostLayer = useMemo(() => {
+    if (!geometry || train.ended || geometry.ghostTrains.length === 0) return null
+    const visible = geometry.ghostTrains.filter(ghost => (
+      !planPoint || Math.hypot(ghost.x - planPoint.x, ghost.y - planPoint.y) >= 32
+    ))
+    if (visible.length === 0) return null
+    const lineColor = LINE_COLORS[train.line].bg
+    return {
+      visuals: (
+        <g className="live-map-ghosts" aria-hidden="true">
+          {visible.map(ghost => (
+            <g
+              key={ghost.id}
+              className={ghost.sameDirection === false
+                ? 'live-map-ghost-train is-opposite'
+                : 'live-map-ghost-train'}
+              style={{ transform: `translate(${ghost.x}px, ${ghost.y}px)` }}
+            >
+              <circle className="live-map-ghost-casing" r="6.5" />
+              <circle className="live-map-ghost-disc" r="5" fill={lineColor} />
+            </g>
+          ))}
+        </g>
+      ),
+      hits: (
+        <g className="live-map-hits">
+          {visible.map(ghost => (
+            <circle
+              key={`ghost-hit-${ghost.id}`}
+              className="live-map-hit"
+              cx={ghost.x}
+              cy={ghost.y}
+              r="12"
+              onPointerEnter={event => hoverFocus({ kind: 'ghost', id: ghost.id }, event.pointerType)}
+              onPointerLeave={event => hoverLeave({ kind: 'ghost', id: ghost.id }, event.pointerType)}
+              onClick={() => toggleFocus({ kind: 'ghost', id: ghost.id })}
+            />
+          ))}
+        </g>
+      ),
+    }
+  }, [geometry, hoverFocus, hoverLeave, planPoint?.x, planPoint?.y, toggleFocus, train.ended, train.line])
 
   const paths = useMemo(
     () => (geometry ? sortedNetworkPaths(geometry.networkPaths) : []),
@@ -1098,6 +1110,26 @@ export function LiveTrainMap({
         lines: null as Line[] | null,
       }
     }
+    if (focus.kind === 'ghost') {
+      const ghost = geometry.ghostTrains.find(item => item.id === focus.id)
+      if (!ghost) return null
+      const stationName = geometry.routeStations.find(item => item.code === ghost.code)?.name
+        ?? geometry.approachStations.find(item => item.code === ghost.code)?.name
+        ?? mapData.stations.find(item => item.code === ghost.code)?.name
+        ?? ghost.code
+      const direction = ghost.sameDirection === true
+        ? `Same direction${ghost.toward ? ` · toward ${ghost.toward}` : ''}`
+        : ghost.sameDirection === false
+          ? `Opposite direction${ghost.toward ? ` · toward ${ghost.toward}` : ''}`
+          : null
+      return {
+        point: { x: ghost.x, y: ghost.y },
+        title: `${LINE_NAMES[train.line]} Line train`,
+        status: ghost.approaching ? `Approaching ${stationName}` : `At ${stationName}`,
+        detail: direction,
+        lines: null as Line[] | null,
+      }
+    }
     const station = geometry.routeStations.find(item => item.code === focus.code)
       ?? geometry.approachStations.find(item => item.code === focus.code)
       ?? null
@@ -1180,7 +1212,9 @@ export function LiveTrainMap({
           />
         )}
 
+        {ghostLayer?.visuals}
         {annotations?.overlay}
+        {ghostLayer?.hits}
 
         {trainPoint && (
           <g

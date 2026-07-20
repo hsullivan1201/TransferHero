@@ -132,9 +132,22 @@ export interface LiveTrackedTrainStatus {
   approach?: LiveTrackerApproach | null
   /** Expected time at each stop, aligned with routeStationCodes; null when unknown. */
   stopExpectedAtMs?: (number | null)[]
-  /** Other live same-direction trains currently on this train's corridor. */
-  otherTrains?: Array<{ id: string; code: string; approaching: boolean }> | null
+  /** Every other live train on this train's line, both directions. */
+  otherTrains?: LiveTrackerOtherTrain[] | null
   ended: boolean
+}
+
+export interface LiveTrackerOtherTrain {
+  id: string
+  /** Station the train is at or approaching, canonical to the line path. */
+  code: string
+  approaching: boolean
+  /** Station just before `code` in this train's travel direction, when known. */
+  prevCode?: string | null
+  /** Relative to the tracked train; null when direction is unknown. */
+  sameDirection?: boolean | null
+  /** Terminal-station name for this train's direction, when known. */
+  toward?: string | null
 }
 
 export interface LiveTrackerResponse {
