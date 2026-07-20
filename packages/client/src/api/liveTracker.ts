@@ -1,4 +1,4 @@
-import type { LiveTrackerResponse, MetroMapData } from '@transferhero/shared'
+import type { LiveTrackerResponse, MetroMapData, SharedTrackedTrain } from '@transferhero/shared'
 
 export class LiveTrackerRequestError extends Error {
   readonly status: number
@@ -49,4 +49,21 @@ export function getLiveTracker(token: string, signal?: AbortSignal): Promise<Liv
     `/api/shares/${encodeURIComponent(token)}/live`,
     signal
   )
+}
+
+/** Live status for trains selected in the app, without creating a share. */
+export async function getLiveTrains(
+  trains: SharedTrackedTrain[],
+  signal?: AbortSignal
+): Promise<LiveTrackerResponse> {
+  const response = await fetch('/api/trips/live-trains', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+    cache: 'no-store',
+    body: JSON.stringify({ trains }),
+    signal,
+  })
+
+  if (!response.ok) throw await requestError(response)
+  return response.json() as Promise<LiveTrackerResponse>
 }

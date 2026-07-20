@@ -11,6 +11,7 @@ import {
   Clock3,
   ExternalLink,
   Footprints,
+  MapPinned,
   RefreshCw,
   Rss,
   Satellite,
@@ -42,6 +43,7 @@ import {
 import { buildMapsUrl, formatDistance } from '../utils/geo'
 import { resolveExitLabel } from '../data/exitMapping'
 import { useNow } from '../hooks/useNow'
+import { LiveTripMapModal } from './LiveTripMapModal'
 import { PlatformEgressIcon } from './PlatformEgressIcon'
 import { TripShare } from './TripShare'
 import { UpdatedAgo } from './UpdatedAgo'
@@ -853,6 +855,7 @@ export function BetaTripView({
   preferredLeg1Train = null,
 }: BetaTripViewProps) {
   const [showAllTrains, setShowAllTrains] = useState(false)
+  const [liveMapOpen, setLiveMapOpen] = useState(false)
   const nowMinute = useNow(60_000)
 
   const liveSelectedTrain = useMemo(() => {
@@ -1298,6 +1301,12 @@ export function BetaTripView({
 
           <div className="beta-refresh-row">
             <UpdatedAgo fetchedAt={fetchedAt} isFetching={isRefreshing} label={scheduledLabel} />
+            {shareTrackedTrains.length > 0 && (
+              <button type="button" onClick={() => setLiveMapOpen(true)}>
+                <MapPinned aria-hidden="true" />
+                Live map
+              </button>
+            )}
             {hasKnownRideTime && (
               <TripShare
                 origin={origin}
@@ -1579,6 +1588,13 @@ export function BetaTripView({
         </BetaStep>
       )}
 
+      {liveMapOpen && shareTrackedTrains.length > 0 && (
+        <LiveTripMapModal
+          trains={shareTrackedTrains}
+          transferName={isDirect ? null : transferName}
+          onClose={() => setLiveMapOpen(false)}
+        />
+      )}
     </div>
   )
 }

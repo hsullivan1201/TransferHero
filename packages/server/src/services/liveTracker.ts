@@ -7,6 +7,7 @@ import type {
   MetroMapData,
   SharedTrackedTrain,
   SharedTripPayload,
+  SharedTripTracking,
 } from '@transferhero/shared'
 import { LINE_PATHS } from '../data/lineConfig.js'
 import { normalizePlatformCode } from '../data/platformCodes.js'
@@ -240,13 +241,13 @@ function trackerVehicleId(
 }
 
 function trackerFreshnessAt(
-  trip: SharedTripPayload,
+  capturedAtMs: number,
   nowMs: number,
   vehicle: RailVehiclePosition | undefined,
   tripProgress: GtfsTripProgress | undefined
 ): number {
   if (vehicle?.timestampMs != null) return vehicle.timestampMs
-  return tripProgress ? nowMs : trip.sharedAtMs
+  return tripProgress ? nowMs : capturedAtMs
 }
 
 function vehicleHasPassedDestination(
@@ -312,7 +313,7 @@ function phaseFor(
   return 'in_transit'
 }
 
-function expiredStatus(train: SharedTrackedTrain, trip: SharedTripPayload, nowMs: number): LiveTrackedTrainStatus {
+function expiredStatus(train: SharedTrackedTrain, capturedAtMs: number, nowMs: number): LiveTrackedTrainStatus {
   return {
     id: train.id,
     leg: train.leg,
@@ -328,8 +329,8 @@ function expiredStatus(train: SharedTrackedTrain, trip: SharedTripPayload, nowMs
     nextStop: null,
     eta: null,
     freshness: {
-      updatedAtMs: trip.sharedAtMs,
-      ageMs: Math.max(0, nowMs - trip.sharedAtMs),
+      updatedAtMs: capturedAtMs,
+      ageMs: Math.max(0, nowMs - capturedAtMs),
       isStale: true,
     },
     position: null,
@@ -340,7 +341,7 @@ function expiredStatus(train: SharedTrackedTrain, trip: SharedTripPayload, nowMs
 
 function statusForTrain(
   train: SharedTrackedTrain,
-  trip: SharedTripPayload,
+  capturedAtMs: number,
   nowMs: number,
   positions: RailVehiclePosition[],
   tripUpdates: any[],
@@ -358,7 +359,6 @@ function statusForTrain(
   const routeFractions = schedule.routeFractions
   const previousFraction = routeFractions[segment.previousIndex] ?? 0
   const nextFraction = routeFractions[segment.nextIndex] ?? previousFraction
-  const progress = clamp(previousFraction + (nextFraction - previousFraction) * segment.ratio)
   const arrivalAtMs = Math.round(times[lastIndex] ?? train.arrivalAtMs)
   const vehicleAgeMs = vehicle?.timestampMs == null
     ? 0
@@ -367,7 +367,13 @@ function statusForTrain(
   const vehiclePassedDestination = vehicle
     ? vehicleHasPassedDestination(vehicle, train, tripProgress)
     : false
-  const phase = phaseFor(
+  // Before the scheduled departure, a matched vehicle that is not yet at any
+  // tracked stop is still inbound to the origin. Riders see that as a train
+  // they are waiting to board, not one that is mid-ride.
+  const notStarted = nowMs < (times[0] ?? train.departureAtMs)
+    && (!vehicleIsFresh || stopIndex < 0)
+    && !vehiclePassedDestination
+  const phase = notStarted ? 'not_started' : phaseFor(
     nowMs,
     times[0] ?? train.departureAtMs,
     arrivalAtMs,
@@ -379,8 +385,11 @@ function statusForTrain(
     lastIndex
   )
   const ended = phase === 'arrived' || phase === 'ended'
+  const progress = notStarted
+    ? 0
+    : clamp(previousFraction + (nextFraction - previousFraction) * segment.ratio)
 
-  const freshnessAtMs = trackerFreshnessAt(trip, nowMs, vehicle, tripProgress)
+  const freshnessAtMs = trackerFreshnessAt(capturedAtMs, nowMs, vehicle, tripProgress)
   const ageMs = Math.max(0, nowMs - freshnessAtMs)
   const position = trackerPosition(train, segment, map, vehicle, tripProgress)
 
@@ -395,8 +404,8 @@ function statusForTrain(
     to: train.to,
     routeStationCodes: train.stops.map(stop => stop.code),
     phase,
-    previousStop: nowMs < times[0] ? null : stopStatus(train, segment.previousIndex, times),
-    nextStop: ended ? null : stopStatus(train, segment.nextIndex, times),
+    previousStop: notStarted || nowMs < times[0] ? null : stopStatus(train, segment.previousIndex, times),
+    nextStop: ended ? null : notStarted ? stopStatus(train, 0, times) : stopStatus(train, segment.nextIndex, times),
     eta: ended ? null : {
       arrivalAtMs,
       minutes: Math.max(0, Math.ceil((arrivalAtMs - nowMs) / 60_000)),
@@ -412,15 +421,17 @@ function statusForTrain(
   }
 }
 
-/** Resolve one signed v3 tracking snapshot into a small, polling-friendly status. */
-export async function getLiveTrackerResponse(
-  trip: SharedTripPayload,
+/**
+ * Resolve a bounded set of tracked trains into a polling-friendly status.
+ * Works for signed shares and for ad-hoc in-app tracking alike.
+ */
+export async function resolveTrackingStatus(
+  tracking: SharedTripTracking,
+  capturedAtMs: number,
   dependencies: LiveTrackerDependencies = {}
-): Promise<LiveTrackerResponse | null> {
-  if (!trip.tracking) return null
+): Promise<LiveTrackerResponse> {
   const now = dependencies.now ?? Date.now
   const nowMs = now()
-  const { tracking } = trip
   const expired = nowMs >= tracking.expiresAtMs
 
   if (expired) {
@@ -429,7 +440,7 @@ export async function getLiveTrackerResponse(
       expiresAtMs: tracking.expiresAtMs,
       expired: true,
       ended: true,
-      trains: tracking.trains.map(train => expiredStatus(train, trip, nowMs)),
+      trains: tracking.trains.map(train => expiredStatus(train, capturedAtMs, nowMs)),
     }
   }
 
@@ -443,7 +454,7 @@ export async function getLiveTrackerResponse(
     getMapData(),
   ])
   const trains = tracking.trains.map(train =>
-    statusForTrain(train, trip, nowMs, positions, tripUpdates, map)
+    statusForTrain(train, capturedAtMs, nowMs, positions, tripUpdates, map)
   )
 
   return {
@@ -453,4 +464,13 @@ export async function getLiveTrackerResponse(
     ended: trains.every(train => train.ended),
     trains,
   }
+}
+
+/** Resolve one signed v3 tracking snapshot into a small, polling-friendly status. */
+export async function getLiveTrackerResponse(
+  trip: SharedTripPayload,
+  dependencies: LiveTrackerDependencies = {}
+): Promise<LiveTrackerResponse | null> {
+  if (!trip.tracking) return null
+  return resolveTrackingStatus(trip.tracking, trip.sharedAtMs, dependencies)
 }

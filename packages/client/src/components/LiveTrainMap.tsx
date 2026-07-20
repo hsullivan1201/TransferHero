@@ -638,7 +638,7 @@ export function LiveTrainMap({
     )
   }
   if (nextStation && nextStation.code !== destination?.code && !train.ended) {
-    planLabel(nextStation, 'NEXT STOP', {
+    planLabel(nextStation, nextStation.code === train.from.code ? 'STARTS HERE' : 'NEXT STOP', {
       emphasized: true,
       preferSide: trainPoint && trainPoint.x > nextStation.x ? 'end' : 'start',
     })

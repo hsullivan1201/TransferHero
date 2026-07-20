@@ -1138,6 +1138,197 @@
   }
 }
 
+.live-map-modal-overlay {
+  --tracker-sign: #372c24;
+  --tracker-sign-deep: #211a16;
+  --tracker-cream: #f2e7dc;
+  --tracker-paper: #fffaf5;
+  --tracker-ink: #372c24;
+  --tracker-soft: #766354;
+  --tracker-border: rgba(55, 44, 36, 0.16);
+  --tracker-green: #2dbd78;
+  position: fixed;
+  inset: 0;
+  z-index: 240;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px;
+  background: rgba(18, 13, 10, 0.58);
+  animation: liveMapOverlayIn 160ms ease;
+  backdrop-filter: blur(7px);
+}
+
+.dark .live-map-modal-overlay {
+  --tracker-sign: #17120f;
+  --tracker-sign-deep: #0c0908;
+  --tracker-cream: #201a16;
+  --tracker-paper: #302721;
+  --tracker-ink: #f5eade;
+  --tracker-soft: #c1afa1;
+  --tracker-border: rgba(245, 234, 222, 0.14);
+}
+
+.live-map-modal {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  width: min(100%, 780px);
+  max-height: min(94vh, 860px);
+  padding: 16px 16px 13px;
+  border: 1px solid var(--tracker-border);
+  border-radius: 22px;
+  background: var(--tracker-cream);
+  color: var(--tracker-ink);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  overflow-y: auto;
+  animation: liveMapModalIn 220ms cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+.live-map-modal-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 2px 2px 0 6px;
+}
+
+.live-map-modal-head strong {
+  display: block;
+  font-size: 16px;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+}
+
+.live-map-modal-head small {
+  display: block;
+  margin-top: 3px;
+  color: var(--tracker-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.live-map-modal-head small span {
+  color: #0076c0;
+}
+
+.live-map-modal-close {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--tracker-border);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tracker-paper) 85%, transparent);
+  color: var(--tracker-ink);
+  cursor: pointer;
+  transition: background 150ms ease, border-color 150ms ease;
+}
+
+.live-map-modal-close:hover {
+  border-color: color-mix(in srgb, var(--tracker-ink) 34%, transparent);
+  background: var(--tracker-paper);
+}
+
+.live-map-modal-close svg {
+  width: 16px;
+  height: 16px;
+}
+
+.live-map-modal .live-train-tabs,
+.live-map-modal .live-train-single-label {
+  margin: 0 2px;
+}
+
+.live-map-modal .live-tracker-map-card {
+  flex: none;
+}
+
+.live-map-modal .live-map-stage,
+.live-map-modal .live-map-loading,
+.live-map-modal .live-map-error {
+  height: clamp(340px, 48vw, 470px);
+  min-height: 0;
+}
+
+.live-map-modal .live-map-controls {
+  bottom: 14px;
+}
+
+.live-map-modal .live-map-scale-note {
+  bottom: 12px;
+}
+
+.live-map-modal-status {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-height: 20px;
+  padding: 0 6px;
+  color: var(--tracker-soft);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.live-map-modal-status > span:first-child {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  overflow: hidden;
+  color: var(--tracker-ink);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.live-map-modal-status svg {
+  width: 14px;
+  height: 14px;
+  flex: none;
+}
+
+@keyframes liveMapOverlayIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes liveMapModalIn {
+  from { opacity: 0; transform: translateY(14px) scale(0.985); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (max-width: 620px) {
+  .live-map-modal-overlay {
+    padding: 0;
+  }
+
+  .live-map-modal {
+    width: 100%;
+    height: 100%;
+    max-height: none;
+    padding: 14px 12px 12px;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .live-map-modal .live-map-stage,
+  .live-map-modal .live-map-loading,
+  .live-map-modal .live-map-error {
+    height: clamp(340px, 58vh, 560px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .live-map-modal-overlay,
+  .live-map-modal {
+    animation: none !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .live-tracker-page *,
   .live-tracker-page *::before,

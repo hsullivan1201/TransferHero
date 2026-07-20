@@ -1,9 +1,11 @@
 import { Router, Request, Response } from 'express'
 import { z } from 'zod'
+import { parseSharedTripTracking } from '@transferhero/shared'
 import { cacheMiddleware, CACHE_CONFIG } from '../middleware/cache.js'
 import { asyncHandler, ValidationError } from '../middleware/errorHandler.js'
 import { tripRateLimit } from '../middleware/rateLimit.js'
 import { createTripPlanner, type TripPlanner } from '../services/tripPlannerService.js'
+import { resolveTrackingStatus } from '../services/liveTracker.js'
 
 // boolean helper because z.coerce.boolean thinks "false" is true (rude)
 const booleanFromString = z.preprocess(
@@ -126,6 +128,33 @@ export function createTripHandlers(planner: TripPlanner): TripRouteHandlers {
   return { getTrip, getLeg2 }
 }
 
+/**
+ * Ad-hoc live tracking for trains the rider selected in the app, mirroring
+ * the share tracker's payload rules without requiring a share token.
+ */
+const liveTrainsHandler = async (req: Request, res: Response): Promise<void> => {
+  const trains = (req.body as { trains?: unknown } | undefined)?.trains
+  const nowMs = Date.now()
+  const arrivals = Array.isArray(trains)
+    ? trains
+        .map(train => (train as { arrivalAtMs?: unknown })?.arrivalAtMs)
+        .filter((value): value is number => Number.isSafeInteger(value))
+    : []
+  const expiresAtMs = Math.min(
+    nowMs + 12 * 60 * 60 * 1000,
+    Math.max(nowMs + 2 * 60 * 60 * 1000, ...arrivals.map(value => value + 2 * 60 * 60 * 1000))
+  )
+
+  const tracking = parseSharedTripTracking({ trains, expiresAtMs })
+  if (!tracking) {
+    res.status(400).set('Cache-Control', 'no-store').json({ error: 'Invalid tracked train data' })
+    return
+  }
+
+  const live = await resolveTrackingStatus(tracking, nowMs)
+  res.set('Cache-Control', 'no-store').json(live)
+}
+
 export function createTripsRouter(deps: TripsRouterDeps = {}): Router {
   const planner = deps.planner ?? createTripPlanner()
   const handlers = createTripHandlers(planner)
@@ -133,6 +162,7 @@ export function createTripsRouter(deps: TripsRouterDeps = {}): Router {
 
   router.get('/', tripRateLimit, cacheMiddleware(CACHE_CONFIG.tripPlan), asyncHandler(handlers.getTrip))
   router.get('/:tripId/leg2', tripRateLimit, asyncHandler(handlers.getLeg2))
+  router.post('/live-trains', tripRateLimit, asyncHandler(liveTrainsHandler))
 
   return router
 }
