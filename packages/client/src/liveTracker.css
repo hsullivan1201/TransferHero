@@ -384,12 +384,25 @@
 
 .live-map-network-casing,
 .live-map-network-line,
+.live-map-approach-casing,
+.live-map-approach-line,
 .live-map-route-casing,
 .live-map-route-line,
 .live-map-route-complete {
   fill: none;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.live-map-approach-casing {
+  stroke: #0c0908;
+  stroke-width: 13;
+  opacity: 0.9;
+}
+
+.live-map-approach-line {
+  stroke-width: 7.5;
+  opacity: 0.52;
 }
 
 .live-map-network-casing {

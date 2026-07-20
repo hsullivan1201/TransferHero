@@ -224,7 +224,7 @@ export function LiveTrainMap({
   const id = rawId.replace(/:/gu, '')
   const reducedMotion = usePrefersReducedMotion()
   const geometry = useMemo(() => buildLiveMapGeometry(mapData, train), [mapData, train])
-  const routeKey = `${train.id}:${train.routeStationCodes.join('>')}`
+  const routeKey = `${train.id}:${(train.approach?.stationCodes ?? []).join(',')}|${train.routeStationCodes.join('>')}`
 
   const stageRef = useRef<HTMLDivElement>(null)
   const svgRef = useRef<SVGSVGElement>(null)
@@ -276,10 +276,14 @@ export function LiveTrainMap({
 
   const trainOnMap = Boolean(geometry && geometry.hasPosition && !train.ended)
   const drawDistance = train.ended
-    ? geometry?.routeLength ?? 0
-    : Math.min(displayDistance, geometry?.routeLength ?? 0)
-  const trainPoint = geometry && trainOnMap ? pointAtDistance(geometry.routePoints, drawDistance) : null
-  const trainBearing = geometry ? bearingAtDistance(geometry.routePoints, drawDistance) : 0
+    ? geometry?.combinedLength ?? 0
+    : Math.min(displayDistance, geometry?.combinedLength ?? 0)
+  const tripDrawDistance = Math.max(
+    0,
+    Math.min(drawDistance - (geometry?.approachLength ?? 0), geometry?.routeLength ?? 0)
+  )
+  const trainPoint = geometry && trainOnMap ? pointAtDistance(geometry.combinedPoints, drawDistance) : null
+  const trainBearing = geometry ? bearingAtDistance(geometry.combinedPoints, drawDistance) : 0
 
   // --- Camera: fit by default, follow the train while zoomed, free pan/zoom.
   const [zoom, setZoom] = useState(1)
@@ -589,7 +593,7 @@ export function LiveTrainMap({
       : `Live position is temporarily unavailable for the train heading toward ${train.toward}.`
 
   const stationPassed = (station: SchematicRouteStation) => (
-    drawDistance > station.distance + PASSED_SLACK
+    tripDrawDistance > station.distance + PASSED_SLACK
   )
 
   const obstacles: LabelRect[] = []
@@ -724,6 +728,17 @@ export function LiveTrainMap({
 
         {networkLayer}
 
+        {geometry.approachPath && (
+          <g className="live-map-approach" aria-hidden="true">
+            <path d={geometry.approachPath} className="live-map-approach-casing" />
+            <path
+              d={geometry.approachPath}
+              className="live-map-approach-line"
+              stroke={lineColor}
+            />
+          </g>
+        )}
+
         <g className="live-map-route" aria-hidden="true">
           <path d={geometry.routePath} className="live-map-route-casing" />
           <path
@@ -731,12 +746,12 @@ export function LiveTrainMap({
             className="live-map-route-line"
             stroke={lineColor}
           />
-          {drawDistance > 1 && (
+          {tripDrawDistance > 1 && (
             <path
               d={geometry.routePath}
               className="live-map-route-complete"
               pathLength={geometry.routeLength}
-              strokeDasharray={`${Math.min(drawDistance, geometry.routeLength)} ${geometry.routeLength}`}
+              strokeDasharray={`${tripDrawDistance} ${geometry.routeLength}`}
             />
           )}
         </g>

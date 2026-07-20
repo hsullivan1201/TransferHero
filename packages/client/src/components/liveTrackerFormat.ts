@@ -78,6 +78,7 @@ export function liveMapTrain(
       : null,
     progress: status?.progress ?? 0,
     phase: status?.phase ?? 'unknown',
+    approach: status?.approach ?? null,
     ended: status?.ended ?? false,
   }
 }
@@ -103,10 +104,13 @@ export function freshnessLabel(updatedAtMs: number | null, now: number): string 
 export function phaseLabel(train: LiveTrackedTrainStatus | null): string {
   if (!train) return 'Finding the train'
   switch (train.phase) {
-    case 'not_started':
+    case 'not_started': {
+      const inboundNext = train.approach?.nextStop
+      if (inboundNext) return `Inbound · next stop ${inboundNext.name}`
       return train.nextStop
         ? `Departs ${train.nextStop.name}${clockTime(train.nextStop.expectedAtMs) ? ` around ${clockTime(train.nextStop.expectedAtMs)}` : ' soon'}`
         : 'Waiting to depart'
+    }
     case 'at_station':
       return `At ${train.previousStop?.name ?? train.nextStop?.name ?? train.from.name}`
     case 'in_transit':

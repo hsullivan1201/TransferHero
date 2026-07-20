@@ -95,6 +95,19 @@ export interface LiveTrackerPosition {
   source: LiveTrackerPositionSource
 }
 
+/**
+ * Where an inbound train is before it reaches the rider's boarding station.
+ * Covers a bounded window of upstream stations ending at the trip origin.
+ */
+export interface LiveTrackerApproach {
+  /** Upstream station codes in travel order; the last code is the trip origin. */
+  stationCodes: string[]
+  previousStop: LiveTrackerStopStatus | null
+  nextStop: LiveTrackerStopStatus | null
+  /** Clamped progress along the approach window, from 0 to 1. */
+  progress: number
+}
+
 export interface LiveTrackedTrainStatus {
   id: string
   leg: 1 | 2
@@ -113,6 +126,8 @@ export interface LiveTrackedTrainStatus {
   position: LiveTrackerPosition | null
   /** Clamped progress through this selected leg, from 0 to 1. */
   progress: number
+  /** Present only while the train is still on its way to the boarding station. */
+  approach?: LiveTrackerApproach | null
   ended: boolean
 }
 

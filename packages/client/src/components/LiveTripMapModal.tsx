@@ -113,6 +113,9 @@ export function LiveTripMapModal({
     || (selectedStatus && now - selectedStatus.freshness.updatedAtMs > 45_000)
   )
   const etaClock = clockTime(selectedStatus?.eta?.arrivalAtMs)
+  const boardClock = selectedStatus?.phase === 'not_started'
+    ? clockTime(selectedStatus.nextStop?.expectedAtMs)
+    : null
   const routeFrom = trains[0]?.from.name
   const routeTo = trains.at(-1)?.to.name
 
@@ -210,7 +213,7 @@ export function LiveTripMapModal({
         <footer className="live-map-modal-status" aria-live="polite">
           <span><TrainFront aria-hidden="true" /> {phaseLabel(selectedStatus)}</span>
           <span>
-            {!arrived && etaClock ? `Arrives ${etaClock} · ` : ''}
+            {!arrived && boardClock ? `Boards ${boardClock} · ` : !arrived && etaClock ? `Arrives ${etaClock} · ` : ''}
             {freshnessLabel(selectedStatus?.freshness.updatedAtMs ?? snapshot?.updatedAtMs ?? null, now)}
           </span>
         </footer>

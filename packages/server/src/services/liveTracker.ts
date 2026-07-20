@@ -1,5 +1,6 @@
 import type {
   LiveTrackedTrainStatus,
+  LiveTrackerApproach,
   LiveTrackerPhase,
   LiveTrackerPosition,
   LiveTrackerResponse,
@@ -9,8 +10,9 @@ import type {
   SharedTripPayload,
   SharedTripTracking,
 } from '@transferhero/shared'
+import type { Station } from '@transferhero/shared'
 import { LINE_PATHS } from '../data/lineConfig.js'
-import { normalizePlatformCode } from '../data/platformCodes.js'
+import { getAllPlatformCodes, normalizePlatformCode } from '../data/platformCodes.js'
 import { calculateRouteTravelTime } from './travelTime.js'
 import { getMetroMapData } from './metroMap.js'
 import {
@@ -22,6 +24,7 @@ import {
 } from './wmata.js'
 
 const LIVE_STALE_AFTER_MS = 30_000
+const MAX_APPROACH_STOPS = 8
 
 export interface LiveTrackerDependencies {
   now?: () => number
@@ -313,6 +316,94 @@ function phaseFor(
   return 'in_transit'
 }
 
+function mapStationInfo(map: MetroMapData, code: string): Station | null {
+  for (const candidate of getAllPlatformCodes(code)) {
+    const station = map.stations.find(item => item.code === candidate)
+    if (station) return { code, name: station.name, lines: station.lines }
+  }
+  return null
+}
+
+/**
+ * The bounded window of upstream stations an inbound train covers before the
+ * rider's boarding station, in travel order and ending at the trip origin.
+ */
+function approachWindow(train: SharedTrackedTrain, map: MetroMapData): Station[] | null {
+  const secondCode = train.stops[1]?.code
+  if (!secondCode) return null
+  for (const path of LINE_PATHS[train.line]) {
+    const fromIndex = path.indexOf(normalizePlatformCode(train.from.code, path))
+    const nextIndex = path.indexOf(normalizePlatformCode(secondCode, path))
+    if (fromIndex < 0 || nextIndex < 0 || fromIndex === nextIndex) continue
+    const upstreamCodes = nextIndex > fromIndex
+      ? path.slice(Math.max(0, fromIndex - MAX_APPROACH_STOPS), fromIndex)
+      : path.slice(fromIndex + 1, fromIndex + 1 + MAX_APPROACH_STOPS).reverse()
+    if (upstreamCodes.length === 0) return null
+    const upstream = upstreamCodes.map(code => mapStationInfo(map, code))
+    if (upstream.some(station => station == null)) return null
+    return [...(upstream as Station[]), train.from]
+  }
+  return null
+}
+
+interface ApproachResolution {
+  approach: LiveTrackerApproach
+  position: LiveTrackerPosition | null
+}
+
+/**
+ * Locate an inbound train inside its approach window by reusing the same
+ * schedule/vehicle machinery that tracks the ride itself: the approach is a
+ * synthetic leg that ends at the boarding station when the ride begins.
+ */
+function resolveApproach(
+  train: SharedTrackedTrain,
+  originDepartureMs: number,
+  nowMs: number,
+  vehicle: RailVehiclePosition | undefined,
+  tripProgress: GtfsTripProgress | undefined,
+  map: MetroMapData
+): ApproachResolution | null {
+  const stops = approachWindow(train, map)
+  if (!stops) return null
+
+  let totalMinutes = 0
+  try {
+    for (let index = 1; index < stops.length; index++) {
+      const minutes = calculateRouteTravelTime(stops[index - 1].code, stops[index].code, train.line)
+      if (!Number.isFinite(minutes) || minutes <= 0) return null
+      totalMinutes += minutes
+    }
+  } catch {
+    return null
+  }
+  if (totalMinutes <= 0) return null
+
+  const approachTrain: SharedTrackedTrain = {
+    ...train,
+    to: train.from,
+    stops,
+    departureAtMs: originDepartureMs - totalMinutes * 60_000,
+    arrivalAtMs: originDepartureMs,
+  }
+  const schedule = buildScheduleModel(approachTrain)
+  const times = effectiveTimes(approachTrain, schedule, tripProgress)
+  const { segment } = resolveSegment(approachTrain, nowMs, times, vehicle)
+  const previousFraction = schedule.routeFractions[segment.previousIndex] ?? 0
+  const nextFraction = schedule.routeFractions[segment.nextIndex] ?? previousFraction
+  const progress = clamp(previousFraction + (nextFraction - previousFraction) * segment.ratio)
+
+  return {
+    approach: {
+      stationCodes: stops.map(stop => stop.code),
+      previousStop: nowMs < times[0] ? null : stopStatus(approachTrain, segment.previousIndex, times),
+      nextStop: stopStatus(approachTrain, segment.nextIndex, times),
+      progress,
+    },
+    position: trackerPosition(approachTrain, segment, map, vehicle, tripProgress),
+  }
+}
+
 function expiredStatus(train: SharedTrackedTrain, capturedAtMs: number, nowMs: number): LiveTrackedTrainStatus {
   return {
     id: train.id,
@@ -391,7 +482,11 @@ function statusForTrain(
 
   const freshnessAtMs = trackerFreshnessAt(capturedAtMs, nowMs, vehicle, tripProgress)
   const ageMs = Math.max(0, nowMs - freshnessAtMs)
-  const position = trackerPosition(train, segment, map, vehicle, tripProgress)
+  const approachResolution = notStarted
+    ? resolveApproach(train, Math.round(times[0] ?? train.departureAtMs), nowMs, vehicle, tripProgress, map)
+    : null
+  const position = approachResolution?.position
+    ?? trackerPosition(train, segment, map, vehicle, tripProgress)
 
   return {
     id: train.id,
@@ -417,6 +512,7 @@ function statusForTrain(
     },
     position,
     progress,
+    approach: approachResolution?.approach ?? null,
     ended,
   }
 }

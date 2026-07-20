@@ -31,6 +31,14 @@ export interface LiveMapStation extends GeoPoint {
   name: string
 }
 
+export interface LiveMapApproach {
+  /** Upstream station codes in travel order; the last code is the trip origin. */
+  stationCodes: string[]
+  previousStop: { code: string; name: string; expectedAtMs?: number | null } | null
+  nextStop: { code: string; name: string; expectedAtMs?: number | null } | null
+  progress: number
+}
+
 export interface LiveMapTrain {
   id: string
   leg: number
@@ -44,6 +52,7 @@ export interface LiveMapTrain {
   nextStop: { code: string; name: string; expectedAtMs?: number | null } | null
   progress: number | null
   phase: string
+  approach?: LiveMapApproach | null
   ended: boolean
 }
 
@@ -77,7 +86,16 @@ export interface LiveMapGeometry {
   routePath: string
   routePoints: SchematicPoint[]
   routeLength: number
-  /** Distance the train has covered along the route polyline. */
+  /** Inbound track the train covers before the boarding station, when known. */
+  approachPath: string | null
+  approachLength: number
+  /** Approach polyline joined to the route polyline at the boarding station. */
+  combinedPoints: SchematicPoint[]
+  combinedLength: number
+  /**
+   * Marker distance in the combined space: the approach occupies
+   * [0, approachLength] and the ride occupies the remainder.
+   */
   progressDistance: number
   /** Whether a real (or interpolated) position exists for the marker. */
   hasPosition: boolean
@@ -365,14 +383,63 @@ function fittedViewBox(points: readonly SchematicPoint[]): LiveMapGeometry['view
   }
 }
 
+/** Marker distance along the approach polyline for a not-yet-boarded train. */
+function approachDistance(
+  mapData: MetroMapData,
+  train: LiveMapTrain,
+  approachPoints: readonly SchematicPoint[]
+): number {
+  const approach = train.approach!
+  const codes = approach.stationCodes
+  const total = polylineLength(approachPoints)
+  const previousIndex = approach.previousStop
+    ? routeIndexForCode(codes, approach.previousStop.code)
+    : -1
+  const nextIndex = approach.nextStop
+    ? routeIndexForCode(codes, approach.nextStop.code)
+    : -1
+
+  if (train.position && previousIndex >= 0 && nextIndex === previousIndex + 1) {
+    const previousGeo = stationGeo(mapData, codes[previousIndex])
+    const nextGeo = stationGeo(mapData, codes[nextIndex])
+    if (previousGeo && nextGeo) {
+      const segmentPoints = expandedPoints(codes.slice(previousIndex, nextIndex + 1), train.line)
+      const before = distanceBeforeRouteIndex(codes, train.line, previousIndex)
+      return Math.min(total, before + polylineLength(segmentPoints) * projectedSegmentFraction(
+        train.position,
+        previousGeo,
+        nextGeo
+      ))
+    }
+  }
+
+  return total * Math.max(0, Math.min(1, approach.progress))
+}
+
 export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain): LiveMapGeometry | null {
   const routePoints = expandedPoints(train.routeStationCodes, train.line)
   const fromBase = SCHEMATIC_STATIONS[train.from.code]
   const toBase = SCHEMATIC_STATIONS[train.to.code]
   if (routePoints.length < 2 || !fromBase || !toBase) return null
 
+  // The approach only renders when its polyline genuinely joins the route at
+  // the boarding station; otherwise fall back to origin-pinned behavior.
+  const rawApproachPoints = train.approach && !train.ended
+    ? expandedPoints(train.approach.stationCodes, train.line)
+    : []
+  const approachPoints = rawApproachPoints.length >= 2
+    && pointsEqual(rawApproachPoints.at(-1)!, routePoints[0])
+    ? rawApproachPoints
+    : []
+  const approachLength = polylineLength(approachPoints)
+  const combinedPoints = approachPoints.length > 0
+    ? [...approachPoints.slice(0, -1), ...routePoints]
+    : routePoints
+
   const routeCodes = new Set(train.routeStationCodes)
-  const progressDistance = trainDistance(mapData, train, routePoints)
+  const progressDistance = approachPoints.length > 0
+    ? approachDistance(mapData, train, approachPoints)
+    : approachLength + trainDistance(mapData, train, routePoints)
 
   return {
     networkPaths: mapData.paths.flatMap(path => {
@@ -384,10 +451,16 @@ export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain)
     routePath: roundedPathData(routePoints),
     routePoints,
     routeLength: polylineLength(routePoints),
+    approachPath: approachPoints.length > 0 ? roundedPathData(approachPoints) : null,
+    approachLength,
+    combinedPoints,
+    combinedLength: approachLength + polylineLength(routePoints),
     progressDistance,
     hasPosition: train.position != null,
     fromPoint: offsetPoint(fromBase, train.line),
     toPoint: offsetPoint(toBase, train.line),
-    viewBox: fittedViewBox(routePoints),
+    viewBox: fittedViewBox(approachPoints.length > 0
+      ? [...approachPoints, ...routePoints]
+      : routePoints),
   }
 }
