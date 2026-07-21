@@ -154,21 +154,24 @@ export function LiveTripMapModal({
 
   const outlook = connectionOutlook(snapshot?.connection, transferWalkMinutes, now)
 
-  // Arriving at the transfer, the map grows a small change-trains inset.
-  let inset: LiveMapInset | null = null
+  // Wayfinding insets: shown on their own while the train pulls into a key
+  // station, and any time the rider taps that station on the map.
   const approachingEndpoint = Boolean(
     selectedStatus
     && !selectedStatus.ended
     && selectedStatus.phase !== 'not_started'
     && selectedStatus.nextStop?.code === selectedStatus.to.code
   )
-  if (approachingEndpoint && selectedStatus && selectedStatus.leg === 1 && transferName) {
+  const insets: LiveMapInset[] = []
+  if (transferName) {
+    const first = allTrains.find(train => train.leg === 1)
     const second = allTrains.find(train => train.leg === 2)
     if (second) {
       const boardsClock = clockTime(snapshot?.connection?.boardsAtMs)
-      inset = {
-        kicker: 'ARRIVING · CHANGE TRAINS',
-        title: selectedStatus.to.name,
+      const auto = approachingEndpoint && selectedStatus?.leg === 1
+      insets.push({
+        kicker: auto ? 'ARRIVING · CHANGE TRAINS' : 'CHANGE TRAINS',
+        title: second.from.name,
         rows: [
           `${LINE_NAMES[second.line]} toward ${second.toward}${boardsClock ? ` · boards ${boardsClock}` : ''}`,
           ...(transferLevelInstruction
@@ -178,8 +181,26 @@ export function LiveTripMapModal({
               : []),
         ],
         line: second.line,
-      }
+        codes: [...new Set([first?.to.code, second.from.code].filter((code): code is string => !!code))],
+        auto,
+      })
     }
+  }
+  const finalConfig = allTrains.find(train => train.leg === 2) ?? allTrains[0] ?? null
+  if (finalConfig) {
+    const finalLegStatus = snapshot?.trains.find(train => train.id === finalConfig.id) ?? null
+    const finalEtaClock = clockTime(finalLegStatus?.eta?.arrivalAtMs ?? finalConfig.arrivalAtMs)
+    const autoDestination = approachingEndpoint
+      && selectedStatus?.to.code === finalConfig.to.code
+      && selectedStatus?.leg === finalConfig.leg
+    insets.push({
+      kicker: autoDestination ? 'ARRIVING · YOUR STOP' : 'YOUR STOP',
+      title: finalConfig.to.name,
+      rows: finalEtaClock ? [`Expected around ${finalEtaClock}`] : [],
+      line: null,
+      codes: [finalConfig.to.code],
+      auto: autoDestination,
+    })
   }
 
   return createPortal(
@@ -259,7 +280,7 @@ export function LiveTripMapModal({
               mapData={mapData}
               train={selectedMapTrain}
               companion={companionMapTrain}
-              inset={inset}
+              insets={insets}
               transferName={transferName}
               positionUnavailable={Boolean(snapshot && !selectedStatus?.position && !arrived)}
             />

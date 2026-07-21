@@ -315,43 +315,51 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
   const transferWalkMinutes = trip.legs.find(leg => leg.kind === 'transfer')?.minutes ?? null
   const outlook = terminal ? null : connectionOutlook(snapshot?.connection, transferWalkMinutes, now)
 
-  // Approaching a decision point, the map grows a small wayfinding inset:
-  // what to do at the transfer, or which exit serves the destination.
+  // Wayfinding insets: shown on their own while the train pulls into a key
+  // station, and any time the rider taps that station on the map.
   const approachingEndpoint = Boolean(
     selectedStatus
     && !selectedStatus.ended
     && selectedStatus.phase !== 'not_started'
     && selectedStatus.nextStop?.code === selectedStatus.to.code
   )
-  let inset: LiveMapInset | null = null
-  if (approachingEndpoint && selectedStatus) {
-    if (selectedStatus.leg === 1 && trip.transferName && tracking.trains.length > 1) {
-      const second = tracking.trains.find(train => train.leg === 2)
-      if (second) {
-        const boardsClock = clockTime(snapshot?.connection?.boardsAtMs)
-        inset = {
-          kicker: 'ARRIVING · CHANGE TRAINS',
-          title: selectedStatus.to.name,
-          rows: [
-            `${LINE_NAMES[second.line]} toward ${second.toward}${boardsClock ? ` · boards ${boardsClock}` : ''}`,
-            ...(trip.transferWalkSummary ? [trip.transferWalkSummary] : []),
-          ],
-          line: second.line,
-        }
-      }
-    } else if (selectedStatus.to.code === trip.destination.code) {
-      inset = {
-        kicker: 'ARRIVING · YOUR STOP',
-        title: selectedStatus.to.name,
-        rows: trip.destPlaceContext
-          ? [
-              `Exit: ${trip.destPlaceContext.exit.name}`,
-              `${trip.destPlaceContext.walkTimeMinutes} min walk to ${trip.destPlaceContext.place.name}`,
-            ]
-          : [],
-        line: null,
-      }
+  const insets: LiveMapInset[] = []
+  if (trip.transferName && tracking.trains.length > 1) {
+    const first = tracking.trains.find(train => train.leg === 1)
+    const second = tracking.trains.find(train => train.leg === 2)
+    if (second) {
+      const boardsClock = clockTime(snapshot?.connection?.boardsAtMs)
+      const auto = approachingEndpoint && selectedStatus?.leg === 1
+      insets.push({
+        kicker: auto ? 'ARRIVING · CHANGE TRAINS' : 'CHANGE TRAINS',
+        title: second.from.name,
+        rows: [
+          `${LINE_NAMES[second.line]} toward ${second.toward}${boardsClock ? ` · boards ${boardsClock}` : ''}`,
+          ...(trip.transferWalkSummary ? [trip.transferWalkSummary] : []),
+        ],
+        line: second.line,
+        codes: [...new Set([first?.to.code, second.from.code].filter((code): code is string => !!code))],
+        auto,
+      })
     }
+  }
+  if (finalTrackedConfig) {
+    const autoDestination = approachingEndpoint
+      && selectedStatus?.to.code === finalTrackedConfig.to.code
+      && selectedStatus?.leg === finalTrackedConfig.leg
+    insets.push({
+      kicker: autoDestination ? 'ARRIVING · YOUR STOP' : 'YOUR STOP',
+      title: finalTrackedConfig.to.name,
+      rows: trackedThroughDestination && trip.destPlaceContext
+        ? [
+            `Exit: ${trip.destPlaceContext.exit.name}`,
+            `${trip.destPlaceContext.walkTimeMinutes} min walk to ${trip.destPlaceContext.place.name}`,
+          ]
+        : arrivalTime ? [`Expected around ${arrivalTime}`] : [],
+      line: null,
+      codes: [...new Set([finalTrackedConfig.to.code, trip.destination.code])],
+      auto: autoDestination,
+    })
   }
 
   return (
@@ -428,7 +436,7 @@ export function LiveTrackerPage({ token, trip }: LiveTrackerPageProps) {
               mapData={mapData}
               train={selectedMapTrain}
               companion={companionMapTrain}
-              inset={inset}
+              insets={insets}
               transferName={trip.transferName}
               positionUnavailable={Boolean(!selectedStatus?.position)}
             />

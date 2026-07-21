@@ -26,12 +26,19 @@ import {
 
 export type { LiveMapStation, LiveMapTrain } from './liveTrainMapGeometry'
 
-/** Wayfinding card shown over the map while the train nears a key station. */
+/**
+ * Wayfinding card shown over the map: automatically while the train pulls
+ * into a key station, or whenever the rider taps that station on the map.
+ */
 export interface LiveMapInset {
   kicker: string
   title: string
   rows: string[]
   line?: Line | null
+  /** Station codes that summon this card when tapped. */
+  codes?: string[]
+  /** Show without a tap: the train is pulling into this station now. */
+  auto?: boolean
 }
 
 interface LiveTrainMapProps {
@@ -39,7 +46,7 @@ interface LiveTrainMapProps {
   train: LiveMapTrain
   /** The trip's other tracked train; its leg stays lit and live on the map. */
   companion?: LiveMapTrain | null
-  inset?: LiveMapInset | null
+  insets?: LiveMapInset[] | null
   transferName?: string | null
   positionUnavailable?: boolean
 }
@@ -310,7 +317,7 @@ export function LiveTrainMap({
   mapData,
   train,
   companion = null,
-  inset = null,
+  insets = null,
   transferName,
   positionUnavailable = false,
 }: LiveTrainMapProps) {
@@ -682,6 +689,7 @@ export function LiveTrainMap({
     const fit = fitRef.current
     const currentView = renderViewRef.current
     const zoomNow = fit && currentView ? fit.width / currentView.w : 1
+    const wasTapped = focusFromTapRef.current
     focusFromTapRef.current = true
     lastMouseMoveAtRef.current = 0
     if (zoomNow < 2.2) {
@@ -690,7 +698,7 @@ export function LiveTrainMap({
       setFocus({ kind: 'train' })
       return
     }
-    setFocus(current => (current?.kind === 'train' ? null : { kind: 'train' }))
+    setFocus(current => (current?.kind === 'train' && wasTapped ? null : { kind: 'train' }))
   }, [])
 
   // A card opened by tap stays open until the next tap or drag; hover-opened
@@ -700,11 +708,16 @@ export function LiveTrainMap({
 
   const toggleFocus = useCallback((next: MapFocus) => {
     if (suppressClickRef.current) return
+    const wasTapped = focusFromTapRef.current
     focusFromTapRef.current = true
     lastMouseMoveAtRef.current = 0
-    setFocus(current => (
-      current && JSON.stringify(current) === JSON.stringify(next) ? null : next
-    ))
+    setFocus(current => {
+      if (current && JSON.stringify(current) === JSON.stringify(next)) {
+        // Clicking a hover-opened card pins it; only a second tap closes it.
+        return wasTapped ? null : current
+      }
+      return next
+    })
   }, [])
 
   const hoverFocus = useCallback((next: MapFocus | null, pointerType: string) => {
@@ -1126,25 +1139,29 @@ export function LiveTrainMap({
             </g>
           )}
         </g>
-
-        <g className="live-map-hits">
-          {[...geometry.routeStations, ...geometry.approachStations].map(station => (
-            <circle
-              key={`hit-${station.code}`}
-              className="live-map-hit"
-              cx={station.x}
-              cy={station.y}
-              r="15"
-              onPointerEnter={event => hoverFocus({ kind: 'station', code: station.code }, event.pointerType)}
-              onPointerLeave={event => hoverLeave({ kind: 'station', code: station.code }, event.pointerType)}
-              onClick={() => toggleFocus({ kind: 'station', code: station.code })}
-            />
-          ))}
-        </g>
       </>
     )
 
-    return { track, overlay }
+    // Station hits render as their own layer, above ghost hits, so a train
+    // parked on a station never makes the station itself un-tappable.
+    const hits = (
+      <g className="live-map-hits">
+        {[...geometry.routeStations, ...geometry.approachStations].map(station => (
+          <circle
+            key={`hit-${station.code}`}
+            className="live-map-hit"
+            cx={station.x}
+            cy={station.y}
+            r="15"
+            onPointerEnter={event => hoverFocus({ kind: 'station', code: station.code }, event.pointerType)}
+            onPointerLeave={event => hoverLeave({ kind: 'station', code: station.code }, event.pointerType)}
+            onClick={() => toggleFocus({ kind: 'station', code: station.code })}
+          />
+        ))}
+      </g>
+    )
+
+    return { track, overlay, hits }
   }, [
     geometry,
     companion,
@@ -1243,6 +1260,9 @@ export function LiveTrainMap({
       color,
       point,
       ghosts,
+      badge: showBadge
+        ? { x: companionGeometry.toPoint.x, y: companionGeometry.toPoint.y, code: companion.to.code }
+        : null,
       track: (
         <g
           className={companion.ended ? 'live-map-companion is-ended' : 'live-map-companion'}
@@ -1356,7 +1376,16 @@ export function LiveTrainMap({
       ? `The ${positionKind} is on the ${train.line} Line, heading toward ${train.toward}.`
       : `Live position is temporarily unavailable for the train heading toward ${train.toward}.`
 
-  // --- Tooltip -----------------------------------------------------------
+  // --- Tooltip & inset ---------------------------------------------------
+
+  // A tapped key station summons its wayfinding card; otherwise the card the
+  // ride is currently pulling into (if any) shows on its own.
+  const insetForCode = (code: string | null | undefined) => (
+    code ? insets?.find(item => item.codes?.includes(code)) ?? null : null
+  )
+  const activeInset = insetForCode(focus?.kind === 'station' ? focus.code : null)
+    ?? insets?.find(item => item.auto)
+    ?? null
 
   const focusTarget = (() => {
     if (!focus) return null
@@ -1459,6 +1488,8 @@ export function LiveTrainMap({
         lines: null as Line[] | null,
       }
     }
+    // Stations with a wayfinding card get the card instead of the tooltip.
+    if (insetForCode(focus.code)) return null
     const station = geometry.routeStations.find(item => item.code === focus.code)
       ?? geometry.approachStations.find(item => item.code === focus.code)
       ?? null
@@ -1560,6 +1591,17 @@ export function LiveTrainMap({
         )}
         {annotations?.overlay}
         {ghostLayer?.hits}
+        {companionLayer?.badge && (
+          <circle
+            className="live-map-hit"
+            cx={companionLayer.badge.x}
+            cy={companionLayer.badge.y}
+            r="16"
+            onPointerEnter={event => hoverFocus({ kind: 'station', code: companionLayer.badge!.code }, event.pointerType)}
+            onPointerLeave={event => hoverLeave({ kind: 'station', code: companionLayer.badge!.code }, event.pointerType)}
+            onClick={() => toggleFocus({ kind: 'station', code: companionLayer.badge!.code })}
+          />
+        )}
         {companionLayer && companionLayer.ghosts.length > 0 && (
           <g className="live-map-hits">
             {companionLayer.ghosts.map(ghost => (
@@ -1576,6 +1618,8 @@ export function LiveTrainMap({
             ))}
           </g>
         )}
+
+        {annotations?.hits}
 
         {companion && companionLayer?.point && (
           <>
@@ -1712,17 +1756,17 @@ export function LiveTrainMap({
         </div>
       )}
 
-      {inset && (
+      {activeInset && (
         <div
           className="live-map-inset"
           role="status"
-          style={inset.line
-            ? { '--inset-color': LINE_COLORS[inset.line].bg } as CSSProperties
+          style={activeInset.line
+            ? { '--inset-color': LINE_COLORS[activeInset.line].bg } as CSSProperties
             : undefined}
         >
-          <small>{inset.kicker}</small>
-          <strong>{inset.title}</strong>
-          {inset.rows.map(row => (
+          <small>{activeInset.kicker}</small>
+          <strong>{activeInset.title}</strong>
+          {activeInset.rows.map(row => (
             <span key={row}>{row}</span>
           ))}
         </div>
