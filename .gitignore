@@ -15,3 +15,9 @@ packages/server/temp/
 .playwright-mcp/
 test*.png
 test-*.png
+
+# Local design playgrounds and working artifacts
+AGENTS.md
+artifacts/
+design/
+verify*.png
