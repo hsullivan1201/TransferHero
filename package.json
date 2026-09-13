@@ -13,7 +13,7 @@
     "dev:client": "npm run dev -w @transferhero/client",
     "dev:server": "npm run dev -w @transferhero/server",
     "typecheck": "npm run build -w @transferhero/shared && npm run typecheck -w @transferhero/shared && npm run typecheck -w @transferhero/server && npm run typecheck -w @transferhero/client",
-    "test": "npm run test -w @transferhero/server",
+    "test": "npm run test:location -w @transferhero/client && npm run test -w @transferhero/server",
     "test:share": "npm run test:share -w @transferhero/server",
     "smoke:share": "npm run build && npm run smoke:share -w @transferhero/server",
     "quality:check": "npm run quality:check -w @transferhero/server",

@@ -3,6 +3,7 @@ import { X, MapPin, Navigation } from 'lucide-react'
 import type { Station, PlaceResult } from '@transferhero/shared'
 import { LineDots } from './LineDot'
 import { useDestinationSearch } from '../hooks/useDestination'
+import { locationErrorMessage, requestCurrentLocation } from '../utils/currentLocation'
 
 export type SmartSelection =
   | { type: 'station'; station: Station }
@@ -30,9 +31,23 @@ export function SmartSelector({
   const [isOpen, setIsOpen] = useState(false)
   const [activeIndex, setActiveIndex] = useState(-1)
   const [locating, setLocating] = useState(false)
+  const [usingFallback, setUsingFallback] = useState(false)
   const [geoError, setGeoError] = useState<string | null>(null)
+  const locationRequestRef = useRef<AbortController | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+
+  const cancelLocation = useCallback(() => {
+    locationRequestRef.current?.abort()
+    locationRequestRef.current = null
+    setLocating(false)
+    setUsingFallback(false)
+    setGeoError(null)
+  }, [])
+
+  // Also invalidate requests when a saved trip or a swap changes this field.
+  useEffect(() => { cancelLocation() }, [value, cancelLocation])
+  useEffect(() => () => { locationRequestRef.current?.abort() }, [])
 
   // debounce for place search
   const [debouncedQuery, setDebouncedQuery] = useState('')
@@ -99,35 +114,48 @@ export function SmartSelector({
 
   const handleSelectStation = useCallback(
     (station: Station) => {
+      cancelLocation()
       onChange({ type: 'station', station })
       setQuery('')
       setIsOpen(false)
       setActiveIndex(-1)
       activeKeyRef.current = null
     },
-    [onChange]
+    [onChange, cancelLocation]
   )
 
   const handleSelectPlace = useCallback(
     (place: PlaceResult) => {
+      cancelLocation()
       onChange({ type: 'place', place })
       setQuery('')
       setIsOpen(false)
       setActiveIndex(-1)
       activeKeyRef.current = null
     },
-    [onChange]
+    [onChange, cancelLocation]
   )
 
   const handleUseLocation = useCallback(() => {
-    if (!navigator.geolocation) {
-      setGeoError('Location is not supported by this browser')
+    if (locationRequestRef.current) return
+    if (!window.isSecureContext) {
+      setGeoError('Location requires a secure connection. Open https://transferhero.app or enter a station or address.')
       return
     }
+    if (!navigator.geolocation) {
+      setGeoError('Location is not supported by this browser. Open this page in Safari or another browser, or enter a station or address.')
+      return
+    }
+    const controller = new AbortController()
+    locationRequestRef.current = controller
     setLocating(true)
+    setUsingFallback(false)
     setGeoError(null)
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
+    const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent)
+      || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1)
+    requestCurrentLocation(navigator.geolocation, controller.signal, {
+      onSuccess: (pos) => {
+        locationRequestRef.current = null
         setLocating(false)
         onChange({
           type: 'location',
@@ -144,17 +172,13 @@ export function SmartSelector({
         setActiveIndex(-1)
         activeKeyRef.current = null
       },
-      (err) => {
+      onError: (failure) => {
+        locationRequestRef.current = null
         setLocating(false)
-        console.error('Geolocation error:', err)
-        setGeoError(
-          err.code === err.PERMISSION_DENIED
-            ? 'Location access denied — check browser permissions'
-            : 'Could not get your location — try again'
-        )
+        setGeoError(locationErrorMessage(failure, isIOS))
       },
-      { enableHighAccuracy: true, timeout: 10000 }
-    )
+      onFallback: () => setUsingFallback(true),
+    })
   }, [onChange])
 
   const handleSelectItem = useCallback(
@@ -167,10 +191,11 @@ export function SmartSelector({
   )
 
   const handleClear = useCallback(() => {
+    cancelLocation()
     onChange(null)
     setQuery('')
     inputRef.current?.focus()
-  }, [onChange])
+  }, [onChange, cancelLocation])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -253,6 +278,7 @@ export function SmartSelector({
         type="text"
         value={query}
         onChange={(e) => {
+          cancelLocation()
           setQuery(e.target.value)
           setIsOpen(true)
           setActiveIndex(-1)
@@ -276,21 +302,25 @@ export function SmartSelector({
         >
           {/* Current location option (From field only, shown when empty) */}
           {showCurrentLocation && query.length === 0 && (
-            <div
+            <button
+              type="button"
+              tabIndex={-1}
               role="option"
               aria-selected={activeIndex === 0}
+              disabled={locating}
               data-idx={0}
-              className={`flex items-center gap-2 px-4 py-3 cursor-pointer border-b border-[var(--border-color)] transition-colors ${
+              className={`flex w-full text-left items-center gap-2 px-4 py-3 cursor-pointer disabled:cursor-wait border-b border-[var(--border-color)] transition-colors ${
                 activeIndex === 0 ? 'bg-[var(--suggestion-hover)]' : 'hover:bg-[var(--suggestion-hover)]'
               }`}
-              onMouseDown={handleUseLocation}
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={handleUseLocation}
               onMouseMove={() => activeIndex !== 0 && setActive(0, items)}
             >
               <Navigation className="w-4 h-4 text-blue-500 shrink-0" />
               <span className="text-[var(--text-primary)] text-base">
                 {locating ? 'Locating...' : 'Use current location'}
               </span>
-            </div>
+            </button>
           )}
 
           {/* Station matches */}
@@ -361,6 +391,13 @@ export function SmartSelector({
         </div>
       )}
 
+      {locating && (
+        <p role="status" className="mt-1.5 text-sm text-[var(--text-secondary)]">
+          {usingFallback
+            ? 'Still finding your location… trying another location method.'
+            : 'Finding your location… allow location access if your browser asks.'}
+        </p>
+      )}
       {geoError && (
         <p role="alert" className="mt-1.5 text-sm text-red-500">{geoError}</p>
       )}
