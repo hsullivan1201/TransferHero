@@ -438,6 +438,34 @@ function transferArriveByIncludesTheCompleteConnection() {
   console.log('✓ transfer arrive-by keeps only complete schedule-valid connections that meet the deadline')
 }
 
+function scheduledHuntingtonTripsKeepArrivalCarAdvice() {
+  const nowMs = Date.UTC(2026, 8, 17, 15, 0, 0)
+  const { deps } = makeDeps(nowMs)
+
+  for (const mode of ['departAtMs', 'arriveByMs'] as const) {
+    for (const from of ['C13', 'K04']) {
+      const direct = from === 'C13'
+      const payload = planScheduledTrip({
+        from,
+        to: 'C15',
+        walkTime: 2,
+        accessible: false,
+        ...(direct ? {} : { transferStation: 'D03' }),
+        [mode]: nowMs + 180 * 60_000,
+      }, deps)
+
+      assert.equal(payload.trip.isDirect, direct)
+      const arrivalLeg = direct ? payload.trip.leg1 : payload.trip.leg2
+      assert.ok(arrivalLeg.trains.length > 0)
+      assert.equal(arrivalLeg.carPosition.boardCar, 6)
+      assert.equal(arrivalLeg.carPosition.exitCar, 6)
+      assert.equal(arrivalLeg.carPosition.details.doorRecommendation.door, 3)
+      assert.equal(arrivalLeg.carPosition.details.trainXPosition, 53)
+    }
+  }
+  console.log('✓ scheduled direct and transfer trips to Huntington keep inbound car advice for leave-at and arrive-by')
+}
+
 rejectsPastDepartures()
 rejectsDeparturesBeyondServiceDay()
 directTripReturnsScheduledTrainsFromOffset()
@@ -449,5 +477,6 @@ leaveAtStartsAfterTheOriginWalk()
 directArriveByChoosesLatestOnTimeDeparture()
 transferLeaveAtAlsoStartsAfterTheOriginWalk()
 transferArriveByIncludesTheCompleteConnection()
+scheduledHuntingtonTripsKeepArrivalCarAdvice()
 
 console.log('scheduledTripPlanner tests passed')

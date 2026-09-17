@@ -199,8 +199,14 @@ export function getTransferWayfinding(
   }
 }
 
-/** Determine a train's track from its destination. */
+/** Determine the arriving train's orientation in the station's diagram. */
 export function getTrackDirection(platform: Platform, destination: string): TrackDirection {
+  // Terminal diagrams face both tracks into the station. Their destination
+  // labels can be identical, so use the diagram's inbound orientation before
+  // matching labels; car and door numbers must not reflect the return trip.
+  if (platform.platformType === 'terminus_eb') return 'track2'
+  if (platform.platformType === 'terminus_wb') return 'track1'
+
   const destLower = destination.toLowerCase()
   const cached = trackDestsLower?.get(platform)
 

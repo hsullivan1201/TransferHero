@@ -277,6 +277,50 @@ async function multiLineDirectTripExposesLineSpecificCarPositions() {
   console.log('✓ multi-line direct trips expose line-specific car positions instead of a misleading shared one')
 }
 
+async function huntingtonTripEndpointsKeepArrivalCarAdvice() {
+  clearAllCache()
+  process.env.WMATA_API_KEY = 'test-key'
+  const handlers = createTripHandlers(createTripPlanner(createMockRealtimeDeps().deps))
+
+  for (const accessible of ['false', 'true']) {
+    for (const from of ['C13', 'K04']) {
+      const direct = from === 'C13'
+      const query = {
+        from,
+        to: 'C15',
+        walkTime: '2',
+        accessible,
+        ...(direct ? {} : { transferStation: 'D03' }),
+      }
+      const originalUrl = `/api/trips?${new URLSearchParams(query)}`
+      const res = makeMockResponse()
+      await runTripGetPipeline(makeMockRequest({ originalUrl, query }), res, handlers.getTrip)
+
+      assert.equal(res.statusCode, 200)
+      assert.equal(res.body.trip.isDirect, direct)
+      const arrivalLeg = direct ? res.body.trip.leg1 : res.body.trip.leg2
+      assert.ok(arrivalLeg.trains.length > 0)
+      assert.equal(arrivalLeg.directionLabels.YL, 'Huntington')
+      assert.equal(arrivalLeg.carPosition.boardCar, 6)
+      assert.equal(arrivalLeg.carPosition.exitCar, 6)
+      assert.equal(arrivalLeg.carPosition.details.trainXPosition, accessible === 'true' ? 46 : 53)
+
+      if (!direct) {
+        const leg2Res = makeMockResponse()
+        await handlers.getLeg2(makeMockRequest({
+          originalUrl: `/api/trips/${from}-C15/leg2`,
+          params: { tripId: `${from}-C15` },
+          query: { departureMin: '3', walkTime: '2', transferStation: 'D03', accessible },
+        }), leg2Res as unknown as Response)
+        assert.equal(leg2Res.statusCode, 200)
+        assert.deepEqual(leg2Res.body.exitCarPosition, arrivalLeg.carPosition,
+          'selecting a connecting train must preserve the arrival car, doors, and exits')
+      }
+    }
+  }
+  console.log('✓ direct, transfer, and refreshed leg2 endpoints recommend car 6 at Huntington in both accessibility modes')
+}
+
 async function tripApiCacheAvoidsDuplicateRealtimeCallsWithinTtl() {
   clearAllCache()
   process.env.WMATA_API_KEY = 'test-key'
@@ -656,6 +700,7 @@ async function selectedLenfantTransferKeepsPlatformPredictionsSeparate() {
 
 await directTripPlanEndpointReturnsStructuredPayload()
 await multiLineDirectTripExposesLineSpecificCarPositions()
+await huntingtonTripEndpointsKeepArrivalCarAdvice()
 await tripApiCacheAvoidsDuplicateRealtimeCallsWithinTtl()
 await staleRealtimeFallbackServesTripAfterUpstreamFailure()
 await leg2PipelineReturnsCatchableTrainsForTransferTrips()

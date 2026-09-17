@@ -27,6 +27,80 @@ function exactDoorGeometryIsTrainOriented() {
   )
 }
 
+function terminalArrivalsUseTheInboundOrientation() {
+  // Expected front-to-back positions from the source terminal diagrams. Both
+  // platform faces point into the terminal, regardless of the arrival track.
+  const cases = [
+    { code: 'C15', line: 'YL', destination: 'Huntington', car: 6, door: 3 },
+    { code: 'F11', line: 'GR', destination: 'Branch Ave', car: 6, door: 1 },
+    { code: 'G05', line: 'BL', destination: 'Largo', car: 6, door: 2 },
+    { code: 'G05', line: 'SV', destination: 'Downtown Largo', car: 6, door: 2 },
+    { code: 'B11', line: 'RD', destination: 'Glenmont', car: 5, door: 3 },
+    { code: 'E10', line: 'GR', destination: 'Greenbelt', car: 3, door: 3 },
+    { code: 'D13', line: 'OR', destination: 'New Carrollton', car: 6, door: 2 },
+    { code: 'N12', line: 'SV', destination: 'Ashburn', car: 5, door: 3 },
+    { code: 'J03', line: 'BL', destination: 'Franconia-Springfield', car: 4, door: 2 },
+    { code: 'A15', line: 'RD', destination: 'Shady Grove', car: 5, door: 1 },
+    { code: 'K08', line: 'OR', destination: 'Vienna', car: 7, door: 1 },
+  ]
+
+  for (const { code, line, destination, car, door } of cases) {
+    const result = getDirectTripCarPosition(code, line, destination)
+    assert.equal(result.boardCar, car, `${destination}: boarding advice must use arrival orientation`)
+    assert.equal(result.exitCar, car, `${destination}: car numbering must stay fixed during the ride`)
+    assert.equal(result.details?.doorRecommendation?.car, car, `${destination}: door and car advice must agree`)
+    assert.equal(result.details?.doorRecommendation?.door, door, `${destination}: door order must follow arrival direction`)
+  }
+
+  console.log('✓ all ten terminal stations use inbound car and door orientation')
+}
+
+function huntingtonExitsAndMarkersUseArrivalOrientation() {
+  for (const accessible of [false, true]) {
+    const result = getDirectTripCarPosition('C15', 'YL', 'Huntington', accessible)
+    assert.equal(result.boardCar, 6)
+    assert.equal(result.details?.exitType, accessible ? 'elevator' : 'escalator')
+    assert.equal(result.details?.trainXPosition, accessible ? 46 : 53)
+    assert.equal(result.details?.doorRecommendation?.door, accessible ? 1 : 3)
+
+    for (const options of [result.exits, result.allExits, result.platformMarkers]) {
+      assert.ok(options?.length, 'every rendered exit collection must be populated')
+      const kingsHighway = options.find(exit => exit.xPosition === 71)
+      assert.equal(kingsHighway?.car, 1, 'Kings Highway remains a distinct exit at the front')
+      assert.equal(kingsHighway?.trainXPosition, 1)
+      for (const exit of options) {
+        assert.equal(exit.doorRecommendation?.car, exit.car, 'exit markers and door advice must agree')
+      }
+    }
+    const huntingtonAve = result.platformMarkers?.find(exit => exit.exitLabel === 1)
+    assert.equal(huntingtonAve?.car, 6)
+    assert.equal(huntingtonAve?.xPosition, 19, 'physical exit coordinates must not change')
+    assert.equal(huntingtonAve?.trainXPosition, 53)
+    assert.equal(huntingtonAve?.doorRecommendation?.door, 3)
+
+    const transfer = getTransferCarPosition('D03', 'OR', 'YL', 'New Carrollton', 'C15', 'Huntington', accessible)
+    assert.equal(transfer.leg2.boardCar, result.boardCar)
+    assert.equal(transfer.leg2.exitCar, result.exitCar)
+    assert.deepEqual(transfer.leg2.details, result.details)
+    assert.deepEqual(transfer.leg2.exits, result.exits)
+    assert.deepEqual(transfer.leg2.allExits, result.allExits)
+    assert.deepEqual(transfer.leg2.platformMarkers, result.platformMarkers)
+  }
+
+  console.log('✓ Huntington direct and transfer guidance keeps all exits, doors, and accessibility markers oriented on arrival')
+}
+
+function nonTerminalTripsKeepDirectionSpecificAdvice() {
+  const southbound = getDirectTripCarPosition('C14', 'YL', 'Huntington')
+  const northbound = getDirectTripCarPosition('C14', 'YL', 'Mt Vernon Sq')
+  assert.equal(southbound.boardCar, 4)
+  assert.equal(northbound.boardCar, 5)
+  assert.equal(getDirectTripCarPosition('E01', 'YL', 'Mt Vernon Sq').boardCar, 7,
+    'a short-turn destination on a through platform must still use its destination mapping')
+
+  console.log('✓ through stations retain direction-specific advice, including short turns')
+}
+
 function accessibleTransferPrefersElevator() {
   const result = getTransferCarPosition(
     'F01',       // transfer station (Gallery Place lower - incoming YL)
@@ -84,6 +158,9 @@ function platformMarkersRemainCompleteAndOriented() {
 
 accessibleTransferPrefersElevator()
 exactDoorGeometryIsTrainOriented()
+terminalArrivalsUseTheInboundOrientation()
+huntingtonExitsAndMarkersUseArrivalOrientation()
+nonTerminalTripsKeepDirectionSpecificAdvice()
 platformMarkersRemainCompleteAndOriented()
 
 console.log('carPositionService tests passed')
