@@ -62,7 +62,7 @@ TransferHero/
 ## Setup
 
 ### Prerequisites
-- Node.js 18+
+- Node.js 22.12+ (production on Railway resolves to Node 24)
 - WMATA API key from [developer.wmata.com](https://developer.wmata.com/)
 - Google Maps API key (for place search + walking directions)
 
