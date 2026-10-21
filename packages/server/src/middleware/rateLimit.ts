@@ -109,3 +109,17 @@ export const shareCreateRateLimit = createRateLimiter({
   windowMs: 60_000,
   max: 30
 })
+
+// Public share pages sit outside /api, so they need their own buckets.
+export const sharePageRateLimit = createRateLimiter({
+  scope: 'share-page',
+  windowMs: 60_000,
+  max: 120
+})
+
+// Card renders are synchronous resvg work (~250ms each) on the main thread.
+export const shareCardRateLimit = createRateLimiter({
+  scope: 'share-card',
+  windowMs: 60_000,
+  max: 30
+})

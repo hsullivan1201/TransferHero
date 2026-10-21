@@ -7,6 +7,11 @@ metro-gtfs-old/
 CLAUDE.md
 node_modules
 packages/server/.env
+.env
+.env.*
+!.env.example
+*.sqlite
+*.sqlite-*
 packages/client/dist
 packages/server/dist
 packages/shared/dist

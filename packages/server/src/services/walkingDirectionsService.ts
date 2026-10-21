@@ -111,7 +111,11 @@ export async function getWalkingDirections(
 
     return result
   } catch (err) {
-    console.error('[Directions] walking directions failed:', err)
+    // node-fetch error messages embed the request URL, which carries the API key.
+    const message = err instanceof Error
+      ? err.message.replace(/([?&]key=)[^&\s]*/gu, '$1[redacted]')
+      : String(err)
+    console.error('[Directions] walking directions failed:', message)
     return null
   }
 }

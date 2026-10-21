@@ -1,6 +1,6 @@
 import { Router } from 'express'
 import type { SharedTripPayload } from '@transferhero/shared'
-import { shareCreateRateLimit } from '../middleware/rateLimit.js'
+import { shareCardRateLimit, shareCreateRateLimit, sharePageRateLimit } from '../middleware/rateLimit.js'
 import { renderShareCardPng } from '../services/shareImage.js'
 import { renderSharePage } from '../services/sharePage.js'
 import {
@@ -127,7 +127,7 @@ sharesApiRouter.get('/:token', (req, res) => {
 
 export const publicSharesRouter = Router()
 
-publicSharesRouter.get('/:token/card.png', async (req, res) => {
+publicSharesRouter.get('/:token/card.png', shareCardRateLimit, async (req, res) => {
   let trip: SharedTripPayload | null
   try {
     trip = resolveShareReference(req.params.token)
@@ -159,7 +159,7 @@ publicSharesRouter.get('/:token/card.png', async (req, res) => {
   }
 })
 
-publicSharesRouter.get('/:token', (req, res) => {
+publicSharesRouter.get('/:token', sharePageRateLimit, (req, res) => {
   let trip: SharedTripPayload | null
   try {
     trip = resolveShareReference(req.params.token)

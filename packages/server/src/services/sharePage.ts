@@ -92,8 +92,10 @@ export function renderSharePage(trip: SharedTripPayload, token: string, baseUrl:
     <meta name="twitter:image" content="${escapeHtml(imageUrl)}" />
     <meta name="twitter:image:alt" content="${escapeHtml(imageAlt)}" />`
 
+  // Replacer functions, not strings: user text may contain `$\``/`$&`, which a
+  // replacement string would expand into copies of the surrounding document.
   return clientIndex()
-    .replace(/<title>[^<]*<\/title>/iu, `<title>${escapeHtml(title)}</title>`)
-    .replace(/<meta\s+name=["']description["'][^>]*>/iu, `<meta name="description" content="${escapeHtml(description)}" />`)
-    .replace('</head>', `${tags}\n  </head>`)
+    .replace(/<title>[^<]*<\/title>/iu, () => `<title>${escapeHtml(title)}</title>`)
+    .replace(/<meta\s+name=["']description["'][^>]*>/iu, () => `<meta name="description" content="${escapeHtml(description)}" />`)
+    .replace('</head>', () => `${tags}\n  </head>`)
 }
