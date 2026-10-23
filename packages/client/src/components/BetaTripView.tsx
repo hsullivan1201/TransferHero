@@ -769,10 +769,13 @@ function destinationGuidance(context: PlaceContext | null, carPosition: CarPosit
         ].find((option) => option.exitLabel === exactExitLabel)
     return {
       name: context.exit.name,
+      // An entrance this platform can't place must not lend its name to the
+      // egress the boarding strip falls back to.
+      markerLabel: exactOption ? context.exit.name : carPosition?.details?.exitDescription ?? 'Best exit',
       type: exactOption?.type,
       car: exactOption?.car,
       position: exactOption?.position,
-      exitLabel: exactExitLabel,
+      exitLabel: exactOption ? exactExitLabel : undefined,
       trainXPosition: exactOption?.trainXPosition,
       doorRecommendation: exactOption?.doorRecommendation,
     }
@@ -780,8 +783,10 @@ function destinationGuidance(context: PlaceContext | null, carPosition: CarPosit
 
   const exitOptions = carPosition?.allExits ?? carPosition?.exits
   const preferred = exitOptions?.find((option) => option.preferred) ?? exitOptions?.[0]
+  const name = preferred?.label ?? carPosition?.details?.exitDescription ?? carPosition?.legend ?? 'Follow station exit signs'
   return {
-    name: preferred?.label ?? carPosition?.details?.exitDescription ?? carPosition?.legend ?? 'Follow station exit signs',
+    name,
+    markerLabel: name,
     type: preferred?.type ?? carPosition?.details?.exitType,
     car: preferred?.car ?? carPosition?.exitCar,
     position: preferred?.position ?? (carPosition?.exitCar ? getPositionForEightCar(carPosition.exitCar) : undefined),
@@ -1462,7 +1467,7 @@ export function BetaTripView({
               type: isDirect
                 ? destinationExit.type ?? activeLeg1CarPosition.details?.exitType
                 : activeLeg1CarPosition.details?.exitType ?? 'escalator',
-              label: isDirect ? destinationExit.name : `${finalLine ? LINE_NAMES[finalLine] : 'Connecting'} Line`,
+              label: isDirect ? destinationExit.markerLabel : `${finalLine ? LINE_NAMES[finalLine] : 'Connecting'} Line`,
             }}
           />
         </BetaStep>
@@ -1561,7 +1566,7 @@ export function BetaTripView({
             primaryMarker={{
               trainXPosition: destinationExit.trainXPosition ?? leg2CarPosition.details?.trainXPosition,
               type: destinationExit.type ?? leg2CarPosition.details?.exitType,
-              label: destinationExit.name,
+              label: destinationExit.markerLabel,
             }}
           />
         </BetaStep>

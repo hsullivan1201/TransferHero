@@ -1,10 +1,16 @@
 import assert from 'node:assert/strict'
+import type { Line } from '@transferhero/shared'
 import {
   findClosestDoor,
+  findPlatformForLine,
   getDirectTripCarPosition,
   getDoorRecommendation,
+  getStation,
+  getTrackDirection,
   getTransferCarPosition,
 } from './carPositionService.js'
+import { LINE_PATHS, TERMINI } from './lineConfig.js'
+import { ALL_STATIONS } from './stations.js'
 
 function exactDoorGeometryIsTrainOriented() {
   assert.deepEqual(
@@ -156,8 +162,76 @@ function platformMarkersRemainCompleteAndOriented() {
   console.log('✓ platform markers stay complete, distinct, and train-oriented')
 }
 
+function shortTurnsKeepTheirDirectionsOrientation() {
+  // A terminus missing from a diagram's labels used to fall back to track 1,
+  // mirroring every exit for trains headed the other way (e.g. Red Line trains
+  // to Fort Totten, Yellow Line trains to Pentagon City or Greenbelt).
+  const nameOf = (code: string) => ALL_STATIONS.find(station => station.code === code)!.name
+  const indexOf = (path: string[], name: string) => {
+    const code = ALL_STATIONS.find(station => station.name === name)?.code
+    return code ? path.indexOf(code) : -1
+  }
+  let checked = 0
+
+  for (const [line, paths] of Object.entries(LINE_PATHS) as [Line, string[][]][]) {
+    for (const path of paths) {
+      for (let here = 1; here < path.length - 1; here++) {
+        const code = path[here]
+        const platform = findPlatformForLine(getStation(code)!, line)
+        assert.ok(platform, `${line} must have a platform at ${code}`)
+        if (platform.platformType.startsWith('terminus')) continue
+        const context = { stationCode: code, line }
+
+        const towardA = getTrackDirection(platform, nameOf(path[0]), context)
+        const towardB = getTrackDirection(platform, nameOf(path[path.length - 1]), context)
+        assert.notEqual(towardA, towardB, `${line} at ${code}: opposite directions must not share a track`)
+
+        for (const [termini, expected, ahead] of [
+          [TERMINI[line].toward_a, towardA, (index: number) => index >= 0 && index < here],
+          [TERMINI[line].toward_b, towardB, (index: number) => index > here],
+        ] as const) {
+          for (const terminus of termini) {
+            if (!ahead(indexOf(path, terminus))) continue
+            assert.equal(
+              getTrackDirection(platform, terminus, context),
+              expected,
+              `${line} at ${code} toward ${terminus} must face the same way as its end of the line`
+            )
+            checked++
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`✓ ${checked} short-turn and through destinations keep their direction's orientation`)
+}
+
+function yellowLineExtensionStationsHaveOrientedExits() {
+  // U Street: 13th & U is the west end, 10th & U the east end.
+  const southbound = getDirectTripCarPosition('E03', 'YL', 'Huntington')
+  const northbound = getDirectTripCarPosition('E03', 'YL', 'Greenbelt')
+  assert.deepEqual(southbound.platformMarkers, getDirectTripCarPosition('E03', 'GR', 'Branch Ave').platformMarkers)
+  assert.deepEqual(northbound.platformMarkers, getDirectTripCarPosition('E03', 'GR', 'Greenbelt').platformMarkers)
+
+  const carFor = (result: typeof southbound, description: string, type: string) =>
+    result.platformMarkers?.find(marker => marker.description === description && marker.type === type)?.car
+  assert.equal(carFor(southbound, '10th & U St', 'escalator'), 2, 'southbound trains lead with the 10th St end')
+  assert.equal(carFor(southbound, '13th & U St', 'escalator'), 7)
+  assert.equal(carFor(northbound, '10th & U St', 'escalator'), 7, 'northbound trains lead with the 13th St end')
+  assert.equal(carFor(northbound, '13th & U St', 'escalator'), 2)
+
+  const fortTotten = getTransferCarPosition('B06', 'RD', 'YL', 'Glenmont', 'E03', 'Huntington')
+  assert.notEqual(fortTotten.leg1.confidence, 'low', 'Red to Yellow at Fort Totten needs real transfer guidance')
+  assert.deepEqual(fortTotten.leg2.platformMarkers, southbound.platformMarkers)
+
+  console.log('✓ Yellow Line stops north of Mt Vernon Sq get the same oriented exits as Green Line trains')
+}
+
 accessibleTransferPrefersElevator()
 exactDoorGeometryIsTrainOriented()
+shortTurnsKeepTheirDirectionsOrientation()
+yellowLineExtensionStationsHaveOrientedExits()
 terminalArrivalsUseTheInboundOrientation()
 huntingtonExitsAndMarkersUseArrivalOrientation()
 nonTerminalTripsKeepDirectionSpecificAdvice()

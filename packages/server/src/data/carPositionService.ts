@@ -3,6 +3,10 @@
 import { readFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { fileURLToPath } from 'url'
+import { getTrackDirection, type TrackDirection } from './trackOrientation.js'
+
+export { getTrackDirection } from './trackOrientation.js'
+export type { TrackContext, TrackDirection } from './trackOrientation.js'
 
 export interface Egress {
   x: number
@@ -75,8 +79,6 @@ export interface CarPosition {
   }
 }
 
-export type TrackDirection = 'track1' | 'track2'
-
 export interface TransferWayfinding {
   toPlatformLines: string[]
   levelInstruction: 'up one level' | 'down one level' | 'across the station'
@@ -92,7 +94,6 @@ let cachedData: StationData | null = null
 
 let wmataCodeIndex: Map<string, Station> | null = null
 let lowerNameIndex: Map<string, Station> | null = null
-let trackDestsLower: WeakMap<Platform, { track1: string[]; track2: string[] }> | null = null
 
 function loadStationData(): StationData {
   if (cachedData) return cachedData
@@ -106,17 +107,10 @@ function loadStationData(): StationData {
 
     wmataCodeIndex = new Map()
     lowerNameIndex = new Map()
-    trackDestsLower = new WeakMap()
     for (const [name, station] of Object.entries(cachedData.stations)) {
       if (station.wmataCode) wmataCodeIndex.set(station.wmataCode, station)
       lowerNameIndex.set(name.toLowerCase(), station)
       if (station.nameAlt) lowerNameIndex.set(station.nameAlt.toLowerCase(), station)
-      for (const platform of station.platforms) {
-        trackDestsLower.set(platform, {
-          track1: platform.track1Destinations.map(d => d.toLowerCase()),
-          track2: platform.track2Destinations.map(d => d.toLowerCase()),
-        })
-      }
     }
 
     return cachedData
@@ -197,37 +191,6 @@ export function getTransferWayfinding(
     toPlatformLines: outgoingPlatform?.lines ?? [outgoingLine],
     levelInstruction,
   }
-}
-
-/** Determine the arriving train's orientation in the station's diagram. */
-export function getTrackDirection(platform: Platform, destination: string): TrackDirection {
-  // Terminal diagrams face both tracks into the station. Their destination
-  // labels can be identical, so use the diagram's inbound orientation before
-  // matching labels; car and door numbers must not reflect the return trip.
-  if (platform.platformType === 'terminus_eb') return 'track2'
-  if (platform.platformType === 'terminus_wb') return 'track1'
-
-  const destLower = destination.toLowerCase()
-  const cached = trackDestsLower?.get(platform)
-
-  const t1 = cached?.track1 ?? platform.track1Destinations
-  const t2 = cached?.track2 ?? platform.track2Destinations
-
-  for (const d of t1) {
-    const dLower = cached ? d : d.toLowerCase()
-    if (destLower.includes(dLower) || dLower.includes(destLower)) {
-      return 'track1'
-    }
-  }
-
-  for (const d of t2) {
-    const dLower = cached ? d : d.toLowerCase()
-    if (destLower.includes(dLower) || dLower.includes(destLower)) {
-      return 'track2'
-    }
-  }
-
-  return 'track1'
 }
 
 /** Convert x-position (light pair 1-72) to car number (1-8). */
@@ -562,7 +525,7 @@ export function getDirectTripCarPosition(
   const platform = findPlatformForLine(station, line)
   if (!platform) return buildFallbackCarPosition()
 
-  const track = getTrackDirection(platform, trainDestination)
+  const track = getTrackDirection(platform, trainDestination, { stationCode: destinationCode, line })
   const egresses = getEgressesForTrack(platform, track)
   const bestEgress = findBestEgress(egresses, accessible)
 
@@ -626,7 +589,10 @@ export function getTransferCarPosition(
     return { leg1: fallback, leg2: fallback }
   }
 
-  const inTrack = getTrackDirection(inPlatform, incomingDestination)
+  const inTrack = getTrackDirection(inPlatform, incomingDestination, {
+    stationCode: transferCode,
+    line: incomingLine,
+  })
   const leg1PlatformMarkers = getPlatformMarkers(getEgressesForTrack(inPlatform, inTrack), inTrack)
 
   // Accessible mode: try to use an elevator-based egress even if an explicit transfer mapping exists
@@ -692,7 +658,10 @@ export function getTransferCarPosition(
   if (destStation) {
     const destPlatform = findPlatformForLine(destStation, outgoingLine)
     if (destPlatform) {
-      const destTrack = getTrackDirection(destPlatform, finalDestination)
+      const destTrack = getTrackDirection(destPlatform, finalDestination, {
+        stationCode: destinationCode,
+        line: outgoingLine,
+      })
       const destEgresses = getEgressesForTrack(destPlatform, destTrack)
       const destEgress = findBestEgress(destEgresses, accessible)
       leg2PlatformMarkers = getPlatformMarkers(destEgresses, destTrack)

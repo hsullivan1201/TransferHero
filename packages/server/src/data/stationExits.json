@@ -388,6 +388,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -728,13 +729,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -776,13 +779,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -919,6 +924,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -1610,13 +1616,15 @@
         {
           "level": "lower",
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -2004,13 +2012,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -2088,13 +2098,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Greenbelt"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "terminus_eb",
           "egresses": {
@@ -2328,13 +2340,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "side",
           "egresses": {
@@ -2528,6 +2542,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -3049,7 +3064,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "Red Line, 13th & G"
+                "description": "Red Line to Shady Grove, 11th & G, 13th & G"
               },
               {
                 "x": 33,
@@ -3057,7 +3072,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Red Line, 11th & G"
+                "description": "Red Line to Glenmont, 11th & G, 13th & G"
               },
               {
                 "x": 42,
@@ -3657,6 +3672,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -3732,6 +3748,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -3833,6 +3850,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -4136,13 +4154,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -4647,13 +4667,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "island",
           "egresses": {
@@ -5000,6 +5022,7 @@
             "Huntington"
           ],
           "track2Destinations": [
+            "Greenbelt",
             "Largo",
             "Mt Vernon Sq"
           ],
@@ -5167,13 +5190,15 @@
       "platforms": [
         {
           "lines": [
-            "GR"
+            "GR",
+            "YL"
           ],
           "track1Destinations": [
             "Greenbelt"
           ],
           "track2Destinations": [
-            "Branch Ave"
+            "Branch Ave",
+            "Huntington"
           ],
           "platformType": "side",
           "egresses": {
