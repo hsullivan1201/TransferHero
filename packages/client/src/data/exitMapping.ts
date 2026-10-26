@@ -276,7 +276,8 @@ function normalizeExitName(name: string): string {
 function containsKeyword(name: string, keyword: string): boolean {
   const normalized = normalizeExitName(keyword)
   const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-  const before = /^\d/.test(normalized) ? '(?<!\\d)' : ''
+  // No lookbehind: iOS Safari before 16.4 throws on it.
+  const before = /^\d/.test(normalized) ? '(?:^|\\D)' : ''
   const after = /\d$/.test(normalized) ? '(?!\\d)' : ''
   return new RegExp(`${before}${escaped}${after}`).test(name)
 }
