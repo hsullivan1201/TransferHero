@@ -357,8 +357,8 @@ function buildExitLabel(egress: Egress): string {
   let desc = egress.description || ''
 
   desc = desc
-    .replace(/,?\s*Elevator to Platform( Only)?/gi, '')
     .replace(/,?\s*Elevator to Platform & Street/gi, '')
+    .replace(/,?\s*Elevator to Platform( Only)?/gi, '')
     .replace(/,?\s*Escalators?/gi, '')
     .replace(/,?\s*Stairs/gi, '')
     .trim()
@@ -455,6 +455,10 @@ function dedupeExitOptionsByCar(exits: ExitOption[]): ExitOption[] {
   return Array.from(exitsByCar.values())
 }
 
+const LINE_WORDS: Record<string, string> = {
+  RD: 'red', OR: 'orange', SV: 'silver', BL: 'blue', YL: 'yellow', GR: 'green',
+}
+
 /**
  * Find egress that leads to a connecting platform (for transfers)
  * @param outgoingDestination - Terminus of the outgoing train (for direction-specific matching)
@@ -484,23 +488,21 @@ function findTransferEgress(
     }
   }
   
-  // Fall back to line-only match
-  for (const egress of filtered) {
-    if (egress.description) {
-      const desc = egress.description.toLowerCase()
-      for (const line of targetLines) {
-        // Check for line mentions like "RD Trains" or "BL/OR/SV"
-        if (desc.includes(line.toLowerCase()) || desc.includes(`${line.toLowerCase()} trains`)) {
-          return egress
-        }
-      }
-      // Also check for "opposite platform" or similar
-      if (desc.includes('platform') && !desc.includes('street')) {
-        return egress
-      }
-    }
-  }
-  
+  // Fall back to line-only match ("BL/OR/SV Trains", "Red Line") on whole
+  // words, so "or" can't match "platform" and "rd" can't match "toward".
+  const lineWords = new Set(targetLines.flatMap(line => [line.toLowerCase(), LINE_WORDS[line]]))
+  const lineEgress = filtered.find(egress =>
+    egress.description?.toLowerCase().split(/[^a-z]+/).some(word => lineWords.has(word))
+  )
+  if (lineEgress) return lineEgress
+
+  // Then "opposite platform" or similar
+  const platformEgress = filtered.find(egress => {
+    const desc = egress.description?.toLowerCase() ?? ''
+    return desc.includes('platform') && !desc.includes('street')
+  })
+  if (platformEgress) return platformEgress
+
   // Fall back to best egress
   return findBestEgress(egresses, accessible)
 }

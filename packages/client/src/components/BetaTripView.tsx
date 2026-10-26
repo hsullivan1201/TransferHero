@@ -41,7 +41,7 @@ import {
   resolveLeaveByTimestamp,
 } from '../utils/time'
 import { buildMapsUrl, formatDistance } from '../utils/geo'
-import { resolveExitLabel } from '../data/exitMapping'
+import { resolveExitLabels } from '../data/exitMapping'
 import { useNow } from '../hooks/useNow'
 import { LiveTripMapModal } from './LiveTripMapModal'
 import { PlatformEgressIcon } from './PlatformEgressIcon'
@@ -217,11 +217,6 @@ interface PrimaryBoardingMarker {
   label: string
 }
 
-function exitGroupLetter(exitLabel: number | undefined): string | null {
-  if (!exitLabel || exitLabel < 1 || exitLabel > 26) return null
-  return String.fromCharCode(64 + exitLabel)
-}
-
 function diagramPositionStyle(trainXPosition: number, carCount: number): CSSProperties {
   const gap = 4
   const maxX = carCount * 9
@@ -266,11 +261,10 @@ function buildBoardingMarkers(
       seenPositions.add(positionKey)
     }
 
-    const letter = exitGroupLetter(marker.exitLabel)
     markers.push({
       trainXPosition: marker.trainXPosition!,
       type: marker.type,
-      label: marker.description ?? marker.label ?? (letter ? `Exit ${letter}` : marker.type),
+      label: marker.description ?? marker.label ?? marker.type,
       primary: false,
     })
   }
@@ -758,15 +752,15 @@ function WalkingWayfindingStep({
   )
 }
 
-function destinationGuidance(context: PlaceContext | null, carPosition: CarPosition | null) {
+function destinationGuidance(context: PlaceContext | null, carPosition: CarPosition | null, line: Line | undefined) {
   if (context) {
-    const exactExitLabel = resolveExitLabel(context.station.code, context.exit.name)
-    const exactOption = exactExitLabel == null
-      ? undefined
-      : [
-          ...(carPosition?.allExits ?? carPosition?.exits ?? []),
-          ...(carPosition?.platformMarkers ?? []),
-        ].find((option) => option.exitLabel === exactExitLabel)
+    const options = [
+      ...(carPosition?.allExits ?? carPosition?.exits ?? []),
+      ...(carPosition?.platformMarkers ?? []),
+    ]
+    const exactOption = resolveExitLabels(context.station.code, context.exit.name, line)
+      .map((exitLabel) => options.find((option) => option.exitLabel === exitLabel))
+      .find((option) => option != null)
     return {
       name: context.exit.name,
       // An entrance this platform can't place must not lend its name to the
@@ -775,7 +769,6 @@ function destinationGuidance(context: PlaceContext | null, carPosition: CarPosit
       type: exactOption?.type,
       car: exactOption?.car,
       position: exactOption?.position,
-      exitLabel: exactOption ? exactExitLabel : undefined,
       trainXPosition: exactOption?.trainXPosition,
       doorRecommendation: exactOption?.doorRecommendation,
     }
@@ -790,7 +783,6 @@ function destinationGuidance(context: PlaceContext | null, carPosition: CarPosit
     type: preferred?.type ?? carPosition?.details?.exitType,
     car: preferred?.car ?? carPosition?.exitCar,
     position: preferred?.position ?? (carPosition?.exitCar ? getPositionForEightCar(carPosition.exitCar) : undefined),
-    exitLabel: preferred?.exitLabel,
     trainXPosition: preferred?.trainXPosition ?? carPosition?.details?.trainXPosition,
     doorRecommendation: preferred?.doorRecommendation ?? carPosition?.details?.doorRecommendation,
   }
@@ -1031,8 +1023,9 @@ export function BetaTripView({
   const leaveByClock = leaveByTimestamp == null
     ? null
     : new Date(leaveByTimestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
-  const destinationExit = destinationGuidance(destPlaceContext, isDirect ? activeLeg1CarPosition : leg2CarPosition)
-  const destinationExitLetter = exitGroupLetter(destinationExit.exitLabel)
+  const destinationExit = isDirect
+    ? destinationGuidance(destPlaceContext, activeLeg1CarPosition, primaryLine)
+    : destinationGuidance(destPlaceContext, leg2CarPosition, finalLine)
   const transferName = transfer?.name ?? ''
   const firstHeadsign = summaryTrain ? getDisplayName(summaryTrain.DestinationName) : 'your train'
   const secondHeadsign = routeLeg2Train
@@ -1589,7 +1582,6 @@ export function BetaTripView({
           <div className="beta-sign beta-direction-sign beta-exit-sign">
             <span className="beta-exit-tag">
               <b>Exit</b>
-              {destinationExitLetter && <span>{destinationExitLetter}</span>}
             </span>
             <span className="beta-direction-copy">
               <strong>{destinationExit.name}</strong>

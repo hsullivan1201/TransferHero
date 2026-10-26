@@ -1834,7 +1834,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 3,
-                "description": "7th & H St"
+                "description": "Exit C, 7th & H St"
               },
               {
                 "x": 17,
@@ -1862,7 +1862,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 1,
-                "description": "Red Line, 7th & F St"
+                "description": "Red Line to Shady Grove, Exits A, B (9th & G St)"
               },
               {
                 "x": 41,
@@ -1870,7 +1870,7 @@
                 "y": 2,
                 "preferred": true,
                 "exitLabel": 2,
-                "description": "Red Line, 7th & F St"
+                "description": "Red Line to Glenmont, Exits A, B (9th & G St)"
               },
               {
                 "x": 57,
@@ -1884,7 +1884,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 5,
-                "description": "7th & F St"
+                "description": "Exit D, 7th & F St"
               },
               {
                 "x": 67,
@@ -1921,7 +1921,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "9th & G St"
+                "description": "Exit B, 9th & G St"
               },
               {
                 "x": 65,
@@ -1930,7 +1930,7 @@
                 "y": 2,
                 "preferred": false,
                 "exitLabel": 2,
-                "description": "Green/Yellow Line, 7th & H St"
+                "description": "Green/Yellow Line, Exits A, C, D"
               },
               {
                 "x": 69,
@@ -1947,7 +1947,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 1,
-                "description": "9th & G St"
+                "description": "Exit B, 9th & G St"
               },
               {
                 "x": 65,
@@ -1956,7 +1956,7 @@
                 "y": 1,
                 "preferred": false,
                 "exitLabel": 3,
-                "description": "Green/Yellow Line, 7th & H St"
+                "description": "Green/Yellow Line, Exits A, C, D"
               },
               {
                 "x": 69,
@@ -2622,35 +2622,40 @@
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 5
+                "exitLabel": 5,
+                "description": "Exit C, 9th St & L'Enfant Plaza"
               },
               {
                 "x": 23,
                 "type": "elevator",
                 "y": 3,
                 "preferred": false,
-                "exitLabel": 1
+                "exitLabel": 1,
+                "description": "Elevator to All Destinations"
               },
               {
                 "x": 38,
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 2
+                "exitLabel": 2,
+                "description": "Green/Yellow Line to Branch Ave/Huntington, Exit A, 7th & Maryland Ave"
               },
               {
                 "x": 48,
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 3
+                "exitLabel": 3,
+                "description": "Green/Yellow Line to Greenbelt/Mt Vernon Sq, Exit A, 7th & Maryland Ave"
               },
               {
                 "x": 58,
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 4
+                "exitLabel": 4,
+                "description": "Exit B, D St"
               }
             ]
           }
@@ -2677,14 +2682,16 @@
                 "type": "elevator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 1
+                "exitLabel": 1,
+                "description": "Opposite Platform & Street"
               },
               {
                 "x": 20,
                 "type": "escalator",
                 "y": 2,
                 "preferred": true,
-                "exitLabel": 3
+                "exitLabel": 3,
+                "description": "Exit A, 7th & Maryland Ave"
               },
               {
                 "x": 27,
@@ -2698,7 +2705,8 @@
                 "type": "exit",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 4
+                "exitLabel": 4,
+                "description": "BL/OR/SV Trains, Exit B, No Elevator"
               },
               {
                 "x": 51,
@@ -2712,7 +2720,8 @@
                 "type": "escalator",
                 "y": 2,
                 "preferred": false,
-                "exitLabel": 2
+                "exitLabel": 2,
+                "description": "Opposite Platform"
               }
             ],
             "track2": [
@@ -2721,14 +2730,16 @@
                 "type": "elevator",
                 "y": 1,
                 "preferred": false,
-                "exitLabel": 1
+                "exitLabel": 1,
+                "description": "Opposite Platform & Street"
               },
               {
                 "x": 20,
                 "type": "escalator",
                 "y": 1,
                 "preferred": true,
-                "exitLabel": 3
+                "exitLabel": 3,
+                "description": "Exit A, 7th & Maryland Ave"
               },
               {
                 "x": 27,
@@ -2742,7 +2753,8 @@
                 "type": "exit",
                 "y": 1,
                 "preferred": false,
-                "exitLabel": 5
+                "exitLabel": 5,
+                "description": "BL/OR/SV Trains, Exit C, Elevator to Platform Only"
               },
               {
                 "x": 51,
@@ -2756,7 +2768,8 @@
                 "type": "escalator",
                 "y": 1,
                 "preferred": false,
-                "exitLabel": 2
+                "exitLabel": 2,
+                "description": "Opposite Platform"
               }
             ],
             "shared": []

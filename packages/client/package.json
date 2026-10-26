@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host",
+    "test": "node --test tests/currentLocation.test.mjs tests/exitMapping.test.mjs",
     "test:location": "node --test tests/currentLocation.test.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit --noUnusedLocals --noUnusedParameters",
     "build": "tsc --build --force && vite build",

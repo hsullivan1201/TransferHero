@@ -228,8 +228,30 @@ function yellowLineExtensionStationsHaveOrientedExits() {
   console.log('✓ Yellow Line stops north of Mt Vernon Sq get the same oriented exits as Green Line trains')
 }
 
+function lEnfantTransfersUseTheConnectingEscalators() {
+  // Lower level: the Exit A escalators split by Green/Yellow direction.
+  const toBranchAve = getTransferCarPosition('D03', 'BL', 'GR', 'Downtown Largo', 'F06', 'Branch Ave')
+  const toGreenbelt = getTransferCarPosition('D03', 'OR', 'GR', 'New Carrollton', 'E03', 'Greenbelt')
+  assert.equal(toBranchAve.leg1.details?.xPosition, 38)
+  assert.equal(toGreenbelt.leg1.details?.xPosition, 48)
+  // A destination the signs don't name still finds the line by its name.
+  const toPentagonCity = getTransferCarPosition('D03', 'BL', 'YL', 'Downtown Largo', 'C08', 'Pentagon City')
+  assert.match(toPentagonCity.leg1.details?.exitDescription ?? '', /Green\/Yellow Line/)
+
+  // Upper level: each side platform has its own way down to BL/OR/SV, which
+  // must beat the "Opposite Platform" escalator.
+  for (const incoming of ['Greenbelt', 'Branch Ave']) {
+    const transfer = getTransferCarPosition('F03', 'GR', 'OR', incoming, 'D08', 'New Carrollton')
+    assert.equal(transfer.leg1.details?.xPosition, 46, `GR toward ${incoming} to OR`)
+    assert.match(transfer.leg1.details?.exitDescription ?? '', /BL\/OR\/SV Trains/)
+  }
+
+  console.log("✓ L'Enfant Plaza transfers use the escalators to the connecting line")
+}
+
 accessibleTransferPrefersElevator()
 exactDoorGeometryIsTrainOriented()
+lEnfantTransfersUseTheConnectingEscalators()
 shortTurnsKeepTheirDirectionsOrientation()
 yellowLineExtensionStationsHaveOrientedExits()
 terminalArrivalsUseTheInboundOrientation()

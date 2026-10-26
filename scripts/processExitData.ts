@@ -267,13 +267,26 @@ function processData(
   exits: RawExit[],
   doors: RawDoor[]
 ): OutputData {
-  // Build exit descriptions lookup
+  // Build exit descriptions lookup. Exits.csv doesn't always spell a station
+  // the way Stations.csv does: it uses nameAlt ("U St") and curly apostrophes
+  // ("L’Enfant Plaza"). Unnormalized, those stations silently lose every label.
+  const canonicalName = (name: string) => name.replace(/’/g, "'")
+  const knownNames = new Set(stations.map(s => canonicalName(s.nameStd)))
+  const nameByAlt = new Map(
+    stations.filter(s => s.nameAlt).map(s => [canonicalName(s.nameAlt), canonicalName(s.nameStd)])
+  )
   const exitDescriptions: Record<string, Record<number, string>> = {}
   for (const exit of exits) {
-    if (!exitDescriptions[exit.nameStd]) {
-      exitDescriptions[exit.nameStd] = {}
+    const exitName = canonicalName(exit.nameStd)
+    const stationName = knownNames.has(exitName) ? exitName : nameByAlt.get(exitName)
+    if (!stationName) {
+      console.warn(`Exits.csv names an unknown station: ${exit.nameStd}`)
+      continue
     }
-    exitDescriptions[exit.nameStd][parseInt(exit.exitLabel)] = exit.description
+    if (!exitDescriptions[stationName]) {
+      exitDescriptions[stationName] = {}
+    }
+    exitDescriptions[stationName][parseInt(exit.exitLabel)] = exit.description
   }
 
   // Build door positions
@@ -310,7 +323,7 @@ function processData(
   for (const rawStation of stations) {
     const stationName = rawStation.nameStd
     const stationEgresses = egressesByStation[stationName] || []
-    const stationExits = exitDescriptions[stationName] || {}
+    const stationExits = exitDescriptions[canonicalName(stationName)] || {}
 
     // Check if this is a multi-platform station (name contains level indicator)
     const isLowerLevel = stationName.includes('(Lower Level)')

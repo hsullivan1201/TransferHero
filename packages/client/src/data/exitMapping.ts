@@ -1,17 +1,20 @@
 /**
  * Manual mapping: GTFS exit names → platform exitLabel groups.
  *
- * For each multi-exit station, an ordered list of rules.
+ * For each multi-exit platform, an ordered list of rules.
  * The GTFS exit name is matched case-insensitively against each rule's
- * `match` keywords (substring match). First matching rule wins.
+ * `match` keywords (substring match, ordinal suffixes ignored). First
+ * matching rule wins.
  *
- * Only the 23 stations with multiple exitLabel groups need entries here.
+ * Exit labels are numbered per platform, so the two-level stations have one
+ * entry per level, keyed by that level's platform code (see PLATFORM_CODES).
  * Single-exit stations fall through to the keyword-matching fallback.
  */
 
 interface ExitRule {
   match: string[]
-  exitLabel: number
+  /** Preference order; side platforms only carry some labels on each track. */
+  exitLabel: number | number[]
 }
 
 const EXIT_MAP: Record<string, ExitRule[]> = {
@@ -57,22 +60,24 @@ const EXIT_MAP: Record<string, ExitRule[]> = {
     { match: ['western', 'wisconsin'], exitLabel: 1 },
   ],
 
-  // ─── Gallery Place (B01 / F01) ───
-  // exitLabel 1: 9th & G St (west)
-  // exitLabel 3: 7th & H St (north)
-  // exitLabel 4: Elevator
-  // exitLabel 5: 7th & F St (south/east)
+  // ─── Gallery Place, Red Line level (B01, side platforms) ───
+  // exitLabel 1: Exit B, 9th & G St (west end)
+  // exitLabel 2: Green/Yellow Line, Exits A, C, D (east end, Shady Grove side)
+  // exitLabel 3: Green/Yellow Line, Exits A, C, D (east end, Glenmont side)
   'B01': [
     { match: ['9th', '9 st', '9st'], exitLabel: 1 },
-    { match: ['h st', 'h street'], exitLabel: 3 },
-    { match: ['elevator'], exitLabel: 4 },
-    { match: ['f st', 'f street'], exitLabel: 5 },
+    { match: ['h st', 'h street', 'f st', 'f street', 'elevator'], exitLabel: [2, 3] },
   ],
+
+  // ─── Gallery Place, Green/Yellow Line level (F01) ───
+  // exitLabel 1/2: Red Line, Exits A, B (B = 9th & G St)
+  // exitLabel 3: Exit C, 7th & H St (north end)
+  // exitLabel 4: Elevator to Platform Only
+  // exitLabel 5: Elevator to Exit D, 7th & F St (south end)
   'F01': [
-    { match: ['9th', '9 st', '9st'], exitLabel: 1 },
+    { match: ['9th', '9 st', '9st'], exitLabel: [1, 2] },
     { match: ['h st', 'h street'], exitLabel: 3 },
-    { match: ['elevator'], exitLabel: 4 },
-    { match: ['f st', 'f street'], exitLabel: 5 },
+    { match: ['f st', 'f street', 'elevator'], exitLabel: 5 },
   ],
 
   // ─── Huntington (C15) ───
@@ -101,6 +106,30 @@ const EXIT_MAP: Record<string, ExitRule[]> = {
     { match: ['commonwealth', 'king st'], exitLabel: 1 },
   ],
 
+  // ─── L'Enfant Plaza, Blue/Orange/Silver level (D03) ───
+  // exitLabel 1: Elevator to All Destinations
+  // exitLabel 2/3: Green/Yellow Line, Exit A, 7th & Maryland Ave
+  // exitLabel 4: Exit B, D St (east end)
+  // exitLabel 5: Exit C, 9th St & L'Enfant Plaza (west end)
+  'D03': [
+    { match: ['maryland'], exitLabel: [2, 3] },
+    { match: ['9th', '9 st', 'promenade'], exitLabel: 5 },
+    { match: ['d st', 'd street', 'd &'], exitLabel: 4 },
+    { match: ['elevator'], exitLabel: 1 },
+  ],
+
+  // ─── L'Enfant Plaza, Green/Yellow Line level (F03, side platforms) ───
+  // exitLabel 1: Elevator, Opposite Platform & Street
+  // exitLabel 3: Exit A, 7th & Maryland Ave (north end)
+  // exitLabel 4: BL/OR/SV, Exit B (Greenbelt side)
+  // exitLabel 5: BL/OR/SV, Exit C (Branch Ave side)
+  'F03': [
+    { match: ['maryland'], exitLabel: 3 },
+    { match: ['9th', '9 st', 'promenade'], exitLabel: [5, 4] },
+    { match: ['d st', 'd street', 'd &'], exitLabel: [4, 5] },
+    { match: ['elevator'], exitLabel: 1 },
+  ],
+
   // ─── McPherson Square (C02) ───
   // exitLabel 1: Vermont Ave
   // exitLabel 2: 14th & I
@@ -109,19 +138,23 @@ const EXIT_MAP: Record<string, ExitRule[]> = {
     { match: ['14th'], exitLabel: 2 },
   ],
 
-  // ─── Metro Center (A01 / C01) ───
-  // exitLabel 1: 13th & G (Entrance D)
-  // exitLabel 2: 11th & G (Entrance B)
-  // exitLabel 3: Elevator (12th & G)
-  // exitLabel 5: 12th & G (Entrance A)
-  // exitLabel 6: 12th & F (Entrance C)
+  // ─── Metro Center, Red Line level (A01, side platforms) ───
+  // exitLabel 1: 13th & G
+  // exitLabel 2: 11th & G
+  // exitLabel 3: BL/OR/SV, 12th & G, street elevator (Shady Grove side)
+  // exitLabel 4: BL/OR/SV, 12th & F (Glenmont side)
   'A01': [
     { match: ['13th'], exitLabel: 1 },
     { match: ['11th'], exitLabel: 2 },
-    { match: ['elevator'], exitLabel: 3 },
-    { match: ['f st', 'f street'], exitLabel: 6 },
-    { match: ['12th', 'g st', 'g street'], exitLabel: 5 },
+    { match: ['f st', 'f street'], exitLabel: [4, 3] },
+    { match: ['12th', 'g st', 'g street', 'elevator'], exitLabel: [3, 4] },
   ],
+
+  // ─── Metro Center, Blue/Orange/Silver level (C01) ───
+  // exitLabel 1/2: Red Line, 11th & G, 13th & G
+  // exitLabel 3: Elevator to Platform & Street (12th & G)
+  // exitLabel 5: 12th & G
+  // exitLabel 6: 12th & F
   'C01': [
     { match: ['13th'], exitLabel: 1 },
     { match: ['11th'], exitLabel: 2 },
@@ -219,19 +252,49 @@ const EXIT_MAP: Record<string, ExitRule[]> = {
   ],
 }
 
-/**
- * Resolve a GTFS exit name to the platform exitLabel for a given station.
- * Returns undefined if no mapping exists or no rule matches.
- */
-export function resolveExitLabel(stationCode: string, gtfsExitName: string): number | undefined {
-  const rules = EXIT_MAP[stationCode]
-  if (!rules) return undefined
+/** The platform a line arrives on at each two-level station, by either of its codes. */
+const PLATFORM_CODES: Record<string, Record<string, string>> = {
+  A01: { RD: 'A01', BL: 'C01', OR: 'C01', SV: 'C01' },
+  B01: { RD: 'B01', GR: 'F01', YL: 'F01' },
+  D03: { BL: 'D03', OR: 'D03', SV: 'D03', GR: 'F03', YL: 'F03' },
+  B06: { RD: 'B06', GR: 'E06', YL: 'E06' },
+}
+PLATFORM_CODES.C01 = PLATFORM_CODES.A01
+PLATFORM_CODES.F01 = PLATFORM_CODES.B01
+PLATFORM_CODES.F03 = PLATFORM_CODES.D03
+PLATFORM_CODES.E06 = PLATFORM_CODES.B06
 
-  const lowerName = gtfsExitName.toLowerCase()
+/**
+ * WMATA spells entrances both "10th & U St" and "10 & U St", so compare
+ * without ordinal suffixes. That also keeps "7th St" from containing "h st".
+ */
+function normalizeExitName(name: string): string {
+  return name.toLowerCase().replace(/(\d+)(?:st|nd|rd|th)\b/g, '$1')
+}
+
+/** Substring match where a number can't match part of a longer one ("9" in "19"). */
+function containsKeyword(name: string, keyword: string): boolean {
+  const normalized = normalizeExitName(keyword)
+  const escaped = normalized.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  const before = /^\d/.test(normalized) ? '(?<!\\d)' : ''
+  const after = /\d$/.test(normalized) ? '(?!\\d)' : ''
+  return new RegExp(`${before}${escaped}${after}`).test(name)
+}
+
+/**
+ * Resolve a GTFS exit name to candidate exitLabels on the platform the rider
+ * arrives on, most preferred first. Returns [] if no mapping or rule matches.
+ */
+export function resolveExitLabels(stationCode: string, gtfsExitName: string, line?: string): number[] {
+  const platformCode = (line && PLATFORM_CODES[stationCode]?.[line]) || stationCode
+  const rules = EXIT_MAP[platformCode]
+  if (!rules) return []
+
+  const name = normalizeExitName(gtfsExitName)
   for (const rule of rules) {
-    if (rule.match.some(keyword => lowerName.includes(keyword))) {
-      return rule.exitLabel
+    if (rule.match.some(keyword => containsKeyword(name, keyword))) {
+      return Array.isArray(rule.exitLabel) ? rule.exitLabel : [rule.exitLabel]
     }
   }
-  return undefined
+  return []
 }
