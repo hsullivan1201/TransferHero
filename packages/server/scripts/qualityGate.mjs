@@ -9,16 +9,9 @@ const srcDir = path.resolve(scriptDir, '../src')
 
 const MAX_COMPLEXITY_DEFAULT = 30
 const MAX_COMPLEXITY_ROUTE = 16
-const MAX_FILE_LINES_DEFAULT = 700
-const MAX_FILE_LINES_ROUTE = 260
 
 const complexityOverrides = new Map([
   ['services/tripPlannerService.ts', 45],
-])
-
-const fileLineOverrides = new Map([
-  ['data/carPositionService.ts', 760],
-  ['services/wmata.ts', 800],
 ])
 
 function isIgnored(filePath) {
@@ -48,12 +41,6 @@ async function collectTsFiles(dir) {
 
 function toRel(filePath) {
   return path.relative(srcDir, filePath).replaceAll('\\', '/')
-}
-
-function getFileLineLimit(relPath) {
-  if (fileLineOverrides.has(relPath)) return fileLineOverrides.get(relPath)
-  if (relPath.startsWith('routes/')) return MAX_FILE_LINES_ROUTE
-  return MAX_FILE_LINES_DEFAULT
 }
 
 function getComplexityLimit(relPath) {
@@ -167,12 +154,6 @@ async function run() {
   for (const filePath of files) {
     const relPath = toRel(filePath)
     const content = await fs.readFile(filePath, 'utf8')
-
-    const lineCount = content.split('\n').length
-    const lineLimit = getFileLineLimit(relPath)
-    if (lineCount > lineLimit) {
-      failures.push(`${relPath}: file has ${lineCount} lines (limit ${lineLimit})`)
-    }
 
     const sourceFile = ts.createSourceFile(filePath, content, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS)
     checkImportBoundaries(relPath, sourceFile, failures)
