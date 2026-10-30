@@ -11,8 +11,9 @@ let exitCache: Map<string, StationExit[]> | null = null;
 export const loadStationExits = async (force = false) => {
   if (exitCache && !force) return exitCache;
 
-  // ensure you have the correct path to your gtfs folder
-  const stopsPath = path.resolve(__dirname, '../../../../metro-gtfs/stops.txt');
+  // ensure you have the correct path to your gtfs folder (tests may point at a fixture)
+  const stopsPath = process.env.METRO_GTFS_STOPS_PATH?.trim()
+    || path.resolve(__dirname, '../../../../metro-gtfs/stops.txt');
   try {
     const parser = new ExitParser(stopsPath);
     exitCache = await parser.parseStationExits();

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import type { AddressInfo } from 'node:net'
+import { fileURLToPath } from 'node:url'
 import type { SharedTripPayload } from '@transferhero/shared'
 import { createApp } from '../app.js'
 import { closeShareLinkStoreForTests } from '../services/shareLinkStore.js'
@@ -8,7 +9,10 @@ import { createShareToken } from '../services/shareToken.js'
 const now = Date.now()
 const originalShareDatabasePath = process.env.SHARE_LINK_DB_PATH
 const originalWmataApiKey = process.env.WMATA_API_KEY
+const originalStopsPath = process.env.METRO_GTFS_STOPS_PATH
 process.env.SHARE_LINK_DB_PATH = ':memory:'
+// metro-gtfs/ isn't checked in, so give the map the four stations this trip passes through
+process.env.METRO_GTFS_STOPS_PATH = fileURLToPath(new URL('./fixtures/metro-stops.txt', import.meta.url))
 delete process.env.WMATA_API_KEY
 const trip: SharedTripPayload = {
   v: 3,
@@ -135,4 +139,6 @@ try {
   else process.env.SHARE_LINK_DB_PATH = originalShareDatabasePath
   if (originalWmataApiKey == null) delete process.env.WMATA_API_KEY
   else process.env.WMATA_API_KEY = originalWmataApiKey
+  if (originalStopsPath == null) delete process.env.METRO_GTFS_STOPS_PATH
+  else process.env.METRO_GTFS_STOPS_PATH = originalStopsPath
 }
