@@ -1,6 +1,7 @@
 api_key.txt
 config.js
-metro-gtfs/
+metro-gtfs/*
+!metro-gtfs/stops.txt
 metro-gtfs-old/
 .DS_Store
 .claude/
