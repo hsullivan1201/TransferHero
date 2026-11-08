@@ -3,6 +3,7 @@ import type { NextFunction, Request, Response } from 'express'
 import type { Line, Train, TransferAlternative } from '@transferhero/shared'
 import { getTrainMinutes } from '@transferhero/shared'
 import { ALL_STATIONS } from '../data/stations.js'
+import { getStaticTrips } from '../data/staticTrips.js'
 import { CACHE_CONFIG, cacheMiddleware, clearAllCache } from '../middleware/cache.js'
 import { tripRateLimit } from '../middleware/rateLimit.js'
 import { findTransfer } from '../services/pathfinding.js'
@@ -698,6 +699,62 @@ async function selectedLenfantTransferKeepsPlatformPredictionsSeparate() {
   console.log('✓ selected L\'Enfant transfer keeps F03 and D03 predictions separate')
 }
 
+async function departedTrainsCoverEveryInterlinedLine() {
+  const departedLines: Line[] = []
+  const controls = createMockRealtimeDeps()
+  const planner = createTripPlanner({
+    ...controls.deps,
+    findDepartedTrains: (platform: string, line: Line) => {
+      departedLines.push(line)
+      return [{
+        Line: line,
+        DestinationName: 'Somewhere',
+        Min: line === 'SV' ? -1 : -4,
+        Car: '8',
+        _departed: true,
+        _tripId: `departed-${line}-${platform}`,
+      }]
+    },
+  })
+  const departedOf = (trains: Train[]) => trains.filter(train => train._departed).map(train => train.Line)
+
+  // Potomac Ave → Dupont Circle: Orange, Silver or Blue to Metro Center, then
+  // Red. A Silver that just left Potomac Ave is as good as an Orange.
+  const outbound = await planner.planTrip({
+    from: 'D07',
+    to: 'A03',
+    walkTime: 2,
+    accessible: false,
+    includeDeparted: true,
+    apiKey: 'test-key',
+  })
+  assert.equal(outbound.trip.transfer.name, 'Metro Center')
+  assert.deepEqual([...departedOf(outbound.trip.leg1.trains)].sort(), ['BL', 'OR', 'SV'])
+  assert.equal(departedOf(outbound.trip.leg1.trains)[0], 'SV', 'most recently departed first')
+
+  // Dupont Circle → Potomac Ave: Red to Metro Center, then any of the three.
+  departedLines.length = 0
+  const inbound = await planner.planLeg2({
+    tripId: 'A03-D07',
+    departureMin: 3,
+    walkTime: 2,
+    accessible: false,
+    includeDeparted: true,
+    apiKey: 'test-key',
+  })
+  assert.deepEqual([...departedOf(inbound.trains)].sort(), ['BL', 'OR', 'SV'])
+  console.log('✓ already-departed trains cover every interlined line, not just the planned one')
+}
+
+function staticTripMappingsLoad() {
+  // Without these every GTFS realtime train reads as "Check Board" and is
+  // dropped by direction filtering, so planned trains never carry trip ids.
+  const staticTrips = getStaticTrips()
+  assert.ok(Object.keys(staticTrips).length > 1000, 'static-trips.json loads from the repo root')
+  assert.ok(Object.values(staticTrips).some(trip => trip.line === 'SV' && trip.headsign === 'ASHBURN'))
+  console.log('✓ static trip mappings load')
+}
+
 await directTripPlanEndpointReturnsStructuredPayload()
 await multiLineDirectTripExposesLineSpecificCarPositions()
 await huntingtonTripEndpointsKeepArrivalCarAdvice()
@@ -711,5 +768,7 @@ await rejectsConflictingExplicitTimes()
 await kingStTransferPlansKeepDivergingLinesInSeparateItineraries()
 await aliasEndpointsUseTheirLineSpecificRealtimePlatforms()
 await selectedLenfantTransferKeepsPlatformPredictionsSeparate()
+await departedTrainsCoverEveryInterlinedLine()
+staticTripMappingsLoad()
 
 console.log('trips integration tests passed')

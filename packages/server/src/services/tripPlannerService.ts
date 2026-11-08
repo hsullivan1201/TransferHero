@@ -48,6 +48,28 @@ const defaultTripPlannerDeps: TripPlannerDeps = {
   nowIso: () => new Date().toISOString()
 }
 
+/**
+ * Already-departed trains on every line that runs this leg's track, not just
+ * the planned line. Interlined services (Orange/Silver/Blue, Yellow/Green)
+ * share the platforms, so a rider on the Silver that just left Potomac Ave is
+ * on this leg as surely as one on the Orange. Most recently departed first.
+ */
+function findDepartedOnLegLines(
+  findDepartedTrains: TripPlannerDeps['findDepartedTrains'],
+  plannedLine: Line,
+  interlinedLines: readonly Line[],
+  platform: string,
+  travelTime: number,
+  gtfsEntities: any[],
+  staticTrips: Parameters<TripPlannerDeps['findDepartedTrains']>[4],
+  termini: string[]
+): Train[] {
+  const lines = interlinedLines.length > 0 ? interlinedLines : [plannedLine]
+  return lines
+    .flatMap(line => findDepartedTrains(platform, line, travelTime, gtfsEntities, staticTrips, termini))
+    .sort((a, b) => getTrainMinutes(b.Min) - getTrainMinutes(a.Min))
+}
+
 interface TransferBuildOptions {
   allowYellowFallback?: boolean
   branchWarning?: string
@@ -366,9 +388,11 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
           currentTransfer.fromPlatform,
           currentTransfer.fromLine
         )
-        const departedTrains = deps.findDepartedTrains(
-          currentTransfer.fromPlatform,
+        const departedTrains = findDepartedOnLegLines(
+          deps.findDepartedTrains,
           currentTransfer.fromLine,
+          leg1AllowedLines,
+          currentTransfer.fromPlatform,
           leg1TravelTime,
           gtfsEntities,
           staticTrips,
@@ -641,9 +665,11 @@ export function createTripPlanner(overrides: Partial<TripPlannerDeps> = {}): Tri
         to,
         transfer.toLine
       )
-      const departedTrains = deps.findDepartedTrains(
-        destinationPlatform,
+      const departedTrains = findDepartedOnLegLines(
+        deps.findDepartedTrains,
         transfer.toLine,
+        leg2AllowedLines,
+        destinationPlatform,
         leg2TravelTime,
         gtfsEntities,
         staticTrips,
