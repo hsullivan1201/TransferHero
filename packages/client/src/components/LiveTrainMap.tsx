@@ -17,6 +17,7 @@ import {
   buildLiveMapGeometry,
   pointAtDistance,
   unionFittedViewBox,
+  visibleGhostTrains,
   type LiveMapGeometry,
   type LiveMapTrain,
   type SchematicApproachStation,
@@ -1039,107 +1040,111 @@ export function LiveTrainMap({
       </>
     )
 
-    const overlay = (
-      <>
-        <g className="live-map-stations" aria-hidden="true">
-          {ringStation && (
-            <circle className="live-map-next-ring" cx={ringStation.x} cy={ringStation.y} r="12" />
-          )}
-          {geometry.routeStations.map(station => {
-            const isEndpoint = station.code === train.from.code || station.code === train.to.code
-            const isInterchange = station.isJunction
-            return (
-              <circle
-                key={station.code}
-                className={[
-                  'live-map-station',
-                  isEndpoint ? 'is-endpoint' : '',
-                  isInterchange ? 'is-interchange' : '',
-                  tripPassed(station) && station.code !== train.to.code ? 'is-passed' : '',
-                ].filter(Boolean).join(' ')}
-                cx={station.x}
-                cy={station.y}
-                r={isEndpoint ? 7 : isInterchange ? 6 : 4}
-              />
-            )
-          })}
+    // Station nodes sit beneath the ghost trains and labels above them, so a
+    // train berthed at a station is never buried under that station's dot.
+    const nodes = (
+      <g className="live-map-stations" aria-hidden="true">
+        {ringStation && (
+          <circle className="live-map-next-ring" cx={ringStation.x} cy={ringStation.y} r="12" />
+        )}
+        {geometry.routeStations.map(station => {
+          const isEndpoint = station.code === train.from.code || station.code === train.to.code
+          const isInterchange = station.isJunction
+          return (
+            <circle
+              key={station.code}
+              className={[
+                'live-map-station',
+                isEndpoint ? 'is-endpoint' : '',
+                isInterchange ? 'is-interchange' : '',
+                tripPassed(station) && station.code !== train.to.code ? 'is-passed' : '',
+              ].filter(Boolean).join(' ')}
+              cx={station.x}
+              cy={station.y}
+              r={isEndpoint ? 7 : isInterchange ? 6 : 4}
+            />
+          )
+        })}
 
-          {timeLabels.map(({ code, x, y, text }) => (
+        {destination && (
+          <g
+            className={nearTrain(destination, 46) && !train.ended
+              ? 'live-map-destination is-under-train'
+              : 'live-map-destination'}
+          >
+            <circle
+              className={train.ended
+                ? 'live-map-destination-ring is-arrived'
+                : 'live-map-destination-ring'}
+              cx={destination.x}
+              cy={destination.y}
+              r="16"
+            />
+            <circle cx={destination.x} cy={destination.y} r="10" fill={lineColor} />
             <text
-              key={`time-${code}`}
-              className="live-map-time-label"
-              x={x}
-              y={y}
+              x={destination.x}
+              y={destination.y + 4}
               textAnchor="middle"
+              className="live-map-line-letter"
             >
-              {text}
+              {lineLetter(train.line)}
             </text>
-          ))}
+          </g>
+        )}
+      </g>
+    )
 
-          {secondaryLabels.map(({ key, name, placement }) => (
+    const overlay = (
+      <g className="live-map-stations" aria-hidden="true">
+        {timeLabels.map(({ code, x, y, text }) => (
+          <text
+            key={`time-${code}`}
+            className="live-map-time-label"
+            x={x}
+            y={y}
+            textAnchor="middle"
+          >
+            {text}
+          </text>
+        ))}
+
+        {secondaryLabels.map(({ key, name, placement }) => (
+          <text
+            key={`minor-${key}`}
+            className="live-map-minor-label"
+            x={placement.x}
+            y={placement.labelY}
+            textAnchor={placement.anchor}
+          >
+            {name}
+          </text>
+        ))}
+
+        {plannedLabels.map(({ key, kicker, name, emphasized, kickerColor, placement }) => (
+          <g
+            key={`label-${key}`}
+            className={emphasized ? 'live-map-node-copy is-emphasized' : 'live-map-node-copy'}
+          >
             <text
-              key={`minor-${key}`}
-              className="live-map-minor-label"
+              x={placement.x}
+              y={placement.kickerY}
+              textAnchor={placement.anchor}
+              className="live-map-node-kicker"
+              style={kickerColor ? { fill: kickerColor } : undefined}
+            >
+              {kicker}
+            </text>
+            <text
               x={placement.x}
               y={placement.labelY}
               textAnchor={placement.anchor}
+              className="live-map-node-label"
             >
               {name}
             </text>
-          ))}
-
-          {plannedLabels.map(({ key, kicker, name, emphasized, kickerColor, placement }) => (
-            <g
-              key={`label-${key}`}
-              className={emphasized ? 'live-map-node-copy is-emphasized' : 'live-map-node-copy'}
-            >
-              <text
-                x={placement.x}
-                y={placement.kickerY}
-                textAnchor={placement.anchor}
-                className="live-map-node-kicker"
-                style={kickerColor ? { fill: kickerColor } : undefined}
-              >
-                {kicker}
-              </text>
-              <text
-                x={placement.x}
-                y={placement.labelY}
-                textAnchor={placement.anchor}
-                className="live-map-node-label"
-              >
-                {name}
-              </text>
-            </g>
-          ))}
-
-          {destination && (
-            <g
-              className={nearTrain(destination, 46) && !train.ended
-                ? 'live-map-destination is-under-train'
-                : 'live-map-destination'}
-            >
-              <circle
-                className={train.ended
-                  ? 'live-map-destination-ring is-arrived'
-                  : 'live-map-destination-ring'}
-                cx={destination.x}
-                cy={destination.y}
-                r="16"
-              />
-              <circle cx={destination.x} cy={destination.y} r="10" fill={lineColor} />
-              <text
-                x={destination.x}
-                y={destination.y + 4}
-                textAnchor="middle"
-                className="live-map-line-letter"
-              >
-                {lineLetter(train.line)}
-              </text>
-            </g>
-          )}
-        </g>
-      </>
+          </g>
+        ))}
+      </g>
     )
 
     // Station hits render as their own layer, above ghost hits, so a train
@@ -1161,7 +1166,7 @@ export function LiveTrainMap({
       </g>
     )
 
-    return { track, overlay, hits }
+    return { track, nodes, overlay, hits }
   }, [
     geometry,
     companion,
@@ -1196,13 +1201,13 @@ export function LiveTrainMap({
   // Every other live train on the line rides the schematic as a quiet ghost:
   // dimmer than the rider's train, extra-dim when headed the other way, but
   // still hoverable and tappable for a quick "what's that train" card.
+  const riderIsMeasured = train.position?.source === 'vehicle'
   const ghostLayer = useMemo(() => {
     if (!geometry || train.ended || geometry.ghostTrains.length === 0) return null
-    // The suppression radius covers the plan-grid quantization error, so a
-    // ghost can never peek out as a crescent behind the rider's own marker.
-    const visible = geometry.ghostTrains.filter(ghost => (
-      !planPoint || Math.hypot(ghost.x - planPoint.x, ghost.y - planPoint.y) >= 40
-    ))
+    // Proximity alone never hides a ghost: downtown stations sit closer than
+    // the old blanket radius, so it erased real trains a stop away. Only an
+    // estimated rider position drops its likely twin (see visibleGhostTrains).
+    const visible = visibleGhostTrains(geometry.ghostTrains, planPoint, riderIsMeasured, 40)
     if (visible.length === 0) return null
     const lineColor = LINE_COLORS[train.line].bg
     return {
@@ -1238,7 +1243,7 @@ export function LiveTrainMap({
         </g>
       ),
     }
-  }, [geometry, hoverFocus, hoverLeave, planPoint?.x, planPoint?.y, toggleFocus, train.ended, train.line])
+  }, [geometry, hoverFocus, hoverLeave, planPoint?.x, planPoint?.y, riderIsMeasured, toggleFocus, train.ended, train.line])
 
   // The trip's other tracked leg stays on the map: its route lit in its line
   // color, that line's other live trains as ghosts, and the rider's actual
@@ -1252,9 +1257,12 @@ export function LiveTrainMap({
       : null
     const ghosts = companion.ended
       ? []
-      : companionGeometry.ghostTrains.filter(ghost => (
-          !point || Math.hypot(ghost.x - point.x, ghost.y - point.y) >= 30
-        ))
+      : visibleGhostTrains(
+          companionGeometry.ghostTrains,
+          point,
+          companion.position?.source === 'vehicle',
+          30
+        )
     const showBadge = companion.leg === 2 && companion.to.code !== train.to.code
     return {
       color,
@@ -1573,6 +1581,7 @@ export function LiveTrainMap({
           />
         )}
 
+        {annotations?.nodes}
         {ghostLayer?.visuals}
         {companionLayer && companionLayer.ghosts.length > 0 && (
           <g className="live-map-ghosts" aria-hidden="true">

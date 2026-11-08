@@ -148,6 +148,11 @@ export interface LiveTrackerOtherTrain {
   sameDirection?: boolean | null
   /** Terminal-station name for this train's direction, when known. */
   toward?: string | null
+  /**
+   * How far an approaching train is from `prevCode` to `code` (0 to 1), from
+   * its GPS fix; null when unknown. Kept strictly between the two stations.
+   */
+  progress?: number | null
 }
 
 export interface LiveTrackerConnectionAlternative {

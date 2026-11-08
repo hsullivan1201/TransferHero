@@ -7,7 +7,7 @@ import type {
   StationExit,
 } from '@transferhero/shared'
 import { buildMetroMapData } from './metroMap.js'
-import { getLiveTrackerResponse } from './liveTracker.js'
+import { getLiveFeedGaps, getLiveTrackerResponse, summarizeFeedGaps } from './liveTracker.js'
 import type { RailVehiclePosition } from './wmata.js'
 
 const now = Date.UTC(2026, 6, 18, 18, 0, 0)
@@ -337,5 +337,130 @@ assert.ok(
   legOneGhosts.some(ghost => ghost.id === 'vehicle-stranger'),
   'unrelated same-line trains still ghost'
 )
+
+// --- Ghost direction must not depend on matching the rider's own vehicle.
+// Two trains pass each other between Union Station and NoMa at the same GPS
+// point; a third and fourth sit at Judiciary Square, one per direction.
+const redStation = (code: string, name: string, lat: number, lon: number) => ({
+  code, name, lines: ['RD' as const], lat, lon,
+})
+const ghostMap: MetroMapData = {
+  generatedAtMs: now,
+  stations: [
+    redStation('A15', 'Shady Grove', 39.120, -77.164),
+    redStation('A02', 'Farragut North', 38.903, -77.039),
+    redStation('A01', 'Metro Center', 38.898, -77.028),
+    redStation('B01', 'Gallery Place', 38.898, -77.021),
+    redStation('B02', 'Judiciary Square', 38.896, -77.016),
+    redStation('B03', 'Union Station', 38.897, -77.006),
+    redStation('B35', 'NoMa-Gallaudet U', 38.907, -77.003),
+    redStation('B04', 'Rhode Island Ave', 38.921, -76.996),
+    redStation('B11', 'Glenmont', 39.062, -77.053),
+  ],
+  paths: [],
+}
+const ghostRider: SharedTrackedTrain = {
+  id: 'leg-1-shady',
+  leg: 1,
+  line: 'RD',
+  toward: 'Shady Grove',
+  tripId: 'rider-static-trip',
+  from: { code: 'A01', name: 'Metro Center', lines: ['RD'] },
+  to: { code: 'A02', name: 'Farragut North', lines: ['RD'] },
+  stops: [
+    { code: 'A01', name: 'Metro Center', lines: ['RD'] },
+    { code: 'A02', name: 'Farragut North', lines: ['RD'] },
+  ],
+  departureAtMs: now + 5 * 60_000,
+  arrivalAtMs: now + 7 * 60_000,
+}
+const passingPoint = { latitude: 38.904, longitude: -77.0039 } // 30% NoMa → Union Station
+const ghostVehicle = (entityId: string, extra: Partial<RailVehiclePosition>): RailVehiclePosition => ({
+  entityId,
+  vehicleId: entityId,
+  line: 'RD',
+  latitude: 38.896,
+  longitude: -77.016,
+  currentStatus: 'STOPPED_AT',
+  timestampMs: now - 3_000,
+  carriages: [],
+  ...extra,
+})
+const ghostVehicles = [
+  ghostVehicle('shady-7', {
+    tripId: 'trip-shady-7', directionId: 1, stopCode: 'B03', currentStatus: 'IN_TRANSIT_TO', ...passingPoint,
+  }),
+  ghostVehicle('glenmont-pass', {
+    tripId: 'trip-glenmont-pass', directionId: 0, stopCode: 'B35', currentStatus: 'IN_TRANSIT_TO', ...passingPoint,
+  }),
+  ghostVehicle('glenmont-stopped', { tripId: 'trip-glenmont-stopped', directionId: 0, stopCode: 'B02' }),
+  ghostVehicle('shady-stopped', { tripId: 'trip-shady-stopped', directionId: 1, stopCode: 'B02' }),
+  // GPS already snapped onto Judiciary Square while bound for Union Station.
+  ghostVehicle('glenmont-snapped', {
+    tripId: 'trip-glenmont-snapped', directionId: 0, stopCode: 'B03', currentStatus: 'IN_TRANSIT_TO',
+  }),
+]
+const ghostResponse = await getLiveTrackerResponse({
+  ...trip,
+  tracking: { trains: [ghostRider], expiresAtMs: now + 60 * 60_000 },
+}, {
+  now: () => now,
+  apiKey: 'test-key',
+  fetchVehiclePositions: async () => ghostVehicles,
+  // Only the Shady-bound passer has a trip update; every other direction is
+  // learned from GPS or from the direction-id mapping those fixes imply.
+  fetchTripUpdates: async () => [{
+    tripUpdate: {
+      trip: { tripId: 'trip-shady-7', routeId: 'RED' },
+      stopTimeUpdate: [
+        { stopSequence: 20, stopId: 'PF_B03_C', arrival: { time: (now + 60_000) / 1000 } },
+        { stopSequence: 21, stopId: 'PF_B02_C', arrival: { time: (now + 3 * 60_000) / 1000 } },
+        { stopSequence: 22, stopId: 'PF_B01_C', arrival: { time: (now + 5 * 60_000) / 1000 } },
+      ],
+    },
+  }],
+  getMapData: async () => ghostMap,
+})
+assert.ok(ghostResponse)
+assert.equal(ghostResponse.trains[0].position?.source === 'vehicle', false, 'rider stays unmatched')
+const ghostsById = new Map((ghostResponse.trains[0].otherTrains ?? []).map(ghost => [ghost.id, ghost]))
+assert.equal(ghostsById.size, ghostVehicles.length, 'every other train on the line rides the map')
+assert.deepEqual(ghostsById.get('shady-7'), {
+  id: 'shady-7', code: 'B03', approaching: true, prevCode: 'B35',
+  sameDirection: true, toward: 'Shady Grove', progress: 0.3,
+}, 'trip updates give direction; GPS gives real progress, not a fixed fraction')
+assert.deepEqual(ghostsById.get('glenmont-pass'), {
+  id: 'glenmont-pass', code: 'B35', approaching: true, prevCode: 'B03',
+  sameDirection: false, toward: 'Glenmont', progress: 0.7,
+}, 'a moving train with no trip update takes its direction from its GPS segment')
+assert.deepEqual(ghostsById.get('glenmont-stopped'), {
+  id: 'glenmont-stopped', code: 'B02', approaching: false, prevCode: 'B01',
+  sameDirection: false, toward: 'Glenmont', progress: null,
+}, 'a stopped train inherits direction from the learned direction-id mapping')
+assert.equal(ghostsById.get('shady-stopped')?.sameDirection, true)
+assert.equal(ghostsById.get('shady-stopped')?.prevCode, 'B03')
+assert.equal(ghostsById.get('glenmont-snapped')?.prevCode, 'B02')
+assert.equal(
+  ghostsById.get('glenmont-snapped')?.progress,
+  0.15,
+  'approaching trains stay off the station node even when GPS has snapped to it'
+)
+
+// --- Feed gaps: trains WMATA sent that no map can draw are counted by reason.
+const gapBase = ghostVehicles[2]
+const gaps = summarizeFeedGaps([
+  gapBase,
+  { ...gapBase, entityId: 'no-route', line: undefined, routeId: undefined },
+  { ...gapBase, entityId: 'no-stop', stopCode: undefined, stopId: undefined, routeId: 'RED' },
+  { ...gapBase, entityId: 'stale', timestampMs: now - 5 * 60_000 },
+  { ...gapBase, entityId: 'yard', stopCode: 'Z99', stopId: 'PF_Z99_C' },
+], now)
+assert.deepEqual(
+  { vehicles: gaps.vehicles, withoutLine: gaps.withoutLine, withoutStop: gaps.withoutStop, stale: gaps.stale, offLine: gaps.offLine },
+  { vehicles: 5, withoutLine: 1, withoutStop: 1, stale: 1, offLine: 1 }
+)
+assert.deepEqual(gaps.samples.map(sample => sample.reason), ['withoutLine', 'withoutStop', 'stale', 'offLine'])
+assert.equal(gaps.samples[2].ageSec, 300)
+assert.equal(getLiveFeedGaps()?.vehicles, ghostVehicles.length, 'each live poll records the latest feed summary')
 
 console.log('live tracker tests passed')

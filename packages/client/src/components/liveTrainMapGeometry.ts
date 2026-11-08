@@ -64,6 +64,8 @@ export interface LiveMapTrain {
     prevCode?: string | null
     sameDirection?: boolean | null
     toward?: string | null
+    /** GPS progress from prevCode to code for approaching trains. */
+    progress?: number | null
   }> | null
   ended: boolean
   /** A connection the app projects for the rider, not one they selected. */
@@ -473,6 +475,85 @@ function approachDistance(
   return total * Math.max(0, Math.min(1, approach.progress))
 }
 
+/**
+ * Ghosts run on the right-hand side of the line in their travel direction, so
+ * two trains headed opposite ways through the same spot (passing on a
+ * segment, or both berthed at one station) read as two trains, not one.
+ */
+export const GHOST_TRACK_OFFSET = 5.5
+/** Where an approaching ghost sits when the server has no GPS progress. */
+const DEFAULT_GHOST_PROGRESS = 0.6
+
+/** Place every other live train on the schematic. */
+export function placeGhostTrains(
+  otherTrains: LiveMapTrain['otherTrains'],
+  line: Line
+): SchematicGhostTrain[] {
+  return (otherTrains ?? []).flatMap(other => {
+    const base = SCHEMATIC_STATIONS[other.code]
+    if (!base) return []
+    let point = offsetPoint(base, line)
+    let bearing: number | null = null
+    if (other.prevCode) {
+      const segment = expandedPoints([other.prevCode, other.code], line)
+      if (segment.length >= 2) {
+        const length = polylineLength(segment)
+        const fraction = other.approaching
+          ? Math.min(1, Math.max(0, other.progress ?? DEFAULT_GHOST_PROGRESS))
+          : 1
+        if (other.approaching) point = pointAtDistance(segment, length * fraction)
+        bearing = bearingAtDistance(segment, length * fraction)
+      }
+    }
+    if (bearing != null) {
+      const radians = bearing * Math.PI / 180
+      point = {
+        x: point.x - Math.sin(radians) * GHOST_TRACK_OFFSET,
+        y: point.y + Math.cos(radians) * GHOST_TRACK_OFFSET,
+      }
+    }
+    return [{
+      id: other.id,
+      code: other.code,
+      approaching: other.approaching,
+      sameDirection: other.sameDirection ?? null,
+      toward: other.toward ?? null,
+      bearing,
+      x: point.x,
+      y: point.y,
+    }]
+  })
+}
+
+/**
+ * Ghosts the rider should see. A rider placed from their own vehicle fix is
+ * already excluded from the ghosts by identity, so every ghost is a different
+ * train and stays visible (drawn beneath the rider's marker, which covers any
+ * that truly share its spot). Only an estimated rider position can coexist
+ * with that same train in the feed under an id the tracker could not match;
+ * then the single nearest ghost within `radius` not known to be headed the
+ * other way is taken to be the rider's own train.
+ */
+export function visibleGhostTrains<T extends SchematicPoint & { sameDirection: boolean | null }>(
+  ghosts: readonly T[],
+  riderPoint: SchematicPoint | null,
+  riderIsMeasured: boolean,
+  radius: number
+): T[] {
+  if (!riderPoint || riderIsMeasured) return [...ghosts]
+  let nearestIndex = -1
+  let nearestDistance = radius
+  ghosts.forEach((ghost, index) => {
+    if (ghost.sameDirection === false) return
+    const gap = Math.hypot(ghost.x - riderPoint.x, ghost.y - riderPoint.y)
+    if (gap < nearestDistance) {
+      nearestIndex = index
+      nearestDistance = gap
+    }
+  })
+  return ghosts.filter((_, index) => index !== nearestIndex)
+}
+
 export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain): LiveMapGeometry | null {
   const routePoints = expandedPoints(train.routeStationCodes, train.line)
   const fromBase = SCHEMATIC_STATIONS[train.from.code]
@@ -509,30 +590,7 @@ export function buildLiveMapGeometry(mapData: MetroMapData, train: LiveMapTrain)
       })
     : []
 
-  const ghostTrains: SchematicGhostTrain[] = (train.otherTrains ?? []).flatMap(other => {
-    const base = SCHEMATIC_STATIONS[other.code]
-    if (!base) return []
-    let point = offsetPoint(base, train.line)
-    let bearing: number | null = null
-    if (other.prevCode) {
-      const segment = expandedPoints([other.prevCode, other.code], train.line)
-      if (segment.length >= 2) {
-        const along = polylineLength(segment) * 0.6
-        if (other.approaching) point = pointAtDistance(segment, along)
-        bearing = bearingAtDistance(segment, along)
-      }
-    }
-    return [{
-      id: other.id,
-      code: other.code,
-      approaching: other.approaching,
-      sameDirection: other.sameDirection ?? null,
-      toward: other.toward ?? null,
-      bearing,
-      x: point.x,
-      y: point.y,
-    }]
-  })
+  const ghostTrains = placeGhostTrains(train.otherTrains, train.line)
 
   const routeCodes = new Set(train.routeStationCodes)
   const progressDistance = approachPoints.length > 0

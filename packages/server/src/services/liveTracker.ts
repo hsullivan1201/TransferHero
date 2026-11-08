@@ -414,22 +414,135 @@ function resolveApproach(
   }
 }
 
+/** Travel along a line path: +1 toward its last station, -1 toward its first. */
+type PathOrientation = 1 | -1
+
+const GHOST_STALE_AFTER_MS = 90_000
+const MAX_OTHER_TRAINS = 40
+/**
+ * Approaching ghosts stay strictly between their two stations so they never
+ * sit on a station node (where a stopped train would be drawn) even when the
+ * GPS fix has already snapped to a platform.
+ */
+const GHOST_MIN_PROGRESS = 0.15
+const GHOST_MAX_PROGRESS = 0.85
+const DC_LONGITUDE_SCALE = Math.cos(38.9 * Math.PI / 180)
+
+interface GeoPoint {
+  lat: number
+  lon: number
+}
+
+/** Planar projection of `point` onto segment a→b, in segment-length units. */
+function projectOntoSegment(
+  point: GeoPoint,
+  a: GeoPoint,
+  b: GeoPoint
+): { along: number; across: number } | null {
+  const dx = (b.lon - a.lon) * DC_LONGITUDE_SCALE
+  const dy = b.lat - a.lat
+  const lengthSquared = dx * dx + dy * dy
+  if (!(lengthSquared > 0)) return null
+  const px = (point.lon - a.lon) * DC_LONGITUDE_SCALE
+  const py = point.lat - a.lat
+  return {
+    along: (px * dx + py * dy) / lengthSquared,
+    across: Math.abs(px * dy - py * dx) / lengthSquared,
+  }
+}
+
+/** Direction of a trip from the order of its stop-time updates on `path`. */
+function tripUpdateOrientation(
+  tripId: string | undefined,
+  path: string[],
+  tripUpdates: any[],
+  nowMs: number
+): PathOrientation | null {
+  if (!tripId) return null
+  const progress = getGTFSTripProgress(tripUpdates, tripId, nowMs)
+  if (!progress) return null
+  let firstIndex = -1
+  for (const stop of progress.stops) {
+    const index = path.indexOf(canonicalProgressStopCode(stop.stopCode, path))
+    if (index < 0) continue
+    if (firstIndex < 0) firstIndex = index
+    else if (index !== firstIndex) return index > firstIndex ? 1 : -1
+  }
+  return null
+}
+
+/**
+ * Direction of a moving train from its GPS fix: it lies on the segment from
+ * the station behind it to the station it is approaching. Ambiguous fixes
+ * (right at the station, or equally close to both segments) return null.
+ */
+function geometricOrientation(
+  position: RailVehiclePosition,
+  path: string[],
+  index: number,
+  coordinates: (code: string) => GeoPoint | undefined
+): PathOrientation | null {
+  if (position.currentStatus === 'STOPPED_AT') return null
+  const target = coordinates(path[index])
+  if (!target) return null
+  const fits: { orientation: PathOrientation; across: number }[] = []
+  for (const orientation of [1, -1] as const) {
+    const behind = coordinates(path[index - orientation])
+    if (!behind) continue
+    const projection = projectOntoSegment(
+      { lat: position.latitude, lon: position.longitude },
+      behind,
+      target
+    )
+    if (projection && projection.along >= -0.1 && projection.along <= 0.9) {
+      fits.push({ orientation, across: projection.across })
+    }
+  }
+  if (fits.length === 1) return fits[0].orientation
+  if (fits.length === 2) {
+    fits.sort((left, right) => left.across - right.across)
+    if (fits[1].across > 2 * fits[0].across + 0.05) return fits[0].orientation
+  }
+  return null
+}
+
+/** Clamped fraction of the way from `behindCode` to `targetCode`, from GPS. */
+function segmentProgress(
+  position: RailVehiclePosition,
+  behindCode: string,
+  targetCode: string,
+  coordinates: (code: string) => GeoPoint | undefined
+): number | null {
+  const behind = coordinates(behindCode)
+  const target = coordinates(targetCode)
+  if (!behind || !target) return null
+  const projection = projectOntoSegment({ lat: position.latitude, lon: position.longitude }, behind, target)
+  if (!projection || !Number.isFinite(projection.along)) return null
+  return Math.round(clamp(projection.along, GHOST_MIN_PROGRESS, GHOST_MAX_PROGRESS) * 100) / 100
+}
+
 /**
  * Every other live train on the tracked line, both directions. Placement is
  * topological (the station each train is at or approaching plus the stop just
- * behind it), and direction is expressed relative to the rider's train via
- * their matched vehicle's GTFS direction id.
+ * behind it), refined by how far along that segment its GPS fix sits.
+ *
+ * Direction never depends on the rider's own train alone: each train's trip
+ * update says which way it runs, a GTFS direction id is translated through a
+ * mapping learned from every train whose direction is known, and a moving
+ * train's GPS fix shows which segment it is on. Without a direction a ghost
+ * collapses onto its station, on top of any train stopped there.
  */
 function otherTrainsOnLine(
   train: SharedTrackedTrain,
   positions: RailVehiclePosition[],
   selectedVehicle: RailVehiclePosition | undefined,
+  tripUpdates: any[],
   map: MetroMapData,
   nowMs: number
 ): LiveTrackerOtherTrain[] {
   const linePaths = LINE_PATHS[train.line]
   const secondCode = train.stops[1]?.code
-  let riderOrientation: 1 | -1 | null = null
+  let riderOrientation: PathOrientation | null = null
   if (secondCode) {
     for (const path of linePaths) {
       const fromIndex = path.indexOf(normalizePlatformCode(train.from.code, path))
@@ -439,7 +552,16 @@ function otherTrainsOnLine(
       break
     }
   }
-  const riderDirectionId = selectedVehicle?.directionId ?? null
+
+  const stationPoints = new Map(map.stations.map(station => [station.code, station]))
+  const coordinates = (code: string | undefined): GeoPoint | undefined => {
+    if (!code) return undefined
+    for (const candidate of getAllPlatformCodes(code)) {
+      const point = stationPoints.get(candidate)
+      if (point) return point
+    }
+    return undefined
+  }
 
   // The rider's own train must never ride the map twice. Identity matching
   // covers the case where the tracked ids are known but no vehicle was
@@ -455,7 +577,15 @@ function otherTrainsOnLine(
     selectedVehicle?.entityId,
   ].map(normalizeId).filter((id): id is string => id != null))
 
-  const output: LiveTrackerOtherTrain[] = []
+  interface Candidate {
+    position: RailVehiclePosition
+    path: string[]
+    index: number
+    code: string
+    tripOrientation: PathOrientation | null
+    gpsOrientation: PathOrientation | null
+  }
+  const candidates: Candidate[] = []
   for (const position of positions) {
     if (position === selectedVehicle) continue
     if ([position.tripId, position.vehicleId, position.vehicleLabel, position.entityId]
@@ -463,38 +593,129 @@ function otherTrainsOnLine(
       .some(id => id != null && trackedIds.has(id))) continue
     if (position.line !== train.line) continue
     if (!position.stopCode) continue
-    if (position.timestampMs != null && nowMs - position.timestampMs > 90_000) continue
+    if (position.timestampMs != null && nowMs - position.timestampMs > GHOST_STALE_AFTER_MS) continue
 
     for (const path of linePaths) {
       const code = canonicalProgressStopCode(position.stopCode, path)
       const index = path.indexOf(code)
       if (index < 0) continue
-
-      const sameDirection = riderDirectionId != null && position.directionId != null
-        ? position.directionId === riderDirectionId
-        : null
-      let prevCode: string | null = null
-      let toward: string | null = null
-      if (sameDirection != null && riderOrientation != null) {
-        const orientation = sameDirection ? riderOrientation : -riderOrientation as 1 | -1
-        prevCode = path[index - orientation] ?? null
-        const terminalCode = orientation === 1 ? path[path.length - 1] : path[0]
-        toward = mapStationInfo(map, terminalCode)?.name ?? null
-      }
-
-      output.push({
-        id: position.entityId || position.vehicleId || `${train.line}-${output.length}`,
+      candidates.push({
+        position,
+        path,
+        index,
         code,
-        approaching: position.currentStatus !== 'STOPPED_AT',
-        prevCode,
-        sameDirection,
-        toward,
+        tripOrientation: tripUpdateOrientation(position.tripId, path, tripUpdates, nowMs),
+        gpsOrientation: geometricOrientation(position, path, index, coordinates),
       })
       break
     }
-    if (output.length >= 40) break
+    if (candidates.length >= MAX_OTHER_TRAINS) break
   }
-  return output
+
+  // Learn which way each GTFS direction id runs on this line from every train
+  // whose direction is independently known, the rider's matched one included.
+  const votes = new Map<number, number>()
+  const vote = (directionId: number | undefined, orientation: PathOrientation | null, weight = 1) => {
+    if (directionId == null || orientation == null) return
+    votes.set(directionId, (votes.get(directionId) ?? 0) + orientation * weight)
+  }
+  if (selectedVehicle) vote(selectedVehicle.directionId, riderOrientation, 3)
+  for (const candidate of candidates) {
+    vote(candidate.position.directionId, candidate.tripOrientation ?? candidate.gpsOrientation)
+  }
+  const directionOrientation = (directionId: number | undefined): PathOrientation | null => {
+    const tally = directionId == null ? 0 : votes.get(directionId) ?? 0
+    return tally > 0 ? 1 : tally < 0 ? -1 : null
+  }
+
+  return candidates.map(({ position, path, index, code, tripOrientation, gpsOrientation }, outputIndex) => {
+    const orientation = tripOrientation
+      ?? directionOrientation(position.directionId)
+      ?? gpsOrientation
+    const approaching = position.currentStatus !== 'STOPPED_AT'
+    let prevCode: string | null = null
+    let toward: string | null = null
+    let progress: number | null = null
+    if (orientation != null) {
+      prevCode = path[index - orientation] ?? null
+      const terminalCode = orientation === 1 ? path[path.length - 1] : path[0]
+      toward = mapStationInfo(map, terminalCode)?.name ?? null
+      if (approaching && prevCode) progress = segmentProgress(position, prevCode, code, coordinates)
+    }
+    return {
+      id: position.entityId || position.vehicleId || `${train.line}-${outputIndex}`,
+      code,
+      approaching,
+      prevCode,
+      sameDirection: orientation != null && riderOrientation != null
+        ? orientation === riderOrientation
+        : null,
+      toward,
+      progress,
+    }
+  })
+}
+
+/** Why live trains in the most recent vehicle feed could not ride the map. */
+export interface LiveFeedGapSummary {
+  atMs: number
+  vehicles: number
+  /** No usable GTFS route, so the train cannot be assigned to a line. */
+  withoutLine: number
+  /** No stop id, so the train cannot be placed on the schematic. */
+  withoutStop: number
+  /** Position older than the ghost freshness window. */
+  stale: number
+  /** Stop is not a station on the train's line (yards, pocket tracks, unknown ids). */
+  offLine: number
+  /** A few raw examples of dropped vehicles for diagnosis. */
+  samples: { reason: string; entityId: string; routeId: string | null; stopId: string | null; ageSec: number | null }[]
+}
+
+let lastFeedGaps: LiveFeedGapSummary | null = null
+
+/** The vehicle-feed gap summary from the most recent live poll, if any. */
+export function getLiveFeedGaps(): LiveFeedGapSummary | null {
+  return lastFeedGaps
+}
+
+/**
+ * Count feed vehicles that no tracker can draw. The live map can only show
+ * what the feed describes, so these numbers separate "WMATA did not tell us"
+ * from "we hid it" when someone reports a train missing from the map.
+ */
+export function summarizeFeedGaps(positions: RailVehiclePosition[], nowMs: number): LiveFeedGapSummary {
+  const summary: LiveFeedGapSummary = {
+    atMs: nowMs,
+    vehicles: positions.length,
+    withoutLine: 0,
+    withoutStop: 0,
+    stale: 0,
+    offLine: 0,
+    samples: [],
+  }
+  for (const position of positions) {
+    const ageMs = position.timestampMs == null ? null : nowMs - position.timestampMs
+    let reason: 'withoutLine' | 'withoutStop' | 'stale' | 'offLine' | null = null
+    if (!position.line) reason = 'withoutLine'
+    else if (!position.stopCode) reason = 'withoutStop'
+    else if (ageMs != null && ageMs > GHOST_STALE_AFTER_MS) reason = 'stale'
+    else if (!LINE_PATHS[position.line].some(path =>
+      path.includes(canonicalProgressStopCode(position.stopCode!, path))
+    )) reason = 'offLine'
+    if (!reason) continue
+    summary[reason]++
+    if (summary.samples.length < 5) {
+      summary.samples.push({
+        reason,
+        entityId: position.entityId,
+        routeId: position.routeId ?? null,
+        stopId: position.stopId ?? null,
+        ageSec: ageMs == null ? null : Math.round(ageMs / 1000),
+      })
+    }
+  }
+  return summary
 }
 
 function stationNameTokens(name: string): string[] {
@@ -723,7 +944,7 @@ function statusForTrain(
     progress,
     approach: approachResolution?.approach ?? null,
     stopExpectedAtMs: times.map(time => (Number.isFinite(time) ? Math.round(time) : null)),
-    otherTrains: otherTrainsOnLine(train, positions, vehicle, map, nowMs),
+    otherTrains: otherTrainsOnLine(train, positions, vehicle, tripUpdates, map, nowMs),
     ended,
   }
 }
@@ -760,6 +981,7 @@ export async function resolveTrackingStatus(
     apiKey ? fetchTripUpdates(apiKey).catch(() => []) : Promise.resolve([]),
     getMapData(),
   ])
+  if (positions.length > 0) lastFeedGaps = summarizeFeedGaps(positions, nowMs)
   const trains = tracking.trains.map(train =>
     statusForTrain(train, nowMs, positions, tripUpdates, map)
   )

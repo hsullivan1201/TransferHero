@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { getWmataCacheStats, getWmataUpstreamStats } from '../services/wmata.js'
+import { getLiveFeedGaps } from '../services/liveTracker.js'
 
 const router = Router()
 
@@ -62,7 +63,10 @@ router.get('/', (_req, res) => {
         callsLastFiveMinutes: upstreamStats.gtfs.callsLastFiveMinutes,
         failures: upstreamStats.gtfs.failures
       }
-    }
+    },
+    // Trains in the latest rail vehicle feed that the live map cannot draw,
+    // by reason. Check this first when a train is reported missing.
+    liveTrackerFeed: getLiveFeedGaps()
   })
 })
 
